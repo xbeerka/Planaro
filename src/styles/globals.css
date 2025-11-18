@@ -1,0 +1,605 @@
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --font-size: 16px;
+  --background: #ffffff;
+  --foreground: oklch(0.145 0 0);
+  --card: #ffffff;
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: #030213;
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.95 0.0058 264.53);
+  --secondary-foreground: #030213;
+  --muted: #ececf0;
+  --muted-foreground: #717182;
+  --accent: #e9ebef;
+  --accent-foreground: #030213;
+  --destructive: #d4183d;
+  --destructive-foreground: #ffffff;
+  --border: rgba(0, 0, 0, 0.1);
+  --input: transparent;
+  --input-background: #f3f3f5;
+  --switch-background: #cbced4;
+  --font-weight-medium: 500;
+  --font-weight-normal: 400;
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: #030213;
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.145 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.145 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.985 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.396 0.141 25.723);
+  --destructive-foreground: oklch(0.637 0.237 25.331);
+  --border: oklch(0.269 0 0);
+  --input: oklch(0.269 0 0);
+  --ring: oklch(0.439 0 0);
+  --font-weight-medium: 500;
+  --font-weight-normal: 400;
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(0.269 0 0);
+  --sidebar-ring: oklch(0.439 0 0);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-input-background: var(--input-background);
+  --color-switch-background: var(--switch-background);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/**
+ * Base typography. This is not applied to elements which have an ancestor with a Tailwind text class.
+ */
+@layer base {
+  :where(:not(:has([class*=" text-"]), :not(:has([class^="text-"])))) {
+    h1 {
+      font-size: var(--text-2xl);
+      font-weight: var(--font-weight-medium);
+      line-height: 1.5;
+    }
+
+    h2 {
+      font-size: var(--text-xl);
+      font-weight: var(--font-weight-medium);
+      line-height: 1.5;
+    }
+
+    h3 {
+      font-size: var(--text-lg);
+      font-weight: var(--font-weight-medium);
+      line-height: 1.5;
+    }
+
+    h4 {
+      font-size: var(--text-base);
+      font-weight: var(--font-weight-medium);
+      line-height: 1.5;
+    }
+
+    p {
+      font-size: var(--text-base);
+      font-weight: var(--font-weight-normal);
+      line-height: 1.5;
+    }
+
+    label {
+      font-size: var(--text-base);
+      font-weight: var(--font-weight-medium);
+      line-height: 1.5;
+    }
+
+    button {
+      font-size: var(--text-base);
+      font-weight: var(--font-weight-medium);
+      line-height: 1.5;
+    }
+
+    input {
+      font-size: var(--text-base);
+      font-weight: var(--font-weight-normal);
+      line-height: 1.5;
+    }
+  }
+}
+
+html {
+  font-size: var(--font-size);
+}
+
+/* Scheduler custom variables and styles */
+:root {
+  --resource-width: 284px;
+  --week-width: 144px;
+  --row-height: 36px;
+  --event-row-height: 144px;
+  --unit-count: 4;
+  --gap: 8px;
+  --cell-padding-left: 4px;
+  --cell-padding-right: 4px;
+  --row-padding-top: 4px;
+  --row-padding-bottom: 4px;
+  --event-radius: 8px;
+  --sticky-name-left: calc(var(--resource-width) + var(--cell-padding-left) + 8px);
+}
+
+/* Project colors */
+.proj-p1 { background: #3a87ad; }
+.proj-p2 { background: #f0ad4e; }
+.proj-p3 { background: #5cb85c; }
+.proj-p4 { background: #d9534f; }
+.proj-p5 { background: #5bc0de; }
+.proj-p6 { background: #aa66cc; }
+.proj-vacation {
+  background: #ccc;
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 4px,
+    rgba(255,255,255,0.2) 4px,
+    rgba(255,255,255,0.2) 5px
+  );
+}
+
+/* Scheduler event styles */
+.scheduler-event {
+  pointer-events: auto;
+  cursor: grab;
+  /* Плавная анимация для ресайза с ease-out для естественного замедления */
+  transition: width 0.15s cubic-bezier(0.25, 0.1, 0.25, 1), 
+              height 0.15s cubic-bezier(0.25, 0.1, 0.25, 1), 
+              left 0.15s cubic-bezier(0.25, 0.1, 0.25, 1), 
+              top 0.15s cubic-bezier(0.25, 0.1, 0.25, 1),
+              opacity 0.2s ease;
+  /* GPU acceleration только во время трансформаций */
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+/* Inner radius (внутренние скругления) - используем псевдоэлементы с радиальным градиентом */
+/* Цвет фона под событиями - background color страницы */
+
+/* Top-left inner radius - псевдоэлемент ВЫШЕ события (top: -8px), дырка в top-right внутри него */
+.scheduler-event.inner-tl::before {
+  content: '';
+  position: absolute;
+  top: calc(-1 * var(--inner-radius-size, 8px));
+  left: 0;
+  width: var(--inner-radius-size, 8px);
+  height: var(--inner-radius-size, 8px);
+  background: radial-gradient(circle at top right, transparent var(--inner-radius-size, 8px), var(--inner-tl-color, #f7f9fb) var(--inner-radius-size, 8px));
+  pointer-events: none;
+  z-index: 200;
+}
+
+/* Top-right inner radius - псевдоэлемент ВЫШЕ события (top: -8px), дырка в top-left внутри него */
+.scheduler-event.inner-tr::after {
+  content: '';
+  position: absolute;
+  top: calc(-1 * var(--inner-radius-size, 8px));
+  right: 0;
+  width: var(--inner-radius-size, 8px);
+  height: var(--inner-radius-size, 8px);
+  background: radial-gradient(circle at top left, transparent var(--inner-radius-size, 8px), var(--inner-tr-color, #f7f9fb) var(--inner-radius-size, 8px));
+  pointer-events: none;
+  z-index: 200;
+}
+
+/* Wrapper для нижних внутренних скруглений - абсолютно позиционированный на дне события */
+.inner-bottom-wrapper {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+/* Bottom-left inner radius - используем ::before на wrapper */
+.inner-bottom-wrapper.inner-bl::before {
+  content: '';
+  position: absolute;
+  bottom: calc(-1 * var(--inner-radius-size, 8px));
+  left: 0;
+  width: var(--inner-radius-size, 8px);
+  height: var(--inner-radius-size, 8px);
+  background: radial-gradient(circle at bottom right, transparent var(--inner-radius-size, 8px), var(--inner-bl-color, #f7f9fb) var(--inner-radius-size, 8px));
+  pointer-events: none;
+  z-index: 200;
+}
+
+/* Bottom-right inner radius - используем ::after на wrapper */
+.inner-bottom-wrapper.inner-br::after {
+  content: '';
+  position: absolute;
+  bottom: calc(-1 * var(--inner-radius-size, 8px));
+  right: 0;
+  width: var(--inner-radius-size, 8px);
+  height: var(--inner-radius-size, 8px);
+  background: radial-gradient(circle at bottom left, transparent var(--inner-radius-size, 8px), var(--inner-br-color, #f7f9fb) var(--inner-radius-size, 8px));
+  pointer-events: none;
+  z-index: 200;
+}
+
+/* Dimmed events - события не выбранных проектов при активном фильтре проектов */
+/* Серый фон #AAA, темный текст #333, opacity 20% */
+/* Применяется через inline style в SchedulerEvent компоненте */
+
+.scheduler-event:hover {
+  opacity: 0.9 !important;
+}
+
+.scheduler-event:active {
+  cursor: grabbing;
+}
+
+/* CSS Grid оптимизация для ячеек */
+.cell {
+  contain: layout style paint;
+}
+
+/* Оптимизация sticky элементов */
+.sticky-col, .sticky-top, .sticky-top2 {
+  contain: layout style;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+/* Dragging mode */
+body.dragging-mode {
+  cursor: grabbing !important;
+  user-select: none;
+}
+
+body.dragging-mode * {
+  cursor: grabbing !important;
+}
+
+body.dragging-mode .scheduler-event:not(.dragging) {
+  pointer-events: none !important;
+}
+
+body.dragging-mode .scheduler-event:not(.dragging) .handle-container {
+  display: none !important;
+}
+
+body.dragging-mode .scheduler-event.dragging {
+  cursor: grabbing !important;
+  opacity: 0.5;
+}
+
+body.dragging-mode .hover-highlight {
+  display: none !important;
+}
+
+/* Scissors mode - отключаем анимацию для мгновенного резкого реза */
+body.scissors-mode .scheduler-event {
+  cursor: default !important;
+  transition: none !important;
+  will-change: auto !important;
+}
+
+body.scissors-mode .handle-container {
+  display: none !important;
+}
+
+/* Comment mode - курсор context-menu для ячеек, отключение взаимодействия с событиями */
+body.comment-mode [data-resource-id] {
+  cursor: context-menu !important;
+}
+
+body.comment-mode .scheduler-event {
+  cursor: context-menu !important;
+  pointer-events: none !important;
+}
+
+body.comment-mode .handle-container {
+  display: none !important;
+}
+
+/* Pending events - события в процессе сохранения */
+.scheduler-event.pending {
+  opacity: 0.6 !important;
+  cursor: wait !important;
+}
+
+.scheduler-event.pending .handle-container {
+  display: none !important;
+}
+
+.scheduler-event.pending::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 4px,
+    rgba(255, 255, 255, 0.1) 4px,
+    rgba(255, 255, 255, 0.1) 8px
+  );
+  pointer-events: none;
+  border-radius: inherit;
+  z-index: 1;
+}
+
+/* Ctrl/Cmd move mode */
+.scheduler-event.ctrl-move-mode {
+  cursor: move !important;
+}
+
+.scheduler-event.ctrl-move-mode .handle-container {
+  display: none !important;
+}
+
+/* Resizing mode - скрываем внутренние скругления во время ресайза */
+.scheduler-event.resizing.inner-tl::before,
+.scheduler-event.resizing.inner-tr::after {
+  display: none !important;
+}
+
+.scheduler-event.resizing .inner-bottom-wrapper.inner-bl::before,
+.scheduler-event.resizing .inner-bottom-wrapper.inner-br::after {
+  display: none !important;
+}
+
+.scissor-guide {
+  position: absolute;
+  pointer-events: none;
+  border-left: 1px dashed #fff;
+  background: transparent;
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 120ms ease, visibility 120ms;
+}
+
+.scissor-guide.visible {
+  visibility: visible;
+  opacity: 0.2;
+}
+
+.scissor-guide.active {
+  visibility: visible;
+  opacity: 1;
+}
+
+.scissor-hit {
+  position: absolute;
+  pointer-events: auto;
+  width: 32px;
+  background: transparent;
+  height: 100%;
+  cursor: copy;
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 120ms ease, visibility 120ms;
+}
+
+.scissor-hit.visible {
+  visibility: visible;
+  opacity: 0.001;
+}
+
+/* Month borders */
+.cell.month.last-in-month,
+.month,
+.cell.last-in-month {
+  border-right: 1px solid #c1cbd5 !important;
+}
+
+/* Toolbar styles */
+.toolbar-size-button {
+  transition: all 0.15s ease;
+}
+
+.toolbar-size-button:hover {
+  transform: scale(1.05);
+}
+
+.toolbar-size-button:active {
+  transform: scale(0.95);
+}
+
+/* Toast notification styling */
+[data-sonner-toast] {
+  font-family: inherit !important;
+}
+
+[data-sonner-toast][data-type="success"] {
+  background: #f0fdf4 !important;
+  border: 1px solid #86efac !important;
+  color: #166534 !important;
+}
+
+[data-sonner-toast][data-type="success"] [data-icon] {
+  color: #22c55e !important;
+}
+
+[data-sonner-toast][data-type="error"] {
+  background: #fef2f2 !important;
+  border: 1px solid #fca5a5 !important;
+  color: #991b1b !important;
+}
+
+[data-sonner-toast][data-type="error"] [data-icon] {
+  color: #ef4444 !important;
+}
+
+[data-sonner-toast][data-type="info"] {
+  background: #eff6ff !important;
+  border: 1px solid #93c5fd !important;
+  color: #1e40af !important;
+}
+
+[data-sonner-toast][data-type="info"] [data-icon] {
+  color: #3b82f6 !important;
+}
+
+[data-sonner-toast] [data-title] {
+  font-weight: 600 !important;
+  font-size: 14px !important;
+}
+
+[data-sonner-toast] [data-description] {
+  font-size: 13px !important;
+  opacity: 0.9 !important;
+  margin-top: 2px !important;
+}
+
+/* Toast animation */
+@keyframes slide-down {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-slide-down {
+  animation: slide-down 0.3s ease-out;
+}
+
+/* Custom slider styling */
+.custom-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.2);
+  outline: none;
+  cursor: pointer;
+}
+
+.custom-slider::-webkit-slider-track {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.custom-slider::-moz-range-track {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.custom-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: white;
+  border: none;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.custom-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: white;
+  border: none;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.custom-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.1);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+.custom-slider::-moz-range-thumb:hover {
+  transform: scale(1.1);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
