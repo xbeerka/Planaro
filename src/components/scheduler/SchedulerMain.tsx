@@ -21,8 +21,6 @@ import { EmptyCellContextMenu } from "./EmptyCellContextMenu";
 import { Toolbar } from "./Toolbar";
 import { FilterToolbar } from "./FilterToolbar";
 import { OnlineUsers } from "./OnlineUsers";
-// import { CursorPresence } from './CursorPresence'; // СТАРЫЙ WebSocket код - заменён на Realtime
-import { RealtimeCursors } from './RealtimeCursors'; // НОВЫЙ Supabase Realtime Presence
 import { UsersManagementModal } from "./UsersManagementModal";
 import { ProjectsManagementModal } from "./ProjectsManagementModal";
 import { DepartmentsManagementModal } from "./DepartmentsManagementModal";
@@ -437,7 +435,7 @@ export function SchedulerMain({
     resetProjectsSyncTimer();
     console.log('🔒 Undo: синхронизация проектов заблокирована на 5 секунд');
     
-    // ✅ КРИТИЧНО: Синхронизируем восстановленные события с сервером!
+    // ✅ КРИТИЧНО: Синхронизируем восстановленные событ��я с сервером!
     // Это предотвратит их удаление Full Sync'ом через 30 секунд
     try {
       await syncRestoredEventsToServer(uniqueEvents, updateHistoryEventId);
@@ -528,7 +526,7 @@ export function SchedulerMain({
       console.error('❌ Redo: ошибка синхронизации удалённых событий:', error);
     }
     
-    // ✅ Polling в контексте автоматически обновит структуру (сотрудники/департаменты) в фоне
+    // ✅ Polling в контексте автоматически обновит структуру (сотрудни��и/департаменты) в фоне
   }, [historyRedo, events, setEvents, setProjects, resetDeltaSyncTimer, resetProjectsSyncTimer, syncRestoredEventsToServer, syncDeletedEventsToServer, updateHistoryEventId, showToast]);
 
   // ✅ Обёртка для deleteProject с флагом пользовательского изменения
@@ -677,7 +675,7 @@ export function SchedulerMain({
           return currentEvents;
         }
 
-        // ✂️ Создаем обновленное событие для левой части (только меняем weeksSpan)
+        // ✂️ Создаем обновленное событие для левой ча��ти (только меняем weeksSpan)
         const updatedEvent: SchedulerEvent = {
           ...ev,
           weeksSpan: leftSpan,
@@ -921,7 +919,7 @@ export function SchedulerMain({
       saveHistory(newEvents, newEventZOrder, projects);
     } else {
       // ✅ КР��ТИЧНО: Сохраняем историю ПЕРЕД удалением на сервере (синхронно!)
-      // Это гарантирует что при быстром удалении нескольких событий
+      // Это гарантирует что при быстром удалении несколь��их событий
       // все промежуточные состояния сохранятся в истории
       saveHistory(newEvents, newEventZOrder, projects);
       console.log('📝 История сохранена перед удалением события:', eventId);
@@ -959,12 +957,6 @@ export function SchedulerMain({
       x: 0,
       y: 0,
       event: null,
-    });
-    
-    showToast({
-      type: "success",
-      message: "Событие скопировано",
-      description: "Кликните правой кнопкой по пустому месту для вставки",
     });
   };
 
@@ -1136,19 +1128,8 @@ export function SchedulerMain({
           saveHistory(currentEvents, eventZOrder, projects);
           return currentEvents;
         });
-        
-        showToast({
-          type: "success",
-          message: "Событие вставлено",
-          description: `Копия события создана`,
-        });
       } catch (error) {
         console.error("❌ Ошибка вставки события:", error);
-        showToast({
-          type: "error",
-          message: "Ошибка вставки",
-          description: "Не удалось создать копию события",
-        });
       }
     })();
   }, [
@@ -1188,7 +1169,7 @@ export function SchedulerMain({
       }
 
       try {
-        // ✅ createEvent добавляет временное событие в стейт, создаёт на сервере и заменяет на реальное
+        // ✅ createEvent добавляет временное событие в стейт, создаёт на сервере и зам��няет на реальное
         const createdEvent = await createEvent(tempEvent);
 
         // ✅ Обновляем историю: заменяем временный ID на реальный
@@ -1201,20 +1182,8 @@ export function SchedulerMain({
           saveHistory(currentEvents, eventZOrder, projects);
           return currentEvents;
         });
-
-        showToast({
-          type: "success",
-          message: "Событие создано",
-          description: `Событие добавлено на календарь`,
-        });
       } catch (error) {
         console.error("❌ Ошибка создания события:", error);
-        showToast({
-          type: "error",
-          message: "Ошибка создания события",
-          description:
-            "Не удалось сохранть событие на сервере",
-        });
       }
     } else if (modalMode === "edit" && pendingEvent) {
       // Вычисляем максимум недель для события
@@ -1972,9 +1941,6 @@ export function SchedulerMain({
         accessToken={accessToken}
         currentUserEmail={currentUserEmail}
       />
-
-      {/* Realtime Cursors - НОВЫЙ Supabase Realtime Presence */}
-      <RealtimeCursors />
 
       {/* Modal */}
       <SimpleEventModal

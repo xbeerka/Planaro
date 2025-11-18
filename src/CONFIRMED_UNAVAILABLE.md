@@ -1,7 +1,7 @@
 # ❌ ПОДТВЕРЖДЕНО: @supabase/supabase-js НЕДОСТУПЕН
 
-**Дата повторной проверки**: 2025-11-18  
-**Статус**: ❌ НЕДОСТУПЕН (подтверждено 2 независимыми проверками)
+**Дата проверок**: 2025-11-18  
+**Статус**: ❌ ОКОНЧАТЕЛЬНО НЕДОСТУПЕН (3 независимых теста)
 
 ---
 
@@ -27,6 +27,23 @@
 Error: Build failed with 1 error:
 virtual-fs:file:///utils/supabase/client.ts:30:42: ERROR: [plugin: npm] Failed to fetch
 ```
+
+---
+
+## 🔍 Проверка 3 (статический импорт)
+
+**Гипотеза**: Возможно статический импорт сработает (обрабатывается на этапе сборки)?
+
+**Результат**:
+- ❌ `import { createClient } from '@supabase/supabase-js'` → `ERROR: [plugin: npm] Failed to fetch`
+
+**Код сборки**:
+```
+Error: Build failed with 1 error:
+virtual-fs:file:///utils/supabase/client.ts:17:29: ERROR: [plugin: npm] Failed to fetch
+```
+
+**Вывод**: Даже статический импорт не работает!
 
 ---
 

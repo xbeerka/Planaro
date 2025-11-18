@@ -75,6 +75,9 @@ export function useEventInteractions({
     const offsetX = e.clientX - tableRect.left - startLeft;
     const offsetY = e.clientY - tableRect.top - startTop;
 
+    // ✅ Вычисляем за какой юнит внутри события взялись (0, 1, 2, ...)
+    const offsetUnit = Math.floor(offsetY / config.unitStride);
+
     const initialModel = modelFromGeometry(
       startLeft,
       startTop,
@@ -92,6 +95,7 @@ export function useEventInteractions({
       pointerId: e.pointerId,
       offsetX,
       offsetY,
+      offsetUnit, // ✅ Сохраняем offset внутри события
       el,
       evData: { ...evData },
       tableRect,
@@ -114,15 +118,18 @@ export function useEventInteractions({
       const snappedRel = clamp(snappedWeek * config.weekPx, 0, maxLeftRel);
       const snappedLeftAbs = config.resourceW + snappedRel + config.cellPaddingLeft;
 
+      // ✅ Используем реальную позицию курсора для определения ресурса (строки)
+      // Но передаём offsetUnit чтобы unitStart внутри строки учитывал точку захвата
       const newModel = modelFromGeometry(
         snappedLeftAbs,
-        cursorTopAbs,
+        cursorTopAbs, // ✅ Реальная позиция курсора для определения строки
         pointerStateRef.current.el.offsetWidth,
         pointerStateRef.current.el.offsetHeight,
         pointerStateRef.current.evData,
         resources,
         visibleDepartments,
-        config
+        config,
+        pointerStateRef.current.offsetUnit // ✅ Передаём offset для корректного unitStart
       );
 
       if (newModel) {

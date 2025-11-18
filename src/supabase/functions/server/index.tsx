@@ -50,6 +50,62 @@ app.onError((err, c) => {
 // ==================== HELPER FUNCTIONS ====================
 
 /**
+ * Парсинг Cloudflare ошибок из HTML
+ */
+function parseCloudflareError(message: string): string | null {
+  if (!message || typeof message !== 'string') return null;
+  
+  // Cloudflare Error 1105: Temporarily unavailable
+  if (message.includes('Error</span>') && message.includes('1105')) {
+    return 'Cloudflare Error 1105: Temporarily unavailable';
+  }
+  
+  // Другие Cloudflare ошибки
+  const errorMatch = message.match(/<span class="cf-error-code">(\d+)<\/span>/);
+  if (errorMatch) {
+    return `Cloudflare Error ${errorMatch[1]}`;
+  }
+  
+  return null;
+}
+
+/**
+ * Проверка является ли ошибка Cloudflare Error
+ */
+function isCloudflareError(error: any): boolean {
+  if (!error || !error.message) return false;
+  return parseCloudflareError(error.message) !== null;
+}
+
+/**
+ * Логирование Cloudflare ошибки (короткое сообщение вместо HTML)
+ */
+function logCloudflareError(context: string, error: any): void {
+  const cloudflareError = parseCloudflareError(error.message);
+  if (cloudflareError) {
+    console.error(`❌ ${context}: ${cloudflareError}`);
+  } else {
+    console.error(`❌ ${context}:`, error);
+  }
+}
+
+/**
+ * Обработка ошибки с возвратом JSON response
+ * Автоматически определяет Cloudflare ошибки и возвращает 503
+ */
+function handleError(c: any, context: string, error: any, defaultMessage: string = 'Internal error'): Response {
+  const cloudflareError = parseCloudflareError(error?.message);
+  if (cloudflareError) {
+    console.error(`❌ ${context}: ${cloudflareError}`);
+    return c.json({ error: cloudflareError }, 503); // Service Unavailable
+  }
+  
+  console.error(`❌ ${context}:`, error);
+  const message = error?.message || defaultMessage;
+  return c.json({ error: message.substring(0, 200) }, 500);
+}
+
+/**
  * Обновляет дату последнего изменения воркспейса
  * Вызывается при создании/изменении/удалении проектов, событий, пользователей, департаментов
  * 
@@ -868,9 +924,16 @@ app.get("/make-server-73d66528/departments", async (c) => {
     console.log('💡 Используйте кнопку "Добавить департамент" чтобы создать первый департамент');
     return c.json([]);
     
-  } catch (error) {
+  } catch (error: any) {
+    // Обработка Cloudflare ошибки
+    const cloudflareError = parseCloudflareError(error?.message);
+    if (cloudflareError) {
+      console.error(`❌ Departments: ${cloudflareError}`);
+      return c.json({ error: cloudflareError }, 503);
+    }
+    
     console.error(`❌ Exception fetching departments:`, error);
-    return c.json({ error: `Failed to fetch departments: ${error.message || error}` }, 500);
+    return c.json({ error: `Failed to fetch departments: ${error.message || error}`.substring(0, 200) }, 500);
   }
 });
 
@@ -1362,8 +1425,15 @@ app.get("/make-server-73d66528/resources", async (c) => {
     const { data: usersWithDept, error: deptError } = await query3.order('id', { ascending: true });
     
     if (deptError) {
+      // Обработка Cloudflare ошибки
+      const cloudflareError = parseCloudflareError(deptError.message);
+      if (cloudflareError) {
+        console.error(`❌ Users: ${cloudflareError}`);
+        return c.json({ error: cloudflareError }, 503);
+      }
+      
       console.error(`❌ Supabase error fetching users:`, deptError);
-      return c.json({ error: `Failed to fetch users: ${deptError.message}` }, 500);
+      return c.json({ error: `Failed to fetch users: ${deptError.message.substring(0, 200)}` }, 500);
     }
     
     if (!usersWithDept || usersWithDept.length === 0) {
@@ -1606,8 +1676,15 @@ app.get("/make-server-73d66528/events", async (c) => {
       const { data: pageEvents, error } = await query;
       
       if (error) {
+        // Обработка Cloudflare ошибки
+        const cloudflareError = parseCloudflareError(error.message);
+        if (cloudflareError) {
+          console.error(`❌ Events (page ${currentPage + 1}): ${cloudflareError}`);
+          return c.json({ error: cloudflareError }, 503);
+        }
+        
         console.error(`❌ Supabase error fetching events (page ${currentPage + 1}):`, error);
-        return c.json({ error: `Failed to fetch events: ${error.message}` }, 500);
+        return c.json({ error: `Failed to fetch events: ${error.message.substring(0, 200)}` }, 500);
       }
       
       const pageCount = pageEvents?.length || 0;
@@ -2488,8 +2565,15 @@ app.get("/make-server-73d66528/projects", async (c) => {
     const { data, error } = await query.order('id', { ascending: false });
     
     if (error) {
+      // Обработка Cloudflare ошибки
+      const cloudflareError = parseCloudflareError(error.message);
+      if (cloudflareError) {
+        console.error(`❌ Projects: ${cloudflareError}`);
+        return c.json({ error: cloudflareError }, 503); // 503 Service Unavailable
+      }
+      
       console.error(`❌ Supabase error fetching projects:`, error);
-      return c.json({ error: `Failed to fetch projects: ${error.message}` }, 500);
+      return c.json({ error: `Failed to fetch projects: ${error.message.substring(0, 200)}` }, 500);
     }
     
     console.log(`✅ Получено ${data?.length || 0} проектов`);
@@ -3448,7 +3532,7 @@ app.post("/make-server-73d66528/workspaces", async (c) => {
           
           if (deptInsertError) {
             console.error('❌ Ошибка вставки департаментов:', deptInsertError);
-            console.error('   Код ошибки:', deptInsertError.code);
+            console.error('   Код ошиб��и:', deptInsertError.code);
             console.error('   Сообщение:', deptInsertError.message);
             console.error('   Детали:', deptInsertError.details);
             console.error('   Hint:', deptInsertError.hint);
@@ -4036,7 +4120,7 @@ app.get("/make-server-73d66528/presence/online/:workspaceId", async (c) => {
     }
 
     const workspaceId = c.req.param('workspaceId');
-    console.log(`👥 Запрос онлайн пользователей для workspace ${workspaceId}`);
+    console.log(`👥 Зап��ос онлайн пользователей для workspace ${workspaceId}`);
 
     // Получаем все presence записи для воркспейса
     const prefix = `presence:${workspaceId}:`;

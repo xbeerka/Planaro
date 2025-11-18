@@ -227,7 +227,6 @@ export function ProjectsManagementModal({
       // Step 2: Create new projects (only those with valid names)
       const validNewProjects = localNewProjects.filter(p => p.name.trim());
       if (validNewProjects.length > 0) {
-        console.log(`💾 Создание ${validNewProjects.length} новых проектов...`);
         await Promise.all(
           validNewProjects.map(p => 
             onCreateProject({
@@ -238,7 +237,6 @@ export function ProjectsManagementModal({
             })
           )
         );
-        console.log(`✅ ${validNewProjects.length} новых проектов сохранено`);
       }
 
       // Step 3: Update existing projects

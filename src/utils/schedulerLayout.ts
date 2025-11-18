@@ -191,7 +191,8 @@ export function modelFromGeometry(
   evData: SchedulerEvent | null,
   resources: Resource[],
   departments: Department[],
-  config: LayoutConfig
+  config: LayoutConfig,
+  offsetUnit?: number // ✅ Опциональный параметр: за какой юнит внутри события взялись при drag
 ): {
   startWeek: number;
   resourceId: string;
@@ -209,6 +210,13 @@ export function modelFromGeometry(
   const withinRow = topAbs - resourceTop - config.rowPaddingTop;
   // Use Math.floor instead of Math.round so event only moves to new unit when cursor is fully inside it
   let unitStart = Math.max(0, Math.min(UNITS - 1, Math.floor(withinRow / config.unitStride)));
+  
+  // ✅ Если передан offsetUnit (при drag), вычитаем его из unitStart
+  // Это гарантирует что юнит за который взялись следует за курсором
+  if (offsetUnit !== undefined) {
+    unitStart = Math.max(0, unitStart - offsetUnit);
+  }
+  
   const unitsTall = evData
     ? evData.unitsTall
     : Math.max(1, Math.min(UNITS, Math.round(height / config.unitStride)));

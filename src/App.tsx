@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react';
 import { SchedulerProvider } from './contexts/SchedulerContext';
 import { SettingsProvider } from './contexts/SettingsContext';
 import { FilterProvider } from './contexts/FilterContext';
-import { PresenceProvider } from './contexts/PresenceContext';
 import { ToastProvider } from './components/ui/ToastContext';
 import { AuthScreen } from './components/auth/AuthScreen';
 import { SchedulerMain } from './components/scheduler/SchedulerMain';
@@ -450,14 +449,12 @@ function AppContent() {
   return (
     <SchedulerProvider accessToken={accessToken || undefined} workspaceId={selectedWorkspace.id}>
       <FilterProvider workspaceId={selectedWorkspace.id}>
-        <PresenceProvider accessToken={accessToken} workspaceId={selectedWorkspace.id}>
-          <SchedulerMain 
-            accessToken={accessToken} 
-            workspace={selectedWorkspace}
-            onSignOut={handleSignOut}
-            onBackToWorkspaces={handleBackToWorkspaces}
-          />
-        </PresenceProvider>
+        <SchedulerMain 
+          accessToken={accessToken} 
+          workspace={selectedWorkspace}
+          onSignOut={handleSignOut}
+          onBackToWorkspaces={handleBackToWorkspaces}
+        />
       </FilterProvider>
     </SchedulerProvider>
   );

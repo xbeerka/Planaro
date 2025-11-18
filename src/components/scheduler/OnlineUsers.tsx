@@ -135,14 +135,13 @@ function OnlineUsersComponent({ workspaceId, accessToken, currentUserEmail }: On
       if (error.name === 'AbortError') {
         console.warn('⚠️ OnlineUsers: таймаут запроса (30 секунд)');
       } else if (error.message?.includes('Failed to fetch')) {
-        console.warn('⚠️ OnlineUsers: сетевая ошибка');
-        console.error('❌ Полная ошибка:', error);
-        console.error('💡 Убедитесь что Edge Function задеплоена: supabase functions deploy make-server-73d66528');
+        console.warn('⚠️ OnlineUsers: Временная сетевая ошибка (retry через 30 сек)');
+      } else if (error.message?.includes('Cloudflare')) {
+        console.warn('⚠️ OnlineUsers: База данных временно недоступна (retry через 30 сек)');
       } else {
-        console.warn('⚠️ OnlineUsers: ошибка загрузки', error.message || error);
-        console.error('❌ Полная ошибка:', error);
+        console.warn('⚠️ OnlineUsers: ошибка загрузки', error.message?.substring(0, 100) || error);
       }
-      // Keep showing last known online users
+      // Keep showing last known online users (graceful degradation)
     }
   }, [workspaceId, accessToken, loadFromCache]);
 

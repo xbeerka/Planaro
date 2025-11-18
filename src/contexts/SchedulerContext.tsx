@@ -17,6 +17,8 @@ import { getStorageJSON, setStorageJSON } from '../utils/storage';
 import { usePendingOperations } from '../hooks/usePendingOperations';
 import { useDebouncedSave } from '../hooks/useDebouncedSave';
 import { projectId } from '../utils/supabase/info';
+import { handleCloudflareError } from '../utils/cloudflareErrorHandler';
+import { toast } from 'sonner@2.0.3';
 
 interface SchedulerContextType {
   // Data
@@ -401,7 +403,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
         await setStorageJSON(cacheKey, data);
         // console.log('✅ Паттерны обновлены из API');
       } catch (error) {
-        console.error('❌ Ошибка загрузки паттернов:', error);
+        console.error('❌ Ошибка загрузки паттерн��в:', error);
       } finally {
         setIsLoadingEventPatterns(false);
       }
@@ -555,7 +557,14 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
             return filtered;
           });
         } catch (error) {
-          console.error('❌ Full Sync ошибка:', error);
+          // Обработка Cloudflare ошибки
+          if (error instanceof Error) {
+            handleCloudflareError(error, (message, type) => {
+              toast.error(message);
+            });
+          } else {
+            console.error('❌ Full Sync ошибка:', error);
+          }
         }
       } else {
         // Delta Sync - только изменения
@@ -600,7 +609,14 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
           lastSyncTimestampRef.current = timestamp;
           
         } catch (error) {
-          console.error('❌ Delta Sync ошибка:', error);
+          // Обработка Cloudflare ошибки
+          if (error instanceof Error) {
+            handleCloudflareError(error, (message, type) => {
+              toast.error(message);
+            });
+          } else {
+            console.error('❌ Delta Sync ошибка:', error);
+          }
         }
       }
     };
@@ -652,7 +668,14 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
           return prev;
         });
       } catch (error) {
-        console.error('❌ Projects Sync ошибка:', error);
+        // Обработка Cloudflare ошибки
+        if (error instanceof Error) {
+          handleCloudflareError(error, (message, type) => {
+            toast.error(message);
+          });
+        } else {
+          console.error('❌ Projects Sync ошибка:', error);
+        }
       }
     };
 
@@ -703,7 +726,14 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
           return prev;
         });
       } catch (error) {
-        console.error('❌ Resources Sync ошибка:', error);
+        // Обработка Cloudflare ошибки
+        if (error instanceof Error) {
+          handleCloudflareError(error, (message, type) => {
+            toast.error(message);
+          });
+        } else {
+          console.error('❌ Resources Sync ошибка:', error);
+        }
       }
     };
 
@@ -754,14 +784,21 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
           return prev;
         });
       } catch (error) {
-        console.error('❌ Departments Sync ошибка:', error);
+        // Обработка Cloudflare ошибки
+        if (error instanceof Error) {
+          handleCloudflareError(error, (message, type) => {
+            toast.error(message);
+          });
+        } else {
+          console.error('❌ Departments Sync ошибка:', error);
+        }
       }
     };
 
     // Запускаем первый sync через 15 секунд после загрузки
     const initialTimeout = setTimeout(syncDepartments, DEPARTMENTS_SYNC_INTERVAL);
 
-    // Периодический sync каждые 15 секунд
+    // Периодический sync каж��ые 15 секунд
     const interval = setInterval(syncDepartments, DEPARTMENTS_SYNC_INTERVAL);
 
     return () => {
@@ -1352,8 +1389,6 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
     
     // Отмечаем что было локальное изменение
     lastProjectsChangeRef.current = Date.now();
-    
-    console.log('✅ Проект создан:', createdProject.id);
   }, [accessToken, workspaceId]);
 
   const updateProject = useCallback(async (id: string, data: UpdateProjectData) => {
