@@ -18,6 +18,8 @@ interface UseEventInteractionsProps {
   eventsContainerRef: React.RefObject<HTMLDivElement>;
   setIsUserInteracting: (value: boolean) => void; // 🚫 Для отключения polling
   resetDeltaSyncTimer: () => void; // ✅ v3.3.5: Для блокировки Delta Sync после drag/resize
+  flushPendingChanges: (updateHistoryEventId?: (oldId: string, newId: string) => void) => Promise<void>; // ✅ v3.3.7: Flush pending operations перед drag/resize
+  updateHistoryEventId: (oldId: string, newId: string) => void; // ✅ Для обновления истории после flush
 }
 
 interface PointerState {
@@ -43,7 +45,9 @@ export function useEventInteractions({
   onEventUpdate,
   eventsContainerRef,
   setIsUserInteracting,
-  resetDeltaSyncTimer
+  resetDeltaSyncTimer,
+  flushPendingChanges,
+  updateHistoryEventId
 }: UseEventInteractionsProps) {
   const pointerStateRef = useRef<PointerState | null>(null);
 
@@ -53,8 +57,23 @@ export function useEventInteractions({
     evData: SchedulerEvent
   ) => {
     if (e.button !== 0) return;
+    
+    // 🚫 БЛОКИРОВКА DRAG для временных событий
+    if (evData.id.startsWith('ev_temp_')) {
+      console.log('🚫 DRAG ЗАБЛОКИРОВАН: временное событие ещё создаётся на сервере:', evData.id);
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    
     e.preventDefault();
     e.stopPropagation();
+
+    // ✅ v3.3.7: Flush pending changes ПЕРЕД началом drag
+    // Это гарантирует что все события с временными ID будут созданы на сервере
+    // и получат реальные ID ДО того как drag попадёт в историю
+    console.log('🚀 DRAG: Flush pending операций перед началом drag');
+    flushPendingChanges(updateHistoryEventId).catch(err => console.error('❌ Ошибка flush перед drag:', err));
 
     const target = e.target as HTMLElement;
     if (target.setPointerCapture) {
@@ -77,6 +96,37 @@ export function useEventInteractions({
 
     // ✅ Вычисляем за какой юнит внутри события взялись (0, 1, 2, ...)
     const offsetUnit = Math.floor(offsetY / config.unitStride);
+
+    // 🔍 КРИТИЧНО: Вычисляем РЕАЛЬНЫЕ padding события ПЕРЕД драгом (как в resize)
+    // Это предотвращает смещение на 1 гап при перемещении склеенных событий
+    const neighborsMap = calculateEventNeighbors(events, projects);
+    const neighborInfo = neighborsMap.get(evData.id);
+    const hasAnyLeftNeighbor = neighborInfo?.hasFullLeftNeighbor || false;
+    const hasAnyRightNeighbor = neighborInfo?.hasFullRightNeighbor || false;
+    const realPaddingLeft = hasAnyLeftNeighbor ? 0 : config.cellPaddingLeft;
+    const realPaddingRight = hasAnyRightNeighbor ? 0 : config.cellPaddingRight;
+    
+    // 🔍 КРИТИЧНО: Учитываем РАСШИРЕНИЕ события (expandLeft/Right) при рендере!
+    // Это предотвращает "прыжок" события при захвате, если оно было расширено
+    const expandLeftAmount = (neighborInfo?.expandLeftMultiplier || 0) * config.gap;
+    const expandRightAmount = (neighborInfo?.expandRightMultiplier || 0) * config.gap;
+
+    console.log(`🔍 DRAG START для события ${evData.id}:`, {
+      hasFullLeftNeighbor: neighborInfo?.hasFullLeftNeighbor,
+      hasFullRightNeighbor: neighborInfo?.hasFullRightNeighbor,
+      expandLeftMultiplier: neighborInfo?.expandLeftMultiplier,
+      expandRightMultiplier: neighborInfo?.expandRightMultiplier,
+      expandLeftAmount,
+      expandRightAmount,
+      realPaddingLeft,
+      realPaddingRight,
+      'config.cellPaddingLeft': config.cellPaddingLeft,
+      'config.cellPaddingRight': config.cellPaddingRight,
+      startWeek: evData.startWeek,
+      weeksSpan: evData.weeksSpan,
+      unitStart: evData.unitStart,
+      unitsTall: evData.unitsTall
+    });
 
     const initialModel = modelFromGeometry(
       startLeft,
@@ -101,7 +151,14 @@ export function useEventInteractions({
       tableRect,
       lastValidModel: initialModel,
       startLeft,
-      startTop
+      startTop,
+      realPaddingLeft,
+      realPaddingRight,
+      expandLeftAmount,
+      expandRightAmount,
+      // ✅ Для отслеживания последней обработанной позиции (чтобы не пересчитывать повторно)
+      lastProcessedResourceId: evData.resourceId,
+      lastProcessedUnitStart: evData.unitStart
     };
 
     const onMove = (ev: PointerEvent) => {
@@ -111,12 +168,13 @@ export function useEventInteractions({
       const desiredTopAbs = ev.clientY - pointerStateRef.current.tableRect.top - pointerStateRef.current.offsetY;
       const cursorTopAbs = ev.clientY - pointerStateRef.current.tableRect.top;
 
-      const desiredLeftRel = desiredLeftAbs - config.resourceW - config.cellPaddingLeft;
+      // 🔍 КРИТИЧНО: Используем РЕАЛЬНЫЕ padding (которые были применены при рендере)
+      const desiredLeftRel = desiredLeftAbs - config.resourceW - pointerStateRef.current.realPaddingLeft;
       const maxLeftRel = Math.max(0, (WEEKS - pointerStateRef.current.evData.weeksSpan) * config.weekPx);
       const clampedRel = clamp(desiredLeftRel, 0, maxLeftRel);
       const snappedWeek = Math.round(clampedRel / config.weekPx);
       const snappedRel = clamp(snappedWeek * config.weekPx, 0, maxLeftRel);
-      const snappedLeftAbs = config.resourceW + snappedRel + config.cellPaddingLeft;
+      const snappedLeftAbs = config.resourceW + snappedRel + pointerStateRef.current.realPaddingLeft;
 
       // ✅ Используем реальную позицию курсора для определения ресурса (строки)
       // Но передаём offsetUnit чтобы unitStart внутри строки учитывал точку захвата
@@ -134,6 +192,47 @@ export function useEventInteractions({
 
       if (newModel) {
         pointerStateRef.current.lastValidModel = newModel;
+        
+        // 🔍 КРИТИЧНО: Если позиция или высота изменилась, ПЕРЕСЧИТЫВАЕМ padding на основе НОВЫХ соседей!
+        // Это предотвращает смещение на 1 гап при перемещении между событиями разной высоты
+        const positionChanged = 
+          newModel.resourceId !== pointerStateRef.current.evData.resourceId ||
+          newModel.unitStart !== pointerStateRef.current.evData.unitStart;
+        
+        if (positionChanged) {
+          // Создаём временное событие с НОВОЙ позицией для вычисления соседей
+          const tempEvent = {
+            ...pointerStateRef.current.evData,
+            resourceId: newModel.resourceId,
+            unitStart: newModel.unitStart,
+            startWeek: newModel.startWeek
+          };
+          
+          // Вычисляем соседей для НОВОЙ позиции (без учёта текущего события)
+          const otherEvents = events.filter(e => e.id !== tempEvent.id);
+          const tempEvents = [...otherEvents, tempEvent];
+          const neighborsMap = calculateEventNeighbors(tempEvents, projects);
+          const neighborInfo = neighborsMap.get(tempEvent.id);
+          
+          const hasAnyLeftNeighbor = neighborInfo?.hasFullLeftNeighbor || false;
+          const hasAnyRightNeighbor = neighborInfo?.hasFullRightNeighbor || false;
+          const newRealPaddingLeft = hasAnyLeftNeighbor ? 0 : config.cellPaddingLeft;
+          const newRealPaddingRight = hasAnyRightNeighbor ? 0 : config.cellPaddingRight;
+          
+          // 🔍 КРИТИЧНО: Пересчитываем РАСШИРЕНИЕ для НОВОЙ позиции!
+          const newExpandLeftAmount = (neighborInfo?.expandLeftMultiplier || 0) * config.gap;
+          const newExpandRightAmount = (neighborInfo?.expandRightMultiplier || 0) * config.gap;
+          
+          // Обновляем padding и расширение в состоянии
+          pointerStateRef.current.realPaddingLeft = newRealPaddingLeft;
+          pointerStateRef.current.realPaddingRight = newRealPaddingRight;
+          pointerStateRef.current.expandLeftAmount = newExpandLeftAmount;
+          pointerStateRef.current.expandRightAmount = newExpandRightAmount;
+          
+          // ✅ Обновляем последнюю обработанную позицию (чтобы не пересчитывать повторно для той же позиции)
+          pointerStateRef.current.lastProcessedResourceId = newModel.resourceId;
+          pointerStateRef.current.lastProcessedUnitStart = newModel.unitStart;
+        }
       }
 
       if (pointerStateRef.current.lastValidModel) {
@@ -145,7 +244,15 @@ export function useEventInteractions({
           config
         );
         
-        pointerStateRef.current.el.style.left = `${snappedLeftAbs}px`;
+        // 🔍 КРИТИЧНО: Пересчитываем snappedLeftAbs с ОБНОВЛЁННЫМ padding И расширением!
+        // При рендере событие смещается влево на expandLeftAmount, поэтому мы тоже должны это учесть
+        const finalSnappedRel = pointerStateRef.current.lastValidModel.startWeek * config.weekPx;
+        let finalSnappedLeftAbs = config.resourceW + finalSnappedRel + pointerStateRef.current.realPaddingLeft;
+        
+        // ⚠️ КРИТИЧНО: Вычитаем expandLeftAmount чтобы событие смещалось влево как при рендере!
+        finalSnappedLeftAbs -= pointerStateRef.current.expandLeftAmount;
+        
+        pointerStateRef.current.el.style.left = `${finalSnappedLeftAbs}px`;
         pointerStateRef.current.el.style.top = `${snappedTop}px`;
       }
     };
@@ -202,12 +309,13 @@ export function useEventInteractions({
           console.log('⏭️ Событие не изменилось - восстанавливаем DOM стили напрямую');
           
           // 🔧 Восстанавливаем исходные DOM стили напрямую
-          // Важно: НЕ используем config.cellPaddingLeft/Right, т.к. для сросшихся событий они = 0
-          // Поэтому просто пересчитываем из исходных данных события
-          const correctWidth = savedState.originalWeeksSpan * config.weekPx - config.cellPaddingLeft - config.cellPaddingRight;
-          const correctLeft = config.resourceW + savedState.originalStartWeek * config.weekPx + config.cellPaddingLeft;
-          const correctTop = topFor(savedState.evData.resourceId, savedState.originalUnitStart, resources, visibleDepartments, config);
-          const correctHeight = heightFor(savedState.originalUnitsTall, config);
+          // КРИТИЧНО: используем realPaddingLeft/Right (учитывают склейку), а НЕ config.cellPaddingLeft/Right!
+          // КРИТИЧНО: учитываем expandLeftAmount (событие смещается влево при рендере)!
+          const correctWidth = savedState.evData.weeksSpan * config.weekPx - savedState.realPaddingLeft - savedState.realPaddingRight;
+          let correctLeft = config.resourceW + savedState.evData.startWeek * config.weekPx + savedState.realPaddingLeft;
+          correctLeft -= savedState.expandLeftAmount; // ⚠️ Вычитаем расширение влево!
+          const correctTop = topFor(savedState.evData.resourceId, savedState.evData.unitStart, resources, visibleDepartments, config);
+          const correctHeight = heightFor(savedState.evData.unitsTall, config);
           
           savedState.el.style.left = `${correctLeft}px`;
           savedState.el.style.top = `${correctTop}px`;
@@ -238,7 +346,7 @@ export function useEventInteractions({
 
     // 🚫 Отключаем polling
     setIsUserInteracting(true);
-  }, [config, resources, visibleDepartments, events, projects, eventZOrder, onEventsUpdate, onEventZOrderUpdate, onSaveHistory, onEventUpdate, eventsContainerRef, setIsUserInteracting, resetDeltaSyncTimer]); // ✅ v3.3.5: добавили resetDeltaSyncTimer
+  }, [config, resources, visibleDepartments, events, projects, eventZOrder, onEventsUpdate, onEventZOrderUpdate, onSaveHistory, onEventUpdate, eventsContainerRef, setIsUserInteracting, resetDeltaSyncTimer, flushPendingChanges, updateHistoryEventId]); // ✅ v3.3.7: добавили flushPendingChanges и updateHistoryEventId
 
   const startResize = useCallback((
     e: React.PointerEvent,
@@ -247,8 +355,23 @@ export function useEventInteractions({
     edges: { top?: boolean; bottom?: boolean; left?: boolean; right?: boolean }
   ) => {
     if (e.button !== 0) return;
+    
+    // 🚫 БЛОКИРОВКА RESIZE для временных событий
+    if (evData.id.startsWith('ev_temp_')) {
+      console.log('🚫 RESIZE ЗАБЛОКИРОВАН: временное событие ещё создаётся на сервере:', evData.id);
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    
     e.preventDefault();
     e.stopPropagation();
+
+    // ✅ v3.3.7: Flush pending changes ПЕРЕД началом resize
+    // Это гарантирует что все события с временными ID будут созданы на сервере
+    // и получат реальные ID ДО того как resize попадёт в историю
+    console.log('🚀 RESIZE: Flush pending операций перед началом resize');
+    flushPendingChanges(updateHistoryEventId).catch(err => console.error('❌ Ошибка flush перед resize:', err));
 
     const target = e.target as HTMLElement;
     if (target.setPointerCapture) {
@@ -502,7 +625,7 @@ export function useEventInteractions({
 
     // 🚫 Отключаем polling
     setIsUserInteracting(true);
-  }, [config, resources, visibleDepartments, events, projects, eventZOrder, onEventsUpdate, onEventZOrderUpdate, onSaveHistory, onEventUpdate, eventsContainerRef, setIsUserInteracting, resetDeltaSyncTimer]); // ✅ v3.3.5: добавили resetDeltaSyncTimer
+  }, [config, resources, visibleDepartments, events, projects, eventZOrder, onEventsUpdate, onEventZOrderUpdate, onSaveHistory, onEventUpdate, eventsContainerRef, setIsUserInteracting, resetDeltaSyncTimer, flushPendingChanges, updateHistoryEventId]); // ✅ v3.3.7: добавили flushPendingChanges и updateHistoryEventId
 
   return { startDrag, startResize };
 }

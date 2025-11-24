@@ -35,6 +35,20 @@
 - **Валидация на сервере** - проверяй обязательные поля (workspace_id, department_id и т.д.)
 - **Presence система** - для отслеживания онлайн пользователей используй KV Store с TTL (2 минуты)
 
+### Стандарт временных ID
+
+**Для событий (SchedulerEvent)**:
+- **Формат**: `ev_temp_${timestamp}_${random}`
+- **Пример**: `ev_temp_1732005123456_78901`
+- **Проверка**: `id.startsWith('ev_temp_')` ← **КРИТИЧНО: с подчеркиванием в конце!**
+- **Причина**: Паттерн `'ev_temp'` (без подчеркивания) может пропустить некорректные ID типа `ev_tempo_XXX`
+
+**Для других сущностей** (модалки управления):
+- **Департаменты**: `temp-${Date.now()}-${Math.random()}`
+- **Проекты**: `temp-${Date.now()}-${Math.random()}`
+- **Пользователи**: `temp-${Date.now()}-${Math.random()}`
+- **Проверка**: `id.startsWith('temp-')` или проверка по наличию `tempId` в объекте
+
 ## 🎨 UI/UX Правила
 
 ### Календарь
@@ -51,6 +65,12 @@
   - **Определение строки по курсору** - событие переносится на новую строку только когда курсор реально на ней
   - **Математика**: `offsetUnit = floor(offsetY / unitStride)` при startDrag, `unitStart = floor(withinRow / unitStride) - offsetUnit` при move
 - **Resize** - 4 направления (top, bottom, left, right) с плавной анимацией
+- **Gap Handles (v1.5.0)** - двусторонний resize границ между событиями при зажатой Cmd/Ctrl
+  - При зажатой Cmd/Ctrl появляются синие пипки на промежутках между событиями
+  - Вертикальные handles: между событиями сверху-снизу (одна неделя, касаются)
+  - Горизонтальные handles: между событиями слева-справа (касаются, перекрываются)
+  - Drag handle изменяет оба события одновременно (граница двигается)
+  - Валидация: события не могут исчезнуть или выйти за пределы
 - **Режим ножниц** - разделение событий на границах недель
 - **Z-order управление** - клик для поднятия события наверх
 - **Анимации** - transition 0.15s cubic-bezier для плавности
@@ -73,6 +93,12 @@
 - **Валидация перед открытием** - проверка наличия проектов перед созданием событий
 - **Toast уведомления** - вместо alert() использовать toast (success, error, warning, info)
 - **Параллельное сохранение** - Promise.all() для массовых изменений
+- **Умная сортировка проектов (v1.6.0)** - проекты в модалке создания событий сортируются по последнему использованию
+  - Хранится локально в localStorage для каждого воркспейса
+  - Утилита `/utils/projectUsageTracking.ts` управляет очередью использования
+  - При выборе проекта вызывается `trackProjectUsage(workspaceId, projectId)`
+  - При создании/вставке события проект автоматически поднимается в начало списка
+  - По умолчанию НЕ выбран первый проект (пустой state вместо `projects[0]?.id`)
 
 ## 🔐 Аутентификация и безопасность
 
@@ -211,6 +237,113 @@ const userId = getUserIdFromToken(accessToken);
 - **Защита от коррупции**: История НЕ сохраняется если есть события но НЕТ проектов
 - **Инициализация**: Происходит ТОЛЬКО после загрузки всех данных (events + projects)
 - **Сброс при модалках**: После сохранения в UsersManagementModal/ProjectsManagementModal
+- **Flush pending перед drag** (v3.3.7): ВСЕГДА вызывай `flushPendingChanges()` в начале drag/resize операций
+  ```typescript
+  // ✅ Правильно - flush pending ПЕРЕД началом drag
+  flushPendingChanges().catch(err => console.error('❌ Ошибка flush:', err));
+  // ... drag logic
+  
+  // ❌ НЕПРАВИЛЬНО - события с временными ID попадут в историю
+  // ... drag logic (без flush)
+  ```
+
+- **Flush pending перед Undo/Redo** (v3.3.14): КРИТИЧНО для предотвращения полосок загрузки после undo
+  ```typescript
+  // ✅ Правильно - флашим pending ПЕРЕД undo/redo
+  const handleUndo = async () => {
+    await flushPendingChanges(); // Сохраняем все изменения!
+    
+    const hasPendingEvents = events.some(e => e.id.startsWith('ev_temp_'));
+    if (hasPendingEvents) {
+      console.warn('⏸️ UNDO: Заблокировано');
+      return; // блокируем Undo (БЕЗ toast)
+    }
+    // ... обычная логика Undo
+  };
+  
+  // ❌ НЕПРАВИЛЬНО - без flush pending события показывают полоски после undo
+  // Drag → pending save (2 сек) → Undo → событие восстанавливается но pending save продолжается!
+  ```
+
+- **Блокировка Undo/Redo для pending событий** (v3.3.12, v3.3.20): КРИТИЧНО для предотвращения "воскрешения" событий
+  ```typescript
+  // ✅ Правильно - блокируем Undo/Redo если есть события в процессе создания
+  const handleUndo = async () => {
+    // v3.3.20: Блокировка ОБЯЗАТЕЛЬНА в handleUndo И handleRedo (симметрия!)
+    const hasPendingEvents = events.some(e => e.id.startsWith('ev_temp_'));
+    if (hasPendingEvents) {
+      console.log('⏸️ UNDO: Заблокировано - есть события в процессе создания');
+      queueMicrotask(() => {
+        showToast({
+          type: 'warning',
+          message: 'Подождите',
+          description: 'Дождитесь завершения создания событий'
+        });
+      });
+      return;
+    }
+    // ... обычная логика Undo
+  };
+  
+  // ❌ НЕПРАВИЛЬНО - без блокировки события "воскресают" через Delta Sync
+  // Undo удаляет событие из стейта → createEvent завершается → Delta Sync загружает из БД
+  ```
+
+- **Обновление ID в истории после создания на сервере** (v3.3.20): КРИТИЧНО для разблокировки Redo
+  ```typescript
+  // ✅ Правильно - обновляем историю в syncRestoredEventsToServer
+  if (updateHistoryEventId && results.created.length > 0) {
+    console.log(`📝 История: обновление ID для ${results.created.length} созданных событий...`);
+    
+    const tempToRealIdMap = new Map<string, string>();
+    eventsToCreate.forEach((tempEvent, index) => {
+      const createdEvent = results.created[index];
+      if (createdEvent) {
+        tempToRealIdMap.set(tempEvent.id, createdEvent.id);
+        console.log(`   ${tempEvent.id} → ${createdEvent.id}`);
+      }
+    });
+    
+    tempToRealIdMap.forEach((realId, tempId) => {
+      updateHistoryEventId(tempId, realId);
+    });
+  }
+  
+  // ❌ НЕПРАВИЛЬНО - история остаётся с временными ID
+  // Redo восстанавливает событие с ev_temp_XXX → блокировка → toast висит навсегда
+  ```
+
+- **Очистка pending операций при Undo/Redo** (v3.3.10): КРИТИЧНО для предотвращения race conditions
+  ```typescript
+  // ✅ Правильно - очищаем pending операции для удалённых событий
+  const currentIds = new Set(state.events.map(e => e.id));
+  const deletedEvents = previousEvents.filter(e => !currentIds.has(e.id));
+  
+  deletedEvents.forEach(event => {
+    cancelPendingChange(event.id); // Очищаем debounced save queue
+  });
+  
+  // ❌ НЕПРАВИЛЬНО - debounced save попытается UPDATE удалённого события
+  // (пропущена очистка pending операций)
+  ```
+
+- **НЕ используй IIFE для async операций с событиями** (v3.3.7):
+  ```typescript
+  // ❌ НЕПРАВИЛЬНО - fire-and-forget IIFE
+  const handlePaste = useCallback(() => {
+    (async () => {
+      const createdEvent = await createEvent(tempEvent);
+      // ... history save
+    })(); // ← функция завершается СРАЗУ!
+  }, [...]);
+  
+  // ✅ ПРАВИЛЬНО - async функция дожидается завершения
+  const handlePaste = useCallback(async () => {
+    const createdEvent = await createEvent(tempEvent);
+    // ... history save
+    // ← функция завершается ПОСЛЕ создания и сохранения истории
+  }, [...]);
+  ```
 
 ### Операции с историей
 1. **saveHistory** - сохраняет текущее состояние в стек
@@ -538,8 +671,91 @@ console.log('✅ Событие создано:', eventId);
 
 ---
 
-**Версия документа**: 3.4.0 (2025-11-18)
+**Версия документа**: 3.4.0 (2025-11-19)
 **Последнее обновление**: 
+- **Блокировка Undo/Redo для pending событий** (v3.3.20 - КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ):
+  - ✅ **Проблема 1**: Можно было нажать Undo когда событие грузится
+  - ✅ **Исправление 1**: Добавлена проверка временных ID в handleUndo (симметрия с handleRedo)
+  - ✅ **Проблема 2**: Нельзя было нажать Redo после того как событие загрузилось (toast висел)
+  - ✅ **Корневая причина**: История НЕ обновлялась после создания на сервере
+  - ✅ **Исправление 2**: Обновление ID в истории в syncRestoredEventsToServer
+  - ✅ State обновлялся: `ev_temp_123` → `e12345`
+  - ✅ История теперь обновляется: `ev_temp_123` → `e12345`
+  - ✅ При Redo восстанавливается событие с реальным ID (НЕ блокируется)
+  - Затронутые файлы: `/components/scheduler/SchedulerMain.tsx:411-444`, `/contexts/SchedulerContext.tsx:1349-1370`
+  - Документация: `/UNDO_REDO_PENDING_BLOCK_FIX_v3.3.20.md`, `/QUICK_TEST_UNDO_PENDING_v3.3.20.md`
+- **Pending состояние после Undo + убран toast warning** (v3.3.14 - КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ):
+  - ✅ Исправлена проблема: события показывают полоски загрузки после Undo
+  - ✅ Причина: Debounced save продолжает выполняться после Undo (pending операция в очереди)
+  - ✅ Решение: `await flushPendingChanges()` в начало `handleUndo` и `handleRedo`
+  - ✅ Все pending изменения сохраняются ПЕРЕД undo/redo → очередь пуста → нет полосок
+  - ✅ Убрали toast warning при блокировке pending событий (только console.log)
+  - ✅ События мгновенно восстанавливаются без артефактов
+  - Затронутые файлы: `/components/scheduler/SchedulerMain.tsx:400-620`
+  - Документация: `/UNDO_PENDING_FLUSH_FIX_v3.3.14.md`, `/QUICK_TEST_UNDO_PENDING_v3.3.14.md`
+- **Исправлен паттерн временных ID в cleanup** (v3.3.13 - КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ):
+  - ✅ Исправлена проблема: Orphaned events cleanup пытался удалить временные события через API
+  - ✅ Причина: Неправильный паттерн проверки `!event.id.startsWith('ev_temp')` вместо `!event.id.startsWith('ev_temp_')`
+  - ✅ Решение: Добавлено подчеркивание в конце паттерна для корректной проверки
+  - ✅ Временные события теперь корректно пропускаются в cleanup
+  - ✅ Нет ложных DELETE запросов к API
+  - ✅ Нет ошибок `Cannot delete temporary events via API`
+  - Затронутые файлы: `/contexts/SchedulerContext.tsx:964`
+  - Документация: `/TEMP_ID_PATTERN_FIX_v3.3.13.md`, `/QUICK_TEST_TEMP_ID_v3.3.13.md`, `/RELEASE_NOTES_v3.3.13.md`
+- **Блокировка Undo для pending событий** (v3.3.12 - КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ):
+  - ✅ Исправлена проблема: события "воскресали" после быстрого Undo сразу после создания
+  - ✅ Причина: Race condition между createEvent (создание в БД), Undo (удаление из стейта) и Delta Sync (загрузка из БД)
+  - ✅ Решение: Блокировка Undo/Redo если есть события с временными ID (`ev_temp_*`)
+  - ✅ Toast уведомление "Подождите, дождитесь завершения создания событий"
+  - ✅ Типичная задержка ~500ms (время создания на сервере)
+  - ✅ События НЕ "воскресают" из БД
+  - Документация: `/UNDO_PENDING_EVENTS_FIX_v3.3.12.md`, `/QUICK_TEST_UNDO_PENDING_v3.3.12.md`, `/RELEASE_NOTES_v3.3.12.md`
+- **Race Condition в Undo/Redo** (v3.3.11 - КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ):
+  - ✅ Исправлена race condition при быстром нажатии Ctrl+Z несколько раз подряд
+  - ✅ Причина: Второй Undo запускался ДО завершения первого → конфликты синхронизации
+  - ✅ Решение: Блокировка одновременных операций через `isUndoRedoInProgressRef`
+  - ✅ Проверка блокировки в начале `handleUndo` и `handleRedo`
+  - ✅ Гарантированное снятие блокировки через `finally` блок
+  - ✅ Логирование блокировки для диагностики
+  - Документация: `/UNDO_REDO_RACE_CONDITION_FIX_v3.3.11.md`
+- **Конфликт Undo и Debounced Save** (v3.3.10 - КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ):
+  - ✅ Исправлена ошибка: `❌ BATCH update: событие e37367 не найдено в БД` при Undo после создания
+  - ✅ Причина: Race condition между Undo (удаляет событие) и debounced save (пытается UPDATE)
+  - ✅ Решение: Очистка pending операций для удалённых событий в `handleUndo()` и `handleRedo()`
+  - ✅ Вызов `cancelPendingChange()` для каждого удалённого события ДО синхронизации удалений
+  - ✅ Добавлена зависимость `cancelPendingChange` в useCallback
+  - ✅ Undo/Redo работает без ошибок
+  - Документация: `/UNDO_DEBOUNCED_SAVE_CONFLICT_FIX_v3.3.10.md`
+- **Блокировка взаимодействий с временными событиями** (v3.3.9 - КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ):
+  - ✅ Исправлена ошибка: при Undo после быстрого drag временного события оно удаляется
+  - ✅ Причина: drag завершался ДО создания события на сервере → история сохраняла временный ID
+  - ✅ Решение: блокировка drag/resize для событий с `id.startsWith('ev_temp_')`
+  - ✅ История ВСЕГДА содержит реальные ID
+  - ✅ Undo/Redo работает корректно
+  - ✅ Задержка ~500ms между созданием и drag (незаметна)
+  - Документация: `/TEMP_EVENTS_INTERACTION_BLOCK_v3.3.9.md`
+- **BATCH create/update detection** (v3.3.8 - КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ):
+  - ✅ Исправлена ошибка: `❌ BATCH update: событие не найдено в БД`
+  - ✅ Причина: ВСЕ batch операции помечались как `op: 'update'`, даже для несуществующих событий
+  - ✅ Решение: определение `op: 'create' | 'update'` на основе `loadedEventIds.current.has(id)`
+  - ✅ Передача `id` в `data` для CREATE операций (для UPSERT на сервере)
+  - ✅ Добавление созданных событий в `loadedEventIds` после успешного batch create
+  - ✅ Детальное логирование: `📦 BATCH: событие e37356 → update (isLoaded=true)`
+  - ✅ Защита от race conditions между createEvent и drag
+  - Документация: `/BATCH_CREATE_UPDATE_FIX_v3.3.8.md`
+- **Sync history before drag** (v3.3.7 - ФИНАЛЬНОЕ ИСПРАВЛЕНИЕ):
+  - ✅ Критическое исправление: события больше не удаляются при undo после быстрого drag
+  - ✅ **Часть 1**: Flush pending changes перед drag/resize/gap drag
+    - Добавлен вызов `flushPendingChanges()` в начале всех drag операций
+  - ✅ **Часть 2**: Синхронное сохранение истории через Promise
+    - `saveHistory()` теперь вызывается через `await Promise.resolve()`
+    - Гарантирует что история сохранится ДО того как пользователь начнёт drag
+  - ✅ **Часть 3**: Убран IIFE в handlePaste (НОВОЕ)
+    - Сделали `handlePaste` async функцией (было: useCallback с IIFE)
+    - Убрали fire-and-forget `(async () => { ... })()`
+    - Событие всегда имеет реальный ID (НЕ временный!) при drag
+  - Результат: при undo событие восстанавливается (НЕ удаляется)
+  - Документация: `/SYNC_HISTORY_BEFORE_DRAG_v3.3.7.md`, `/QUICK_FIX_IIFE_v3.3.7.md`
 - **Supabase Realtime Integration** (v3.4.0):
   - ✅ Collaborative Cursors через Supabase Realtime Presence
   - ✅ Новый `/utils/supabase/client.ts` с lazy loading
@@ -680,8 +896,16 @@ console.log('✅ Событие создано:', eventId);
 
 ---
 
-**Версия документа**: 1.4.0 (2025-11-18)
+**Версия документа**: 1.5.0 (2025-11-18)
 **Последнее обновление**: 
+- **Gap Handles - Двусторонний Resize** (v1.5.0):
+  - ✅ При зажатой Cmd/Ctrl появляются синие пипки на промежутках между событиями
+  - ✅ Вертикальные handles: между событиями сверху-снизу (курсор ns-resize)
+  - ✅ Горизонтальные handles: между событиями слева-справа (курсор ew-resize)
+  - ✅ Drag handle изменяет оба события одновременно
+  - ✅ Валидация: минимум 1 unit/week, не выходить за пределы
+  - ✅ Undo/Redo поддерживается, polling блокируется на 2 сек
+  - Документация: `/GAP_HANDLES_v1.5.0.md`
 - **Drag & Drop от точки захвата** (v1.4.0):
   - ✅ При захвате события вычисляется за какой юнит взялись (offsetUnit)
   - ✅ Этот юнит следует за курсором при перемещении

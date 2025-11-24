@@ -2365,31 +2365,69 @@ app.post("/make-server-73d66528/events/batch", async (c) => {
           return eventData;
         });
         
-        // ✅ UPSERT вместо INSERT: создаст новое событие если ID нет, обновит если есть
-        const { data, error } = await supabase
-          .from('events')
-          .upsert(eventsToCreate, { onConflict: 'id' })
-          .select('*, event_patterns(name, pattern)');
+        // ✅ Разделяем на события с ID (восстановление) и без ID (новые)
+        // Это критично, так как Supabase/PostgREST может неправильно обработать смешанный массив,
+        // пытаясь вставить NULL в ID column для новых событий
+        const eventsWithId = eventsToCreate.filter((e: any) => e.id !== undefined);
+        const eventsNew = eventsToCreate.filter((e: any) => e.id === undefined);
         
-        if (error) {
-          console.error(`❌ BATCH create error:`, error);
-          results.errors.push({ op: 'create', error: error.message });
-        } else if (data) {
-          const transformed = data.map(ev => ({
-            id: `e${ev.id}`,
-            resourceId: `r${ev.user_id}`,
-            projectId: `p${ev.project_id}`,
-            startWeek: (ev.start_week || 1) - 1,
-            weeksSpan: ev.weeks_span || 1,
-            unitStart: ev.unit_start || 0,
-            unitsTall: ev.units_tall || 1,
-            patternId: ev.pattern_id ? `ep${ev.pattern_id}` : undefined,
-            patternName: ev.event_patterns?.name,
-            pattern: ev.event_patterns?.pattern
-          }));
-          results.created.push(...transformed);
-          console.log(`✅ BATCH create: создано/восстановлено ${transformed.length} событий`);
+        console.log(`📦 BATCH create split: ${eventsWithId.length} with ID, ${eventsNew.length} new`);
+        
+        // 2.1 Восстановление событий с ID (UPSERT)
+        if (eventsWithId.length > 0) {
+          const { data, error } = await supabase
+            .from('events')
+            .upsert(eventsWithId, { onConflict: 'id' })
+            .select('*, event_patterns(name, pattern)');
+            
+          if (error) {
+            console.error(`❌ BATCH upsert (restore) error:`, error);
+            results.errors.push({ op: 'create', error: error.message });
+          } else if (data) {
+            const transformed = data.map(ev => ({
+              id: `e${ev.id}`,
+              resourceId: `r${ev.user_id}`,
+              projectId: `p${ev.project_id}`,
+              startWeek: (ev.start_week || 1) - 1,
+              weeksSpan: ev.weeks_span || 1,
+              unitStart: ev.unit_start || 0,
+              unitsTall: ev.units_tall || 1,
+              patternId: ev.pattern_id ? `ep${ev.pattern_id}` : undefined,
+              patternName: ev.event_patterns?.name,
+              pattern: ev.event_patterns?.pattern
+            }));
+            results.created.push(...transformed);
+          }
         }
+        
+        // 2.2 Создание новых событий (INSERT)
+        if (eventsNew.length > 0) {
+          const { data, error } = await supabase
+            .from('events')
+            .insert(eventsNew)
+            .select('*, event_patterns(name, pattern)');
+            
+          if (error) {
+            console.error(`❌ BATCH insert (new) error:`, error);
+            results.errors.push({ op: 'create', error: error.message });
+          } else if (data) {
+            const transformed = data.map(ev => ({
+              id: `e${ev.id}`,
+              resourceId: `r${ev.user_id}`,
+              projectId: `p${ev.project_id}`,
+              startWeek: (ev.start_week || 1) - 1,
+              weeksSpan: ev.weeks_span || 1,
+              unitStart: ev.unit_start || 0,
+              unitsTall: ev.units_tall || 1,
+              patternId: ev.pattern_id ? `ep${ev.pattern_id}` : undefined,
+              patternName: ev.event_patterns?.name,
+              pattern: ev.event_patterns?.pattern
+            }));
+            results.created.push(...transformed);
+          }
+        }
+        
+        console.log(`✅ BATCH create total: создано/восстановлено ${results.created.length} событий`);
       } catch (error) {
         console.error(`❌ BATCH create exception:`, error);
         results.errors.push({ op: 'create', error: error.message });
@@ -2449,7 +2487,7 @@ app.post("/make-server-73d66528/events/batch", async (c) => {
           }
           
           if (!data) {
-            console.error(`❌ BATCH update: событие ${eventId} не найдено в БД`);
+            console.warn(`⚠️ BATCH update: событие ${eventId} не найдено в БД (будет удалено из локального состояния)`);
             return { error: { id: eventId, message: 'Event not found' } };
           }
           
@@ -3253,7 +3291,7 @@ app.get("/make-server-73d66528/workspaces/:id/summary", async (c) => {
       return c.json(null);
     }
 
-    // ДИАГНОСТИКА: Логируем RAW данные из view
+    // ДИАГНОСТ��КА: Логируем RAW данные из view
     console.log(`📊 RAW данные из workspaces_summary view:`, JSON.stringify(summary, null, 2));
     console.log(`   Доступные поля:`, Object.keys(summary));
     console.log(`   projects_count (raw):`, summary.projects_count);

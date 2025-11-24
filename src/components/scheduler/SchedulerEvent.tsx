@@ -11,6 +11,7 @@ interface SchedulerEventProps {
   commentMode: boolean;
   isCtrlPressed: boolean;
   isPending?: boolean;
+  isBlocked?: boolean; // ✅ Заблокировано для взаимодействия (временные ID)
   dimmed?: boolean;
   displayMode?: 'performance' | 'with-patterns';
   isContextMenuOpen?: boolean;
@@ -24,6 +25,8 @@ interface SchedulerEventProps {
   innerBottomLeftColor?: string;
   innerTopRightColor?: string;
   innerBottomRightColor?: string;
+  // Скрытие названия проекта для уменьшения визуального шума
+  hideProjectName?: boolean;
   onContextMenu: (e: React.MouseEvent, event: Event) => void;
   onPointerDown: (e: React.PointerEvent, event: Event) => void;
   onHandlePointerDown: (e: React.PointerEvent, event: Event, edge: string) => void;
@@ -45,6 +48,7 @@ function SchedulerEventComponent({
   commentMode,
   isCtrlPressed,
   isPending = false,
+  isBlocked = false, // ✅ Заблокировано для взаимодействия
   dimmed = false,
   displayMode = 'with-patterns',
   isContextMenuOpen = false,
@@ -56,6 +60,7 @@ function SchedulerEventComponent({
   innerBottomLeftColor = 'transparent',
   innerTopRightColor = 'transparent',
   innerBottomRightColor = 'transparent',
+  hideProjectName = false,
   onContextMenu,
   onPointerDown,
   onHandlePointerDown,
@@ -259,7 +264,7 @@ function SchedulerEventComponent({
       ref={eventRef}
       className={`scheduler-event absolute flex gap-2 select-none min-w-[40px] ${
         event.unitsTall > 1 ? 'items-start' : ''
-      } ${isCtrlPressed ? 'ctrl-move-mode' : ''} ${isPending ? 'pending' : ''} ${!('backgroundColor' in project && project.backgroundColor) ? `proj-${event.projectId}` : ''} ${
+      } ${isCtrlPressed ? 'ctrl-move-mode' : ''} ${isPending || isBlocked ? 'pending' : ''} ${!('backgroundColor' in project && project.backgroundColor) ? `proj-${event.projectId}` : ''} ${
         displayMode !== 'performance' && hasInnerTopLeft ? 'inner-tl' : ''
       } ${
         displayMode !== 'performance' && hasInnerBottomLeft ? 'inner-bl' : ''
@@ -284,27 +289,30 @@ function SchedulerEventComponent({
       
       <div className="event__content flex w-full justify-between items-center relative gap-3 pointer-events-none">
         <div className="flex items-center" style={{ gap: '4px', minWidth: 0, flex: 1 }}>
-          <div
-            className="ev-name pointer-events-auto"
-            style={{
-              fontWeight: 700,
-              fontSize: `${fontSize}px`,
-              whiteSpace: 'nowrap',
-              textOverflow: 'ellipsis',
-              overflow: 'hidden',
-              margin: 0,
-              display: 'inline-block',
-              pointerEvents: 'none',
-              position: 'sticky',
-              left: 'var(--sticky-name-left)',
-              zIndex: 2,
-              background: 'inherit',
-              paddingRight: '4px'
-            }}
-          >
-            {project.name}
-          </div>
-          {isPending && (
+          {!hideProjectName && (
+            <div
+              className="ev-name pointer-events-auto"
+              style={{
+                fontWeight: 700,
+                fontSize: `${fontSize}px`,
+                whiteSpace: 'nowrap',
+                textOverflow: 'ellipsis',
+                overflow: 'hidden',
+                margin: 0,
+                display: 'inline-block',
+                pointerEvents: 'none',
+                position: 'sticky',
+                left: 'var(--sticky-name-left)',
+                zIndex: 2,
+                background: 'inherit',
+                paddingRight: '4px'
+              }}
+            >
+              {project.name}
+            </div>
+          )}
+          {/* Показываем спиннер для pending (сохранение) и blocked (временные ID) событий */}
+          {(isPending || isBlocked) && (
             <div 
               className="animate-spin rounded-full border-2"
               style={{ 
@@ -373,8 +381,8 @@ function SchedulerEventComponent({
         </div>
       )}
 
-      {/* Resize handles */}
-      {!scissorsMode && !isCtrlPressed && (
+      {/* Resize handles - скрываем для заблокированных событий */}
+      {!scissorsMode && !isCtrlPressed && !isBlocked && (
         <>
           {/* Top handle - 50% max height to avoid overlap */}
           <div
@@ -455,6 +463,7 @@ export const SchedulerEvent = memo(SchedulerEventComponent, (prevProps, nextProp
     prevProps.commentMode === nextProps.commentMode &&
     prevProps.isCtrlPressed === nextProps.isCtrlPressed &&
     prevProps.isPending === nextProps.isPending &&
+    prevProps.isBlocked === nextProps.isBlocked && // ✅ Сравниваем isBlocked для обновления спиннера
     prevProps.dimmed === nextProps.dimmed &&
     prevProps.displayMode === nextProps.displayMode &&
     // Упрощённая логика v3.1: round* флаги
@@ -467,6 +476,8 @@ export const SchedulerEvent = memo(SchedulerEventComponent, (prevProps, nextProp
     prevProps.innerBottomLeftColor === nextProps.innerBottomLeftColor &&
     prevProps.innerTopRightColor === nextProps.innerTopRightColor &&
     prevProps.innerBottomRightColor === nextProps.innerBottomRightColor &&
+    // Скрытие названия проекта
+    prevProps.hideProjectName === nextProps.hideProjectName &&
     // КРИТИЧНО: Сравниваем стили проекта для обновления при изменении цветов/паттернов
     projectStylesEqual
   );

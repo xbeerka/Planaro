@@ -12,6 +12,7 @@ import { useHistory } from "../../hooks/useHistory";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import { usePanning } from "../../hooks/usePanning";
 import { useEventInteractions } from "../../hooks/useEventInteractions";
+import { useGapInteractions } from "../../hooks/useGapInteractions"; // ✨ Gap handles
 import { useToast } from "../ui/ToastContext";
 import { SchedulerEvent as SchedulerEventComponent } from "./SchedulerEvent";
 import { SimpleEventModal } from "./SimpleEventModal";
@@ -21,12 +22,14 @@ import { EmptyCellContextMenu } from "./EmptyCellContextMenu";
 import { Toolbar } from "./Toolbar";
 import { FilterToolbar } from "./FilterToolbar";
 import { OnlineUsers } from "./OnlineUsers";
+import { RealtimeCursors } from "./RealtimeCursors";
 import { UsersManagementModal } from "./UsersManagementModal";
 import { ProjectsManagementModal } from "./ProjectsManagementModal";
 import { DepartmentsManagementModal } from "./DepartmentsManagementModal";
 import { KeyboardShortcutsModal } from "./KeyboardShortcutsModal";
 import { SettingsModal } from "./SettingsModal";
 import { SchedulerGrid } from "./SchedulerGrid";
+import { EventGapHandles } from "./EventGapHandles"; // ✨ Gap handles компонент
 import {
   SchedulerEvent,
   Workspace,
@@ -53,6 +56,7 @@ import {
   getLastWeeksOfMonths,
 } from "../../utils/scheduler";
 import { calculateEventNeighbors } from "../../utils/eventNeighbors";
+import { findEventGaps } from "../../utils/eventGaps"; // ✨ Gap поиск
 import {
   createLayoutConfig,
   topFor,
@@ -103,6 +107,7 @@ export function SchedulerMain({
     flushPendingChanges,
     syncRestoredEventsToServer,
     syncDeletedEventsToServer,
+    hasPendingOperations,
     isUserInteracting,
     setIsUserInteracting,
     resetDeltaSyncTimer,
@@ -329,8 +334,13 @@ export function SchedulerMain({
     // Ждём когда загрузятся И события И проекты
     if (!isLoading && !historyInitializedRef.current) {
       console.log(`📝 Инициализация истории: ${events.length} событий, ${projects.length} проектов`);
-      resetHistory(events, eventZOrder, projects);
-      historyInitializedRef.current = true;
+      
+      // ✅ Оборачиваем в setTimeout чтобы избежать "Cannot update component while rendering"
+      // если useEffect срабатывает синхронно или во время рендера родителя
+      setTimeout(() => {
+        resetHistory(events, eventZOrder, projects);
+        historyInitializedRef.current = true;
+      }, 0);
     }
     
     // Сбрасываем флаг при выходе из воркспейса
@@ -344,6 +354,7 @@ export function SchedulerMain({
   const prevProjectsRef = useRef<Project[]>([]);
   const isUserProjectChangeRef = useRef<boolean>(false); // ✅ Флаг для отслеживания пользовательских изменений
   const lastUndoRedoTimeRef = useRef<number>(0); // ✅ Timestamp последнего Undo/Redo для блокировки orphaned cleanup
+  const isUndoRedoInProgressRef = useRef<boolean>(false); // ✅ v3.3.11: Блокировка одновременных Undo/Redo операций
   
   React.useEffect(() => {
     // Пропускаем первую инициализацию
@@ -394,140 +405,353 @@ export function SchedulerMain({
 
   // Keyboard shortcuts
   const handleUndo = useCallback(async () => {
-    const state = historyUndo();
-    if (!state) return;
-    
-    console.log('↩️ Undo: МГНОВЕННОЕ восстановление из истории');
-    
-    // ✅ Сохраняем текущие события ДО undo (для синхронизации удалений)
-    const previousEvents = events;
-    
-    // ✅ БЛОКИРУЕМ автосохранение при undo (это не пользовательское изменение)
-    isUserProjectChangeRef.current = false;
-    
-    // ✅ БЛОКИРУЕМ очистку orphaned events на 5 секунд (защита от удаления восстановленных событий)
-    lastUndoRedoTimeRef.current = Date.now();
-    console.log('🛡️ Undo: блокировка orphaned cleanup на 5 секунд');
-    
-    // ✅ КРИТИЧНО: СБРАСЫВАЕМ ТАЙМЕР ДЕЛЬТА-СИНКА!
-    // Это локальное изменение, синхронизация должна быть заблокирована на 5 секунд
-    // (увеличено с 2 до 5 сек для защиты от быстрых последовательных Undo/Redo)
-    resetDeltaSyncTimer();
-    console.log('⏸️ Undo: сброс таймера дельта-синка (блокировка на 5 сек)');
-    
-    // ✅ Фильтруем дубликаты по ID (на случай если в истории есть дубликаты)
-    const uniqueEvents = Array.from(
-      new Map(state.events.map(e => [e.id, e])).values()
-    );
-    
-    if (uniqueEvents.length !== state.events.length) {
-      console.warn(`⚠️ Обнаружены дубликаты в истории: ${state.events.length} → ${uniqueEvents.length}`);
+    // ✅ v3.3.14: Сначала флашим все pending изменения
+    // Это гарантирует что все изменения сохранены перед undo
+    try {
+      await flushPendingChanges(updateHistoryEventId);
+      console.log('✅ UNDO: Pending изменения сохранены перед undo');
+    } catch (err) {
+      console.error('❌ UNDO: Ошибка flush pending:', err);
     }
     
-    // ✅ МГНОВЕННО восстанавливаем события и проекты из истории
-    setEvents(uniqueEvents);
-    setEventZOrder(state.eventZOrder);
-    setProjects(state.projects);
-    
-    console.log(`↩️ Undo: восстановлено ${uniqueEvents.length} событий, ${state.projects.length} проектов`);
-    
-    // ✅ КРИТИЧНО: Блокируем синхронизацию проектов после Undo (на 5 секунд)
-    resetProjectsSyncTimer();
-    console.log('🔒 Undo: синхронизация проектов заблокирована на 5 секунд');
-    
-    // ✅ КРИТИЧНО: Синхронизируем восстановленные событ��я с сервером!
-    // Это предотвратит их удаление Full Sync'ом через 30 секунд
-    try {
-      await syncRestoredEventsToServer(uniqueEvents, updateHistoryEventId);
-      console.log('✅ Undo: события успешно синхронизированы с сервером');
-    } catch (error) {
-      console.error('❌ Undo: ошибка синхронизации с сервером:', error);
-      showToast({
-        title: 'Ошибка восстановления',
-        description: 'Не удалось синхронизировать события с сервером',
-        variant: 'destructive'
+    // ✅ v3.3.15: КРИТИЧНО - блокируем Undo если есть активные pending операции
+    // Проверяем РЕАЛЬНЫЕ pending операции, а не временные ID (которые могут остаться в истории)
+    if (hasPendingOperations()) {
+      console.log('⏸️ UNDO: Заблокировано - есть pending операции');
+      // ✅ Обернём в queueMicrotask чтобы избежать "Cannot update component while rendering"
+      queueMicrotask(() => {
+        showToast({
+          type: 'warning',
+          message: 'Подождите',
+          description: 'Дождитесь завершения сохранения изменений'
+        });
       });
+      return;
     }
     
-    // ✅ КРИТИЧНО: Синхронизируем удалённые события с сервером!
-    // Это предотвратит их возвращение Full Sync'ом через 30 секунд
+    // ✅ v3.3.20: КРИТИЧНО - блокируем Undo если есть события с временными ID (в процессе создания)
+    // Это симметрично с handleRedo и предотвращает баг при быстром Undo после создания
+    const hasPendingEvents = events.some(e => e.id.startsWith('ev_temp_'));
+    if (hasPendingEvents) {
+      console.log('⏸️ UNDO: Заблокировано - есть события в процессе создания');
+      // ✅ Обернём в queueMicrotask чтобы избежать "Cannot update component while rendering"
+      queueMicrotask(() => {
+        try {
+          showToast({
+            type: 'warning',
+            message: 'Подождите',
+            description: 'Дождитесь завершения создания событий'
+          });
+        } catch (err) {
+          console.error('❌ Ошибка показа toast:', err);
+        }
+      });
+      return;
+    }
+    
+    // ✅ v3.3.11: КРИТИЧНО - блокируем одновременные Undo операции
+    if (isUndoRedoInProgressRef.current) {
+      console.log('⏸️ UNDO/REDO: Undo уже выполняется, ожидание завершения...');
+      
+      // ✅ v3.3.21: Ждем освобождения флага вместо toast (автоматическая очередь)
+      // Это решает проблему "Повторите попытку" - теперь мы просто ждем
+      let attempts = 0;
+      while (isUndoRedoInProgressRef.current && attempts < 50) { // 5 секунд макс
+        await new Promise(r => setTimeout(r, 100));
+        attempts++;
+      }
+      
+      if (isUndoRedoInProgressRef.current) {
+        console.log('🔄 UNDO/REDO: Таймаут ожидания. Принудительный сброс флага...');
+        isUndoRedoInProgressRef.current = false;
+      } else {
+        console.log('▶️ UNDO/REDO: Флаг освободился, продолжение выполнения');
+      }
+      // Продолжаем выполнение (автоматический повтор) без return
+    }
+    
+    const state = historyUndo();
+    if (!state) {
+      console.log('🔄 UNDO/REDO: ⏸️ История пуста, Undo невозможен');
+      return;
+    }
+    
+    // ✅ v3.3.16: КРИТИЧНО - обернуть ВСЁ в try-finally для гарантированного сброса флага
     try {
-      await syncDeletedEventsToServer(uniqueEvents, previousEvents);
-      console.log('✅ Undo: удалённые события успешно синхронизированы с сервером');
-    } catch (error) {
-      console.error('❌ Undo: ошибка синхронизации удалённых событий:', error);
+      // ✅ Устанавливаем флаг блокировки
+      isUndoRedoInProgressRef.current = true;
+      console.log('🔄 UNDO/REDO: ↩️ Undo начат - мгновенное восстановление из истории');
+      console.log('🔄 UNDO/REDO: 🔒 Флаг установлен в:', isUndoRedoInProgressRef.current);
+      
+      // ✅ Сохраняем текущие события ДО undo (для синхронизации удалений)
+      const previousEvents = events;
+      
+      // ✅ БЛОКИРУЕМ автосохранение при undo (это не пользовательское изменение)
+      isUserProjectChangeRef.current = false;
+      
+      // ✅ БЛОКИРУЕМ очистку orphaned events на 5 секунд (защита от удаления восстановленных событий)
+      lastUndoRedoTimeRef.current = Date.now();
+      console.log('🔄 UNDO/REDO: 🛡️ Блокировка orphaned cleanup на 5 се��унд');
+      
+      // ✅ КРИТИЧНО: СБРАСЫВАЕМ ТАЙМЕР ДЕЛЬТА-СИНКА!
+      // Это локальное изменение, синхронизация должна быть заблокирована на 5 секунд
+      // (увеличено с 2 до 5 сек для защиты от быстрых последовательных Undo/Redo)
+      resetDeltaSyncTimer();
+      console.log('🔄 UNDO/REDO: ⏸️ Сброс таймера дельта-синка (блокировка на 5 сек)');
+      
+      // ✅ КРИТИЧНО: Находим удалённые события и очищаем их pending операции
+      const currentIds = new Set(state.events.map(e => e.id));
+      const deletedEvents = previousEvents.filter(e => !currentIds.has(e.id));
+      
+      if (deletedEvents.length > 0) {
+        console.log(`🔄 UNDO/REDO: Очистка pending операций для ${deletedEvents.length} удалённых событий...`);
+        deletedEvents.forEach(event => {
+          cancelPendingChange(event.id);
+          console.log(`   🧹 Очищена pending операция для: ${event.id}`);
+        });
+      }
+      
+      // ✅ Фильтруем дубликаты по ID (на случай если в истории есть дубликаты)
+      const uniqueEvents = Array.from(
+        new Map(state.events.map(e => [e.id, e])).values()
+      );
+      
+      if (uniqueEvents.length !== state.events.length) {
+        console.warn(`🔄 UNDO/REDO: ⚠️ Обнаружены дубликаты в истории: ${state.events.length} → ${uniqueEvents.length}`);
+      }
+      
+      // ✅ МГНОВЕННО восстанавливаем события и проекты из истории
+      setEvents(uniqueEvents);
+      setEventZOrder(state.eventZOrder);
+      setProjects(state.projects);
+      
+      console.log(`🔄 UNDO/REDO: ↩️ Восстановлено ${uniqueEvents.length} событий, ${state.projects.length} проектов`);
+      
+      // ✅ КРИТИЧНО: Блокируем синхронизацию проектов после Undo (на 5 секунд)
+      resetProjectsSyncTimer();
+      console.log('🔄 UNDO/REDO: 🔒 Синхронизация проектов заблокирована на 5 секунд');
+      
+      // ✅ КРИТИЧНО: Синхронизируем восстановленные события с сервером!
+      // Это предотвратит их удаление Full Sync'ом через 30 секунд
+      try {
+        await syncRestoredEventsToServer(uniqueEvents, updateHistoryEventId);
+        console.log('🔄 UNDO/REDO: ✅ События успешно синхронизированы с сервером');
+      } catch (error) {
+        console.error('🔄 UNDO/REDO: ❌ Ошибка синхронизации с сервером:', error);
+        // ✅ v3.3.17: Обернём showToast в queueMicrotask + try-catch для защиты
+        queueMicrotask(() => {
+          try {
+            showToast({
+              title: 'Ошибка восстановления',
+              description: 'Не удалось синхронизировать события с сервером',
+              variant: 'destructive'
+            });
+          } catch (toastErr) {
+            console.error('🔄 UNDO/REDO: ❌ Ошибка показа toast:', toastErr);
+          }
+        });
+      }
+      
+      // ✅ КРИТИЧНО: Синхронизируем удалённые события с сервером!
+      // Это предотвратит их возвращение Full Sync'ом через 30 секунд
+      try {
+        // Если мы восстанавливаем пустое состояние (undo создания первых событий),
+        // то uniqueEvents.length === 0, а previousEvents.length > 0
+        // Это валидная операция, мы должны удалить события на сервере
+        if (uniqueEvents.length === 0 && previousEvents.length > 0) {
+          console.log('ℹ️ UNDO/REDO: Восстановление пустого состояния (удаление всех текущих событий)');
+        }
+        
+        await syncDeletedEventsToServer(uniqueEvents, previousEvents);
+        console.log('🔄 UNDO/REDO: ✅ Удалённые события успешно синхронизированы с сервером');
+      } catch (error) {
+        console.error('🔄 UNDO/REDO: ❌ Ошибка синхронизации удалённых событий:', error);
+      }
+      
+      console.log('🔄 UNDO/REDO: ✅ Undo завершён успешно');
+    } catch (err) {
+      console.error('🔄 UNDO/REDO: ❌ Критическая ошибка в handleUndo:', err);
+    } finally {
+      // ✅ v3.3.11: Гарантированно снимаем блокировку даже при ошибках
+      console.log('🔄 UNDO/REDO: 🔓 Сброс флага isUndoRedoInProgressRef (было:', isUndoRedoInProgressRef.current, ')');
+      isUndoRedoInProgressRef.current = false;
+      console.log('🔄 UNDO/REDO: 🔓 Блокировка снята (теперь:', isUndoRedoInProgressRef.current, ')');
     }
-    
-    // ✅ Polling в контексте автоматически обновит структуру (сотрудники/департаменты) в фоне
-  }, [historyUndo, events, setEvents, setProjects, resetDeltaSyncTimer, resetProjectsSyncTimer, syncRestoredEventsToServer, syncDeletedEventsToServer, updateHistoryEventId, showToast]);
+  }, [historyUndo, events, setEvents, setProjects, resetDeltaSyncTimer, resetProjectsSyncTimer, syncRestoredEventsToServer, syncDeletedEventsToServer, updateHistoryEventId, cancelPendingChange, flushPendingChanges, hasPendingOperations, showToast]);
 
   const handleRedo = useCallback(async () => {
-    const state = historyRedo();
-    if (!state) return;
-    
-    console.log('↪️ Redo: МГНОВЕННОЕ восстановление из истории');
-    
-    // ✅ Сохраняем текущие события ДО redo (для синхронизации удалений)
-    const previousEvents = events;
-    
-    // ✅ БЛОКИРУЕМ автосохранение при redo (это не пользовательское изменение)
-    isUserProjectChangeRef.current = false;
-    
-    // ✅ БЛОКИРУЕМ очистку orphaned events на 5 секунд (защита от удаления восстановленных событий)
-    lastUndoRedoTimeRef.current = Date.now();
-    console.log('🛡️ Redo: блокировка orphaned cleanup на 5 секунд');
-    
-    // ✅ КРИТИЧНО: СБРАСЫВАЕМ ТАЙМЕР ДЕЛЬТА-СИНКА!
-    // Это локальное изменение, синхронизация должна быть заблокирована на 5 секунд
-    // (увеличено с 2 до 5 сек для защиты от быстрых последовательных Undo/Redo)
-    resetDeltaSyncTimer();
-    console.log('⏸️ Redo: сброс таймера дельта-синка (блокировка на 5 сек)');
-    
-    // ✅ Фильтруем дубликаты по ID (на случай если в истории есть дубликаты)
-    const uniqueEvents = Array.from(
-      new Map(state.events.map(e => [e.id, e])).values()
-    );
-    
-    if (uniqueEvents.length !== state.events.length) {
-      console.warn(`⚠️ Обнаружены дубликаты в истории: ${state.events.length} → ${uniqueEvents.length}`);
+    // ✅ v3.3.14: Сначала флашим все pending изменения
+    // Это гарантирует что все изменения сохранены перед redo
+    try {
+      await flushPendingChanges(updateHistoryEventId);
+      console.log('✅ REDO: Pending изменения сохранены перед redo');
+    } catch (err) {
+      console.error('❌ REDO: Ошибка flush pending:', err);
     }
     
-    // ✅ МГНОВЕННО восстанавливаем события и проекты из истории
-    setEvents(uniqueEvents);
-    setEventZOrder(state.eventZOrder);
-    setProjects(state.projects);
-    
-    console.log(`↪️ Redo: восстановлено ${uniqueEvents.length} событий, ${state.projects.length} проектов`);
-    
-    // ✅ КРИТИЧНО: Блокируем синхронизацию проектов после Redo (на 5 секунд)
-    resetProjectsSyncTimer();
-    console.log('🔒 Redo: синхронизация проектов заблокирована на 5 секунды');
-    
-    // ✅ КРИТИЧНО: Синхронизируем восстановленные события с сервером!
-    // Это предотвратит их удаление Full Sync'ом через 30 секунд
-    try {
-      await syncRestoredEventsToServer(uniqueEvents, updateHistoryEventId);
-      console.log('✅ Redo: события успешно синхронизированы с сервером');
-    } catch (error) {
-      console.error('❌ Redo: ошибка синхронизации с сервером:', error);
-      showToast({
-        title: 'Ошибка восстановления',
-        description: 'Не удалось синхронизировать события с сервером',
-        variant: 'destructive'
+    // ✅ v3.3.15: КРИТИЧНО - блокируем Redo если есть активные pending операции
+    // Проверяем РЕАЛЬНЫЕ pending операции, а не временные ID (которые могут остаться в истории)
+    if (hasPendingOperations()) {
+      console.log('⏸️ REDO: Заблокировано - есть pending операции');
+      // ✅ Обернём в queueMicrotask чтобы избежать "Cannot update component while rendering"
+      queueMicrotask(() => {
+        showToast({
+          type: 'warning',
+          message: 'Подождите',
+          description: 'Дождитесь завершения сохранения изменений'
+        });
       });
+      return;
     }
     
-    // ✅ КРИТИЧНО: Синхронизируем удалённые события с сервером!
-    // Это предотвратит их возвращение Full Sync'ом через 30 секунд
+    // ✅ v3.3.19: КРИТИЧНО - блокируем Redo если есть события с временными ID (в процессе создания)
+    // Это предотвращает баг когда событие находится в процессе загрузки
+    const hasPendingEvents = events.some(e => e.id.startsWith('ev_temp_'));
+    if (hasPendingEvents) {
+      console.log('⏸️ REDO: Заблокировано - есть события в процессе создания');
+      // ✅ Обернём в queueMicrotask чтобы избежать "Cannot update component while rendering"
+      queueMicrotask(() => {
+        try {
+          showToast({
+            type: 'warning',
+            message: 'Подождите',
+            description: 'Дождитесь завершения создания событий'
+          });
+        } catch (err) {
+          console.error('❌ Ошибка показа toast:', err);
+        }
+      });
+      return;
+    }
+    
+    // ✅ v3.3.11: КРИТИЧНО - блокируем одновременные Redo операции
+    if (isUndoRedoInProgressRef.current) {
+      console.log('⏸️ UNDO/REDO: Redo уже выполняется, ожидание завершения...');
+      
+      // ✅ v3.3.21: Ждем освобождения флага вместо toast (автоматическая очередь)
+      let attempts = 0;
+      while (isUndoRedoInProgressRef.current && attempts < 50) { // 5 секунд макс
+        await new Promise(r => setTimeout(r, 100));
+        attempts++;
+      }
+      
+      if (isUndoRedoInProgressRef.current) {
+        console.log('🔄 UNDO/REDO: Таймаут ожидания. Принудительный сброс флага...');
+        isUndoRedoInProgressRef.current = false;
+      } else {
+        console.log('▶️ UNDO/REDO: Флаг освободился, продолжение выполнения');
+      }
+      // Продолжаем выполнение (автоматический повтор) без return
+    }
+    
+    const state = historyRedo();
+    if (!state) {
+      console.log('🔄 UNDO/REDO: ⏸️ История пуста, Redo невозможен');
+      return;
+    }
+    
+    // ✅ v3.3.16: КРИТИЧНО - обернуть ВСЁ в try-finally для гарантированного сброса флага
     try {
-      await syncDeletedEventsToServer(uniqueEvents, previousEvents);
-      console.log('✅ Redo: удалённые события успешно синхронизированы с сервером');
-    } catch (error) {
-      console.error('❌ Redo: ошибка синхронизации удалённых событий:', error);
+      // ✅ Устанавливаем флаг блокировки
+      isUndoRedoInProgressRef.current = true;
+      console.log('🔄 UNDO/REDO: ↪️ Redo начат - мгновенное восстановление из истории');
+      console.log('🔄 UNDO/REDO: 🔒 Флаг установлен в:', isUndoRedoInProgressRef.current);
+      
+      // ✅ Сохраняем текущие события ДО redo (для синхронизации удалений)
+      const previousEvents = events;
+      
+      // ✅ БЛОКИРУЕМ автосохранение при redo (это не пользовательское изменение)
+      isUserProjectChangeRef.current = false;
+      
+      // ✅ БЛОКИРУЕМ очистку orphaned events на 5 секунд (защита от удаления восстановленных событий)
+      lastUndoRedoTimeRef.current = Date.now();
+      console.log('🔄 UNDO/REDO: 🛡️ Блокировка orphaned cleanup на 5 секунд');
+      
+      // ✅ КРИТИЧНО: СБРАСЫВАЕМ ТАЙМЕР ДЕЛЬТА-СИНКА!
+      // Это локальное изменение, синхронизация должна быть заблокирована на 5 секунд
+      // (увеличено с 2 до 5 сек для защиты от быстрых последовательных Undo/Redo)
+      resetDeltaSyncTimer();
+      console.log('🔄 UNDO/REDO: ⏸️ Сброс таймера дельта-синка (блокировка на 5 сек)');
+      
+      // ✅ КРИТИЧНО: Находим удалённые события и очищаем их pending операции
+      const currentIds = new Set(state.events.map(e => e.id));
+      const deletedEvents = previousEvents.filter(e => !currentIds.has(e.id));
+      
+      if (deletedEvents.length > 0) {
+        console.log(`🔄 UNDO/REDO: Очистка pending операций для ${deletedEvents.length} удалённых событий...`);
+        deletedEvents.forEach(event => {
+          cancelPendingChange(event.id);
+          console.log(`   🧹 Очищена pending операция для: ${event.id}`);
+        });
+      }
+      
+      // ✅ Фильтруем дубликаты по ID (на случай если в истории есть дубликаты)
+      const uniqueEvents = Array.from(
+        new Map(state.events.map(e => [e.id, e])).values()
+      );
+      
+      if (uniqueEvents.length !== state.events.length) {
+        console.warn(`⚠️ Обнаружены дубликаты в истории: ${state.events.length} → ${uniqueEvents.length}`);
+      }
+      
+      // ✅ МГНОВЕННО восстанавливаем события и проекты из истории
+      setEvents(uniqueEvents);
+      setEventZOrder(state.eventZOrder);
+      setProjects(state.projects);
+      
+      console.log(`🔄 UNDO/REDO: ↪️ Восстановлено ${uniqueEvents.length} событий, ${state.projects.length} проектов`);
+      
+      // ✅ КРИТИЧНО: Блокируем синхронизацию проектов после Redo (на 5 секунд)
+      resetProjectsSyncTimer();
+      console.log('🔄 UNDO/REDO: 🔒 Синхронизация проектов заблокирована на 5 секунд');
+      
+      // ✅ КРИТИЧНО: Синхронизируем восстановленные события с сервером!
+      // Это предотвратит их удаление Full Sync'ом через 30 секунд
+      try {
+        await syncRestoredEventsToServer(uniqueEvents, updateHistoryEventId);
+        console.log('🔄 UNDO/REDO: ✅ События успешно синхронизированы с сервером');
+      } catch (error) {
+        console.error('🔄 UNDO/REDO: ❌ Ошибка синхронизации с се��вером:', error);
+        // ✅ v3.3.17: Обернём showToast в queueMicrotask + try-catch для защиты
+        queueMicrotask(() => {
+          try {
+            showToast({
+              title: 'Ошибка восстановления',
+              description: 'Не удалось синхронизировать события с сервером',
+              variant: 'destructive'
+            });
+          } catch (toastErr) {
+            console.error('🔄 UNDO/REDO: ❌ Ошибка показа toast:', toastErr);
+          }
+        });
+      }
+      
+      // ✅ КРИТИЧНО: Синхронизируем удалённые события с сервером!
+      // Это предотвратит их возвращение Full Sync'ом через 30 секунд
+      try {
+        // Если мы восстанавливаем пустое состояние (redo удаления всех событий),
+        // то uniqueEvents.length === 0, а previousEvents.length > 0
+        // Это валидная операция
+        if (uniqueEvents.length === 0 && previousEvents.length > 0) {
+          console.log('ℹ️ UNDO/REDO: Redo удаления всех событий (восстановление пустого состояния)');
+        }
+        
+        await syncDeletedEventsToServer(uniqueEvents, previousEvents);
+        console.log('🔄 UNDO/REDO: ✅ Удалённые события успешно синхронизированы с сервером');
+      } catch (error) {
+        console.error('🔄 UNDO/REDO: ❌ Ошибка синхронизации удалённых событий:', error);
+      }
+      
+      console.log('🔄 UNDO/REDO: ✅ Redo завершён успешно');
+    } catch (err) {
+      console.error('🔄 UNDO/REDO: ❌ Критическая ошибка в handleRedo:', err);
+    } finally {
+      // ✅ v3.3.11: Гарантированно снимаем блокировку даже при ошибках
+      console.log('🔄 UNDO/REDO: 🔓 Сброс флага isUndoRedoInProgressRef (было:', isUndoRedoInProgressRef.current, ')');
+      isUndoRedoInProgressRef.current = false;
+      console.log('🔄 UNDO/REDO: 🔓 Блокировка снята (теперь:', isUndoRedoInProgressRef.current, ')');
     }
-    
-    // ✅ Polling в контексте автоматически обновит структуру (сотрудни��и/департаменты) в фоне
-  }, [historyRedo, events, setEvents, setProjects, resetDeltaSyncTimer, resetProjectsSyncTimer, syncRestoredEventsToServer, syncDeletedEventsToServer, updateHistoryEventId, showToast]);
+  }, [historyRedo, events, setEvents, setProjects, resetDeltaSyncTimer, resetProjectsSyncTimer, syncRestoredEventsToServer, syncDeletedEventsToServer, updateHistoryEventId, cancelPendingChange, flushPendingChanges, hasPendingOperations, showToast]);
 
   // ✅ Обёртка для deleteProject с флагом пользовательского изменения
   const handleDeleteProject = useCallback(async (id: string) => {
@@ -625,7 +849,30 @@ export function SchedulerMain({
     eventsContainerRef,
     setIsUserInteracting,
     resetDeltaSyncTimer, // ✅ v3.3.5: Блокировка Delta Sync после drag/resize
+    flushPendingChanges, // ✅ v3.3.7: Flush pending перед drag/resize для сохранения всех изменений
+    updateHistoryEventId, // ✅ Для обновления истории после flush
   });
+  
+  // ✨ Gap interactions - двусторонний resize границ между событиями
+  const { startGapDrag } = useGapInteractions({
+    config,
+    onEventsUpdate: setEvents,
+    onSaveHistory: saveHistory,
+    onEventUpdate: updateEvent,
+    eventZOrder,
+    projects,
+    setIsUserInteracting,
+    resetDeltaSyncTimer,
+    flushPendingChanges, // ✅ v3.3.7: Flush pending перед gap drag
+    updateHistoryEventId, // ✅ Для обновления истории после flush
+    events, // ← ДОБАВЛЕНО: передаём текущие события
+  });
+  
+  // ✨ Находим gaps между событиями (только при зажатой Cmd/Ctrl)
+  const eventGaps = useMemo(() => {
+    if (!isCtrlPressed) return [];
+    return findEventGaps(visibleEvents, filteredResources, filteredDepartments);
+  }, [isCtrlPressed, visibleEvents, filteredResources, filteredDepartments]);
 
   // Scissors - cut event (оптимистичное обновление UI)
   const cutEventByBoundary = useCallback(
@@ -819,7 +1066,11 @@ export function SchedulerMain({
 
       setPendingEvent({ week, resourceId, unitIndex });
       setModalMode("create");
-      setModalInitialData({ maxUnits: free, startWeek: week });
+      setModalInitialData({ 
+        maxUnits: free, 
+        startWeek: week,
+        workspaceId: String(workspace.id) // ✨ Добавлено для tracking использования проектов
+      });
       setModalOpen(true);
     },
     [
@@ -876,6 +1127,13 @@ export function SchedulerMain({
 
   const handleContextEdit = () => {
     if (!contextMenu.event) return;
+    
+    // ✅ БЛОКИРОВКА v3.3.9: временные события нельзя редактировать
+    if (contextMenu.event.id.startsWith('ev_temp_')) {
+      showToast('Событие ещё создаётся на сервере, подождите...', 'warning');
+      return;
+    }
+    
     setModalMode("edit");
     setModalInitialData({
       projectId: contextMenu.event.projectId,
@@ -883,6 +1141,7 @@ export function SchedulerMain({
       unitsTall: contextMenu.event.unitsTall,
       maxUnits: UNITS,
       startWeek: contextMenu.event.startWeek,
+      workspaceId: String(workspace.id) // ✨ Добавлено для tracking использования проектов
     });
     setPendingEvent(contextMenu.event);
     setModalOpen(true);
@@ -896,6 +1155,12 @@ export function SchedulerMain({
 
   const handleContextDelete = () => {
     if (!contextMenu.event) return;
+
+    // ✅ БЛОКИРОВКА v3.3.9: временные события нельзя удалять
+    if (contextMenu.event.id.startsWith('ev_temp_')) {
+      showToast('Событие ещё создаётся на сервере, подождите...', 'warning');
+      return;
+    }
 
     const eventId = contextMenu.event.id;
     const zOrderToRestore = eventZOrder.get(eventId);
@@ -950,6 +1215,12 @@ export function SchedulerMain({
 
   const handleContextCopy = () => {
     if (!contextMenu.event) return;
+    
+    // ✅ БЛОКИРОВКА v3.3.9: временные события нельзя копировать
+    if (contextMenu.event.id.startsWith('ev_temp_')) {
+      showToast('Событие ещё создаётся на сервере, подождите...', 'warning');
+      return;
+    }
     
     setCopiedEvent(contextMenu.event);
     setContextMenu({
@@ -1023,7 +1294,7 @@ export function SchedulerMain({
     [config, visibleEvents, filteredResources, filteredDepartments],
   );
 
-  const handlePaste = useCallback(() => {
+  const handlePaste = useCallback(async () => {
     if (!copiedEvent || !emptyCellContextMenu.resourceId || emptyCellContextMenu.week === null || emptyCellContextMenu.unitIndex === null) {
       return;
     }
@@ -1112,26 +1383,31 @@ export function SchedulerMain({
       visible: false,
     }));
     
-    // Создаём событие
-    (async () => {
-      try {
-        const createdEvent = await createEvent(tempEvent);
-        
-        // ✅ Обновляем историю: заменяем временный ID на реальный
-        updateHistoryEventId(tempEvent.id, createdEvent.id);
-        console.log(`📝 История: обновлен ID ${tempEvent.id} → ${createdEvent.id} (paste)`);
-        
-        // ✅ История: сохраняем после успешного создания события (paste)
-        // Используем setEvents для получения свежего state
+    // v3.3.7: УБРАЛИ IIFE - теперь handlePaste сама async и дожидается завершения
+    try {
+      const createdEvent = await createEvent(tempEvent);
+      
+      // ✨ Отслеживаем использование проекта при вставке
+      const { trackProjectUsage } = await import('../../utils/projectUsageTracking');
+      trackProjectUsage(String(workspace.id), copiedEvent.projectId);
+      
+      // Обновляем историю: заменяем временный ID на реальный
+      updateHistoryEventId(tempEvent.id, createdEvent.id);
+      console.log(`📝 История: обновлен ID ${tempEvent.id} → ${createdEvent.id} (paste)`);
+      
+      // v3.3.7: КРИТИЧНО - сохраняем историю СИНХРОННО через Promise
+      // Это гарантирует что история сохранится ДО того как пользователь начнёт drag
+      await new Promise<void>(resolve => {
         setEvents(currentEvents => {
-          console.log('История: сохранение после вставки события (paste)');
+          console.log('📝 История: сохранение после вставки события (paste)');
           saveHistory(currentEvents, eventZOrder, projects);
+          resolve();
           return currentEvents;
         });
-      } catch (error) {
-        console.error("❌ Ошибка вставки события:", error);
-      }
-    })();
+      });
+    } catch (error) {
+      console.error("❌ Ошибка вставки события:", error);
+    }
   }, [
     copiedEvent,
     emptyCellContextMenu,
@@ -1141,6 +1417,7 @@ export function SchedulerMain({
     saveHistory,
     eventZOrder,
     setEvents,
+    workspace.id, // ✨ Добавлено для tracking
   ]);
 
   const handleModalSave = async (
@@ -1176,11 +1453,15 @@ export function SchedulerMain({
         updateHistoryEventId(tempEvent.id, createdEvent.id);
         console.log(`📝 История: обновлен ID ${tempEvent.id} → ${createdEvent.id} (create from modal)`);
 
-        // ✅ История: сохраняем после успешного создания события (модалка)
-        setEvents(currentEvents => {
-          console.log('История: сохранение после создания события (модалка)');
-          saveHistory(currentEvents, eventZOrder, projects);
-          return currentEvents;
+        // v3.3.7: КРИТИЧНО - сохраняем историю СИНХРОННО через Promise
+        // Это гарантирует что история сохранится ДО того как пользователь начнёт drag
+        await new Promise<void>(resolve => {
+          setEvents(currentEvents => {
+            console.log('📝 История: сохранение после создания события (модалка)');
+            saveHistory(currentEvents, eventZOrder, projects);
+            resolve();
+            return currentEvents;
+          });
         });
       } catch (error) {
         console.error("❌ Ошибка создания события:", error);
@@ -1511,6 +1792,7 @@ export function SchedulerMain({
           innerBottomLeftColor: 'transparent',
           innerTopRightColor: 'transparent',
           innerBottomRightColor: 'transparent',
+          hideProjectName: false,
         };
         
         // Получаем мемоизированные позиции (вычисляются только при изменении eventNeighbors)
@@ -1534,6 +1816,9 @@ export function SchedulerMain({
         // Проверяем, находится ли событие в процессе сохранения
         const isPending = pendingEventIds.has(event.id);
 
+        // ✅ БЛОКИРОВКА ВЗАИМОДЕЙСТВИЙ v3.3.9: временные события нельзя трогать до создания на сервере
+        const isBlocked = event.id.startsWith('ev_temp_');
+
         // Проверяем, открыто ли контекстное меню на этом событии
         const isContextMenuOpen = contextMenu.isVisible && contextMenu.event?.id === event.id;
 
@@ -1548,6 +1833,7 @@ export function SchedulerMain({
             commentMode={commentMode && !isPending}
             isCtrlPressed={isCtrlPressed}
             isPending={isPending}
+            isBlocked={isBlocked}
             dimmed={isDimmed}
             displayMode={displayMode}
             isContextMenuOpen={isContextMenuOpen}
@@ -1561,16 +1847,18 @@ export function SchedulerMain({
             innerBottomLeftColor={neighbors.innerBottomLeftColor}
             innerTopRightColor={neighbors.innerTopRightColor}
             innerBottomRightColor={neighbors.innerBottomRightColor}
+            // Скрытие названия проекта для уменьшения визуального шума
+            hideProjectName={neighbors.hideProjectName}
             onContextMenu={handleEventContextMenu}
             onPointerDown={(e, ev) => {
-              // Блокируем перетаскивание для pending событий
-              if (isPending) return;
+              // ✅ БЛОКИРОВКА v3.3.9: заблокированные и pending события нельзя перетаскивать
+              if (isPending || isBlocked) return;
               const target = e.currentTarget as HTMLElement;
               startDrag(e, target, ev);
             }}
             onHandlePointerDown={(e, ev, edge) => {
-              // Блокируем ресайз для pending событий
-              if (isPending) return;
+              // ✅ БЛОКИРОВКА v3.3.9: заблокированные и pending события нельзя ресайзить
+              if (isPending || isBlocked) return;
               const eventEl = (
                 e.currentTarget as HTMLElement
               ).closest(".scheduler-event") as HTMLElement;
@@ -1830,6 +2118,16 @@ export function SchedulerMain({
           >
             {renderEvents()}
           </div>
+          
+          {/* ✨ Gap handles - двусторонние resize ручки между событиями (только при Cmd) */}
+          <EventGapHandles
+            gaps={eventGaps}
+            config={config}
+            resources={filteredResources}
+            visibleDepartments={filteredDepartments}
+            isCommandKeyHeld={isCtrlPressed}
+            onGapMouseDown={startGapDrag}
+          />
         </div>
 
         {/* Hover highlight - ВЕРХНИЙ слой (только для режимов ножниц и комментирования, НАД событиями) */}
@@ -1856,7 +2154,7 @@ export function SchedulerMain({
                 zIndex: 25, // НАД событиями (события имеют z-index до 20)
               }}
             >
-              {/* Иконка комментария с плюсом - только в режиме комментирования, С blend mode */}
+              {/* Иконка комментария с плюсом - только в реж��ме комментирования, С blend mode */}
               {commentMode && (
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -1941,6 +2239,9 @@ export function SchedulerMain({
         accessToken={accessToken}
         currentUserEmail={currentUserEmail}
       />
+
+      {/* Realtime Cursors (disabled - пакет недоступен) */}
+      <RealtimeCursors />
 
       {/* Modal */}
       <SimpleEventModal

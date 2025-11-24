@@ -38,6 +38,9 @@ export interface EventNeighborsInfo {
   innerBottomLeftColor?: string;
   innerTopRightColor?: string;
   innerBottomRightColor?: string;
+  
+  // Скрытие названия проекта для уменьшения визуального шума
+  hideProjectName?: boolean;
 }
 
 /**
@@ -316,8 +319,13 @@ export function calculateEventNeighbors(
     
     // Базовое расширение: события с внутренними углами расширяются на 1 gap
     // При полной склейке расширения НЕТ
-    const hasInnerLeft = !!leftCoverage.innerTopColor || !!leftCoverage.innerBottomColor;
-    const hasInnerRight = !!rightCoverage.innerTopColor || !!rightCoverage.innerBottomColor;
+    // v6.1 FIX: Добавляем геометрическую проверку (hasTopCovered && hasBottomCovered)
+    // Это защищает от случаев, когда innerColor не определён (например, ошибка projectIndex)
+    const geometricInnerLeft = leftCoverage.hasTopCovered && leftCoverage.hasBottomCovered;
+    const geometricInnerRight = rightCoverage.hasTopCovered && rightCoverage.hasBottomCovered;
+    
+    const hasInnerLeft = !!leftCoverage.innerTopColor || !!leftCoverage.innerBottomColor || geometricInnerLeft;
+    const hasInnerRight = !!rightCoverage.innerTopColor || !!rightCoverage.innerBottomColor || geometricInnerRight;
     
     const expandLeft = (hasInnerLeft && !leftCoverage.hasFull) ? 1 : 0;
     const expandRight = (hasInnerRight && !rightCoverage.hasFull) ? 1 : 0;
@@ -435,6 +443,65 @@ export function calculateEventNeighbors(
   }
   
   // ========================================
+  // PASS 2.5: Обеспечение соединения (Connection Assurance)
+  // ========================================
+  // Если события склеиваются частично (partial), но суммарного расширения (expandLeft + expandRight)
+  // недостаточно для покрытия отступов (нужно 2 gap), мы принудительно увеличиваем расширение.
+  for (const event of events) {
+    const neighborInfo = neighbors.get(event.id);
+    if (!neighborInfo) continue;
+
+    // Проверяем LEFT
+    if (neighborInfo.hasPartialLeftNeighbor || neighborInfo.hasBothLeftNeighbors) {
+       const leftNeighbors = findNeighbors(eventIndex, event, 'left', { sameProject: true });
+       let minNeighborExpandRight = 100;
+       
+       for (const neighbor of leftNeighbors) {
+         const nInfo = neighbors.get(neighbor.id);
+         if (nInfo) {
+           minNeighborExpandRight = Math.min(minNeighborExpandRight, nInfo.expandRightMultiplier);
+         }
+       }
+       
+       if (minNeighborExpandRight !== 100) {
+         // Нам нужно в сумме 2 gap (8px), чтобы преодолеть paddingLeft + paddingRight
+         const totalExpand = neighborInfo.expandLeftMultiplier + minNeighborExpandRight;
+         if (totalExpand < 2) {
+           const needed = 2 - minNeighborExpandRight;
+           neighborInfo.expandLeftMultiplier = Math.max(neighborInfo.expandLeftMultiplier, needed);
+           if (DEBUG) {
+             console.log(`🔌 CONNECT LEFT: Событие ${event.id} увеличивает expandLeft до ${neighborInfo.expandLeftMultiplier} для соединения`);
+           }
+         }
+       }
+    }
+
+    // Проверяем RIGHT
+    if (neighborInfo.hasPartialRightNeighbor || neighborInfo.hasBothRightNeighbors) {
+       const rightNeighbors = findNeighbors(eventIndex, event, 'right', { sameProject: true });
+       let minNeighborExpandLeft = 100;
+       
+       for (const neighbor of rightNeighbors) {
+         const nInfo = neighbors.get(neighbor.id);
+         if (nInfo) {
+           minNeighborExpandLeft = Math.min(minNeighborExpandLeft, nInfo.expandLeftMultiplier);
+         }
+       }
+       
+       if (minNeighborExpandLeft !== 100) {
+         const totalExpand = neighborInfo.expandRightMultiplier + minNeighborExpandLeft;
+         if (totalExpand < 2) {
+           const needed = 2 - minNeighborExpandLeft;
+           neighborInfo.expandRightMultiplier = Math.max(neighborInfo.expandRightMultiplier, needed);
+           if (DEBUG) {
+             console.log(`🔌 CONNECT RIGHT: Событие ${event.id} увеличивает expandRight до ${neighborInfo.expandRightMultiplier} для соединения`);
+           }
+         }
+       }
+    }
+  }
+
+  // ========================================
   // PASS 3: Поджатие + компенсация
   // ========================================
   // Объединили два прохода для оптимизации!
@@ -445,8 +512,9 @@ export function calculateEventNeighbors(
     const eventTop = event.unitStart;
     const eventBottom = event.unitStart + event.unitsTall - 1;
     
-    // Поджатие LEFT (только roundBottomLeft!)
-    if (neighborInfo.roundBottomLeft) {
+    // Поджатие LEFT (roundBottomLeft ИЛИ roundTopLeft)
+    // v6.1 FIX: Добавили проверку roundTopLeft для симметрии
+    if (neighborInfo.roundBottomLeft || neighborInfo.roundTopLeft) {
       const eventsWithInnerLeft = getEventsAt(eventIndex, event.resourceId, event.startWeek)
         .filter(e => {
           if (e.id === event.id) return false;
@@ -473,8 +541,9 @@ export function calculateEventNeighbors(
       }
     }
     
-    // Поджатие RIGHT (только roundBottomRight!)
-    if (neighborInfo.roundBottomRight) {
+    // Поджатие RIGHT (roundBottomRight ИЛИ roundTopRight)
+    // v6.1 FIX: Добавили проверку roundTopRight для симметрии
+    if (neighborInfo.roundBottomRight || neighborInfo.roundTopRight) {
       const lastWeek = event.startWeek + event.weeksSpan - 1;
       const eventsWithInnerRight = getEventsAt(eventIndex, event.resourceId, lastWeek)
         .filter(e => {
@@ -549,6 +618,48 @@ export function calculateEventNeighbors(
           break;
         }
       }
+    }
+  }
+  
+  // ========================================
+  // PASS 5: Скрытие названий проектов для уменьшения визуального шума
+  // ========================================
+  // Умное чередование: короткое событие скрывает название ТОЛЬКО ЕСЛИ левый сосед САМ показывает название
+  // Это создаст автоматическое чередование: показано → скрыто → показано → скрыто...
+  for (const event of events) {
+    const neighborInfo = neighbors.get(event.id);
+    if (!neighborInfo) continue;
+    
+    // Событие короткое (≤ 2 недель)?
+    const isShort = event.weeksSpan <= 2;
+    
+    if (isShort) {
+      // Ищем левого соседа того же проекта
+      const leftNeighbors = findNeighbors(eventIndex, event, 'left', { sameProject: true });
+      
+      if (leftNeighbors.length > 0) {
+        // Берем первого левого соседа (ближайший)
+        const leftNeighbor = leftNeighbors[0];
+        const leftNeighborInfo = neighbors.get(leftNeighbor.id);
+        
+        // Скрываем название ТОЛЬКО ЕСЛИ левый сосед САМ показывает название (не скрыт)
+        if (leftNeighborInfo && !leftNeighborInfo.hideProjectName) {
+          neighborInfo.hideProjectName = true;
+          
+          if (DEBUG) {
+            console.log(`🙈 СКРЫТИЕ: Событие ${event.id} (${event.weeksSpan} нед.) скрывает название (левый ${leftNeighbor.id} показывает)`);
+          }
+        } else {
+          // Левый сосед скрыт → показываем это событие (чередование)
+          neighborInfo.hideProjectName = false;
+        }
+      } else {
+        // Нет левого соседа → показываем (первое в цепочке)
+        neighborInfo.hideProjectName = false;
+      }
+    } else {
+      // Длинные события всегда показывают название
+      neighborInfo.hideProjectName = false;
     }
   }
   

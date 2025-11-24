@@ -1,0 +1,34 @@
+Замены для handleUndo:
+
+Найти: console.log('↩️ Undo: МГНОВЕННОЕ восстановление из истории');
+Заменить: console.log('🔄 UNDO/REDO: ↩️ Undo начат - мгновенное восстановление из истории');
+
+Найти: console.log('🛡️ Undo: блокировка orphaned cleanup на 5 секунд');
+Заменить: console.log('🔄 UNDO/REDO: 🛡️ Блокировка orphaned cleanup на 5 секунд');
+
+Найти: console.log('⏸️ Undo: сброс таймера дельта-синка (блокировка на 5 сек)');
+Заменить: console.log('🔄 UNDO/REDO: ⏸️ Сброс таймера дельта-синка (блокировка на 5 сек)');
+
+Найти: console.warn(`⚠️ Обнаружены дубликаты в истории: ${state.events.length} → ${uniqueEvents.length}`);
+Заменить: console.warn(`🔄 UNDO/REDO: ⚠️ Обнаружены дубликаты в истории: ${state.events.length} → ${uniqueEvents.length}`);
+
+Найти: console.log(`↩️ Undo: восстановлено ${uniqueEvents.length} событий, ${state.projects.length} проектов`);
+Заменить: console.log(`🔄 UNDO/REDO: ↩️ Восстановлено ${uniqueEvents.length} событий, ${state.projects.length} проектов`);
+
+Найти: console.log('🔒 Undo: синхронизация проектов заблокирована на 5 секунд');
+Заменить: console.log('🔄 UNDO/REDO: 🔒 Синхронизация проектов заблокирована на 5 секунд');
+
+Найти: console.log('✅ Undo: события успешно синхронизированы с сервером');
+Заменить: console.log('🔄 UNDO/REDO: ✅ События успешно синхронизированы с сервером');
+
+Найти: console.error('❌ Undo: ошибка синхронизации с сервером:', error);
+Заменить: console.error('🔄 UNDO/REDO: ❌ Ошибка синхронизации с сервером:', error);
+
+Найти: console.log('✅ Undo: удалённые события успешно синхронизированы с сервером');
+Заменить: console.log('🔄 UNDO/REDO: ✅ Удалённые события успешно синхронизированы с сервером');
+
+Найти: console.error('❌ Undo: ошибка синхронизации удалённых событий:', error);
+Заменить: console.error('🔄 UNDO/REDO: ❌ Ошибка синхронизации удалённых событий:', error);
+
+Добавить в конец handleUndo (перед закрывающей скобкой):
+console.log('🔄 UNDO/REDO: ✅ Undo завершён успешно');

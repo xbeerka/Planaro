@@ -34,7 +34,7 @@ interface SaveMetrics {
  * - SQL транзакция на сервере
  */
 export function useDebouncedSave(
-  onSaveBatch: (changes: Map<string, Partial<SchedulerEvent>>) => Promise<void>,
+  onSaveBatch: (changes: Map<string, Partial<SchedulerEvent>>, ...args: any[]) => Promise<void>,
   delay: number = 500
 ) {
   // Очередь изменений: Map<eventId, EventChange>
@@ -57,7 +57,7 @@ export function useDebouncedSave(
   /**
    * Сохраняет все накопленные изменения ОДНИМ batch запросом
    */
-  const flush = useCallback(async () => {
+  const flush = useCallback(async (...args: any[]) => {
     console.log(`🔍 FLUSH ВЫЗВАН: size=${changesQueueRef.current.size}, isSaving=${isSavingRef.current}`);
     
     if (changesQueueRef.current.size === 0 || isSavingRef.current) {
@@ -87,7 +87,7 @@ export function useDebouncedSave(
       });
       
       // 🚀 ОДНИМ batch запросом!
-      await onSaveBatch(eventChanges);
+      await onSaveBatch(eventChanges, ...args);
       console.log(`✅ BATCH Save: ВСЕ ${changesToSave.size} изменений СОХРАНЕНЫ УСПЕШНО!`);
       
       // Обновляем метрики
@@ -118,11 +118,9 @@ export function useDebouncedSave(
    * Добавляет изменение в очередь и запускает debounce таймер
    */
   const queueChange = useCallback((id: string, event: Partial<SchedulerEvent>) => {
-    // Пропускаем временные события
-    if (id.startsWith('ev_temp_')) {
-      return;
-    }
-
+    // ✅ ШАГ 3 v4.0.0: РАЗРЕШАЕМ временные события (они будут созданы при flush)
+    // Старая логика пропускала ev_temp_* ID, но теперь они должны попасть в queue
+    
     // ✅ ИСПРАВЛЕНИЕ: Мерджим с существующим изменением если оно есть
     const existingChange = changesQueueRef.current.get(id);
     

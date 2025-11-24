@@ -85,6 +85,25 @@ export interface Comment {
   updatedAt?: string;
 }
 
+// ✨ Промежуток между двумя событиями (для двустороннего resize)
+export interface EventGap {
+  id: string; // уникальный ID gap
+  type: 'vertical' | 'horizontal'; // тип промежутка
+  resourceId: string; // ресурс где находится gap
+  
+  // Для vertical gap (между событиями по вертикали в пределах одной недели)
+  week?: number; // неделя где находится gap
+  unitBoundary?: number; // граница между событиями (unitStart второго события)
+  
+  // Для horizontal gap (между событиями по горизонтали в пределах одного unitStart)
+  unitStart?: number; // unitStart где находится gap  
+  weekBoundary?: number; // граница между событиями (startWeek второго события)
+  
+  // События-участники
+  event1: SchedulerEvent; // верхнее или левое событие
+  event2: SchedulerEvent; // нижнее или правое событие
+}
+
 export interface Month {
   name: string;
   weeks: number;

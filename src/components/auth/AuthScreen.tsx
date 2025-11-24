@@ -233,13 +233,13 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
       console.log('🔄 Регистрация пользователя с OTP:', email, `${firstName} ${lastName}`, avatarFile ? 'с аватаркой' : 'без аватарки');
 
       const result = await sendOTP(email, password, firstName, lastName, avatarFile);
-      console.log('✅ OTP отправлен:', result);
+      console.log('✅ OTP оравлен:', result);
 
       // Switch to OTP verification mode and start timer
       console.log('🔄 Переключение на режим verify-otp');
       setMode('verify-otp');
       setMessage(result.message || 'Код подтверждения отправлен на ваш email');
-      console.log('⏱️ Запуск таймера на 120 секунд');
+      console.log('⏱️ Запуск та��мера на 120 секунд');
       setResendTimer(120);
     } catch (err: any) {
       console.error('❌ Ошибка регистрации:', err);
@@ -521,7 +521,7 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
                     type="button"
                     onClick={handleResendOTP}
                     disabled={resendTimer > 0}
-                    className="block w-full text-left text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 p-2 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="block w-full text-left text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 p-2 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                   >
                     {resendTimer > 0 
                       ? `⏳ Подождите ${resendTimer} сек перед повторной отправкой`
@@ -553,7 +553,7 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
                       setError('');
                       setMessage('Введите данные для получения нового кода');
                     }}
-                    className="block w-full text-left text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 p-2 rounded transition-colors"
+                    className="block w-full text-left text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 p-2 rounded transition-colors cursor-pointer"
                   >
                     → Получить новый код подтверждения
                   </button>
@@ -572,7 +572,7 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
                       setError('');
                       setMessage('Войдите с существующими учетными данными');
                     }}
-                    className="block w-full text-left text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 p-2 rounded transition-colors"
+                    className="block w-full text-left text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 p-2 rounded transition-colors cursor-pointer"
                   >
                     → Перейти к входу
                   </button>
@@ -589,7 +589,7 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
                       setError('');
                       setMessage('Создайте новый аккаунт');
                     }}
-                    className="block w-full text-left text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 p-2 rounded transition-colors"
+                    className="block w-full text-left text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 p-2 rounded transition-colors cursor-pointer"
                   >
                     → Зарегистрироваться
                   </button>
@@ -635,7 +635,7 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
     <button
       type="submit"
       disabled={isLoading || !otp}
-      className="w-full py-3 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium text-center"
+      className="w-full py-3 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors font-medium text-center"
     >
       {isLoading ? 'Проверка...' : 'Подтвердить'}
     </button>
@@ -645,7 +645,7 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
       type="button"
       onClick={handleResendOTP}
       disabled={resendTimer > 0 || isLoading}
-      className="text-center w-full py-2 text-sm font-medium text-blue-600 hover:text-blue-700 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors border border-transparent hover:border-blue-200 rounded-lg"
+      className="text-center w-full py-2 text-sm font-medium text-blue-600 hover:text-blue-700 disabled:text-gray-400 disabled:cursor-not-allowed cursor-pointer transition-colors border border-transparent hover:border-blue-200 rounded-lg"
     >
       {resendTimer > 0 
         ? `Отправить повторно через ${resendTimer} сек`
@@ -664,7 +664,7 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
         setMessage('');
         setResendTimer(0);
       }}
-                className="w-full py-2 text-sm text-gray-600 hover:text-gray-900 transition-colors text-center"
+                className="w-full py-2 text-sm text-gray-600 hover:text-gray-900 cursor-pointer transition-colors text-center"
               >
                 Вернуться на авторизацию
               </button>
@@ -676,7 +676,7 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
           {/* Sign In Form */}
           {mode === 'signin' && (
             <form onSubmit={handleSignIn} className="space-y-4">
-              <div>
+              <div className="relative">
                 <input
                   id="email"
                   type="email"
@@ -696,6 +696,29 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
                   autoComplete="email"
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                 />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEmail('test@kode.ru');
+                    setPassword('test123');
+                  }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded hover:bg-black/5 transition-colors cursor-pointer"
+                  title="Заполнить тестовыми данными"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="#3b82f6"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M16 18a2 2 0 0 1 2 2a2 2 0 0 1 2 -2a2 2 0 0 1 -2 -2a2 2 0 0 1 -2 2zm0 -12a2 2 0 0 1 2 2a2 2 0 0 1 2 -2a2 2 0 0 1 -2 -2a2 2 0 0 1 -2 2zm-7 12a6 6 0 0 1 6 -6a6 6 0 0 1 -6 -6a6 6 0 0 1 -6 6a6 6 0 0 1 6 6z" />
+                  </svg>
+                </button>
               </div>
 
               <div>
@@ -718,7 +741,7 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full py-3 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium text-center"
+                className="w-full py-3 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors font-medium text-center"
               >
                 {isLoading ? 'Вход...' : 'Войти'}
               </button>
@@ -741,7 +764,7 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
                   setError('');
                   setMessage('');
                 }}
-                className="w-full py-3 px-4 bg-white text-blue-600 border-2 border-blue-600 rounded-lg hover:bg-blue-50 transition-colors font-medium text-center"
+                className="w-full py-3 px-4 bg-white text-blue-600 border-2 border-blue-600 rounded-lg hover:bg-blue-50 cursor-pointer transition-colors font-medium text-center"
               >
                 Создать аккаунт
               </button>
@@ -785,53 +808,51 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
                 />
               </div>
 
-              {/* Avatar upload */}
-              <div>
-                <div className="flex items-center gap-4">
-                  {/* Avatar preview */}
-                  <div className="flex-shrink-0">
-                    <div className="w-20 h-20 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center overflow-hidden">
-                      {avatarPreview ? (
-                        <img 
-                          src={avatarPreview} 
-                          alt="Avatar preview" 
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <span className="text-white text-xl font-semibold">
-                          {firstName && lastName 
-                            ? `${firstName[0]}${lastName[0]}`.toUpperCase() 
-                            : '?'}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Upload button */}
-                  <div className="flex-1">
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="w-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors flex items-center justify-center gap-2 text-gray-700"
-                    >
-                      <Upload className="w-5 h-5" />
-                      <span className="text-sm">
-                        {avatarFile ? avatarFile.name : 'Загрузить фото (необязательно)'}
+              {/* Avatar upload - REMOVED */}
+              {/* <div className="flex items-center gap-4">
+                {/* Avatar preview */}
+                {/* <div className="flex-shrink-0">
+                  <div className="w-20 h-20 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center overflow-hidden">
+                    {avatarPreview ? (
+                      <img 
+                        src={avatarPreview} 
+                        alt="Avatar preview" 
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <span className="text-white text-xl font-semibold">
+                        {firstName && lastName 
+                          ? `${firstName[0]}${lastName[0]}`.toUpperCase() 
+                          : '?'}
                       </span>
-                    </button>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Максимум 5MB
-                    </p>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/*"
-                      onChange={handleAvatarSelect}
-                      className="hidden"
-                    />
+                    )}
                   </div>
                 </div>
-              </div>
+
+                {/* Upload button */}
+                {/* <div className="flex-1">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors flex items-center justify-center gap-2 text-gray-700"
+                  >
+                    <Upload className="w-5 h-5" />
+                    <span className="text-sm">
+                      {avatarFile ? avatarFile.name : 'Загрузить фото (необязательно)'}
+                    </span>
+                  </button>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Максимум 5MB
+                  </p>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleAvatarSelect}
+                    className="hidden"
+                  />
+                </div>
+              </div> */}
 
               <div>
                 <input
@@ -861,7 +882,7 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
                     setPassword(e.target.value);
                     if (error) setError('');
                   }}
-                  placeholder="Минимум 6 символов"
+                  placeholder="Пароль (мин. 6 символов)"
                   required
                   minLength={6}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
@@ -871,7 +892,7 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full py-3 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium text-center"
+                className="w-full py-3 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors font-medium text-center"
               >
                 {isLoading ? 'Регистрация...' : 'Зарегистрироваться'}
               </button>
@@ -885,7 +906,7 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
                   setError('');
                   setMessage('');
                 }}
-                className="w-full py-2 text-sm text-gray-600 hover:text-gray-900 transition-colors text-center"
+                className="w-full py-2 text-sm text-gray-600 hover:text-gray-900 cursor-pointer transition-colors text-center"
               >
                 Уже есть аккаунт? Войти
               </button>

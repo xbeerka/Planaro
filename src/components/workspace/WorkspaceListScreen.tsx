@@ -1,22 +1,25 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
-import { Calendar, Plus, Users, Folder, Layers, MoreVertical, Pencil, Trash2, ChevronDown, User, Settings, X } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Workspace, WorkspaceSummary } from '../../types/scheduler';
 import { getWorkspaces, getWorkspaceSummary, deleteWorkspace } from '../../services/api/workspaces';
+import { Plus, Calendar, Users, LogOut, ChevronDown, MoreVertical, Pencil, Trash2, Folder, Layers, User } from 'lucide-react';
 import { CreateWorkspaceModal } from './CreateWorkspaceModal';
 import { EditWorkspaceModal } from './EditWorkspaceModal';
-import { WorkspaceUsers } from './WorkspaceUsers';
-import { ProfileModal } from './ProfileModal';
-import { SettingsModal } from '../scheduler/SettingsModal';
 import { getStorageJSON, setStorageJSON } from '../../utils/storage';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
-import { getEmailFromToken, getDisplayNameFromToken, decodeSupabaseJWT } from '../../utils/jwt';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
+import { decodeSupabaseJWT, getDisplayNameFromToken, getEmailFromToken } from '../../utils/jwt';
+import { toast } from '../../components/ui/use-toast';
+import { WorkspaceUsers } from './WorkspaceUsers';
+import { presenceApi } from '../../services/api/presence';
+import { ProfileModal } from '../auth/ProfileModal';
+import { LoadingScreen } from '../ui/spinner';
+import { 
+  DropdownMenu, 
+  DropdownMenuContent, 
+  DropdownMenuItem, 
   DropdownMenuTrigger,
+  DropdownMenuSeparator 
 } from '../ui/dropdown-menu';
+import { getStorageJSON, setStorageJSON } from '../../utils/storage';
+import { projectId } from '../../utils/supabase/info';
 
 // Онлайн пользователь (из presence системы)
 interface OnlineUser {
@@ -48,7 +51,6 @@ export function WorkspaceListScreen({ onSelectWorkspace, onSignOut, onTokenRefre
   const menuRef = useRef<HTMLDivElement>(null);
   const [onlineUsersMap, setOnlineUsersMap] = useState<Map<string, OnlineUser[]>>(new Map());
   const [showProfileModal, setShowProfileModal] = useState(false);
-  const [showSettingsModal, setShowSettingsModal] = useState(false);
   
   // Извлекаем данные текущего пользователя из accessToken (мемоизировано)
   // ВАЖНО: используем утилиты из jwt.ts для поддержки кириллицы
@@ -433,14 +435,7 @@ export function WorkspaceListScreen({ onSelectWorkspace, onSignOut, onTokenRefre
   };
 
   if (isLoading) {
-    return (
-      <div className="min-h-screen bg-[#f7f9fb] flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Загрузка пространств...</p>
-        </div>
-      </div>
-    );
+    return <LoadingScreen message="Загрузка пространств..." size="lg" />;
   }
 
   return (
@@ -503,11 +498,6 @@ export function WorkspaceListScreen({ onSelectWorkspace, onSignOut, onTokenRefre
               <DropdownMenuItem onClick={() => setShowProfileModal(true)}>
                 <User className="w-4 h-4 mr-2" />
                 Редактировать профиль
-              </DropdownMenuItem>
-              
-              <DropdownMenuItem onClick={() => setShowSettingsModal(true)}>
-                <Settings className="w-4 h-4 mr-2" />
-                Настройки
               </DropdownMenuItem>
               
               <DropdownMenuSeparator />
@@ -708,12 +698,6 @@ export function WorkspaceListScreen({ onSelectWorkspace, onSignOut, onTokenRefre
           // Обновление токена будет обработано через onTokenRefresh
           // Страница не перезагружается - OnlineUsers автоматически получит новый токен
         }}
-      />
-
-      {/* Settings Modal */}
-      <SettingsModal 
-        isOpen={showSettingsModal} 
-        onClose={() => setShowSettingsModal(false)} 
       />
     </div>
   );

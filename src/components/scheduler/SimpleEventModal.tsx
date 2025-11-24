@@ -1,10 +1,11 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Project, SchedulerEvent } from '../../types/scheduler';
 import { SimpleButton } from '../ui/simple-button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/simple-dialog';
 import { SimpleLabel } from '../ui/simple-label';
 import { SimpleInput } from '../ui/simple-input';
 import { WEEKS } from '../../utils/scheduler';
+import { getSortedProjectsByUsage, trackProjectUsage } from '../../utils/projectUsageTracking';
 
 interface EventModalProps {
   isOpen: boolean;
@@ -18,11 +19,22 @@ interface EventModalProps {
     unitsTall?: number;
     maxUnits?: number;
     startWeek?: number;
+    workspaceId?: string; // ✨ Добавлено для tracking
   };
 }
 
 export function SimpleEventModal({ isOpen, onClose, onSave, projects, mode, initialData }: EventModalProps) {
-  const [projectId, setProjectId] = useState(initialData?.projectId || projects[0]?.id || '');
+  // ✨ Локальный state для принудительного обновления сортировки
+  const [sortTrigger, setSortTrigger] = useState(0);
+  
+  // ✨ Сортируем проекты по последнему использованию
+  const sortedProjects = useMemo(() => {
+    if (!initialData?.workspaceId) return projects;
+    return getSortedProjectsByUsage(initialData.workspaceId, projects);
+  }, [projects, initialData?.workspaceId, sortTrigger]); // ← Добавили sortTrigger
+  
+  // ✨ НЕ выбираем первый проект по умолчанию (пустая строка вместо projects[0]?.id)
+  const [projectId, setProjectId] = useState(initialData?.projectId || '');
   const [weeksSpan, setWeeksSpan] = useState(initialData?.weeksSpan || 1);
   const [unitsTall, setUnitsTall] = useState(initialData?.unitsTall || initialData?.maxUnits || 4);
   const [searchQuery, setSearchQuery] = useState('');
@@ -38,7 +50,11 @@ export function SimpleEventModal({ isOpen, onClose, onSave, projects, mode, init
 
   useEffect(() => {
     if (isOpen) {
-      setProjectId(initialData?.projectId || projects[0]?.id || '');
+      // ✨ Обновляем сортировку при открытии модалки (подхватываем изменения из paste/create)
+      setSortTrigger(prev => prev + 1);
+      
+      // ✨ НЕ выбираем первый проект по умолчанию
+      setProjectId(initialData?.projectId || '');
       
       // Вычисляем максимум недель для валидации (0-based индексация)
       const maxWeeksCalc = initialData?.startWeek 
@@ -58,12 +74,13 @@ export function SimpleEventModal({ isOpen, onClose, onSave, projects, mode, init
           inputRef.current?.focus();
         }, 100);
       } else {
+        // ✅ Используем projects напрямую для поиска (избегаем зависимости от sortedProjects)
         const selectedProject = projects.find(p => p.id === initialData?.projectId);
         setSearchQuery(selectedProject?.name || '');
         setShowDropdown(false);
       }
     }
-  }, [isOpen, initialData, projects, mode]);
+  }, [isOpen, initialData, projects, mode]); // ✅ Убрали sortedProjects из зависимостей!
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -86,7 +103,7 @@ export function SimpleEventModal({ isOpen, onClose, onSave, projects, mode, init
     };
   }, [showDropdown]);
 
-  const filteredProjects = projects.filter(project =>
+  const filteredProjects = sortedProjects.filter(project =>
     project.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -124,6 +141,16 @@ export function SimpleEventModal({ isOpen, onClose, onSave, projects, mode, init
     setProjectId(project.id);
     setSearchQuery(project.name);
     setShowDropdown(false);
+    
+    // ✨ Отслеживаем использование проекта асинхронно (избегаем React warning)
+    if (initialData?.workspaceId) {
+      // Используем queueMicrotask для асинхронного вызова
+      queueMicrotask(() => {
+        trackProjectUsage(initialData.workspaceId!, project.id);
+        // Принудительно обновляем сортировку после tracking
+        setSortTrigger(prev => prev + 1);
+      });
+    }
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
