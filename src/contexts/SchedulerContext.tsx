@@ -327,13 +327,13 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
   // Load departments
   useEffect(() => {
     if (!accessToken) {
-      setIsLoadingDepartments(false);
+      queueMicrotask(() => setIsLoadingDepartments(false));
       return;
     }
     
     // Если workspaceId нет - ничего не загружаем
     if (!workspaceId) {
-      setIsLoadingDepartments(false);
+      queueMicrotask(() => setIsLoadingDepartments(false));
       return;
     }
 
@@ -365,13 +365,13 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
   // Load resources
   useEffect(() => {
     if (!accessToken) {
-      setIsLoadingResources(false);
+      queueMicrotask(() => setIsLoadingResources(false));
       return;
     }
     
     // Если workspaceId нет - ничего не загружаем
     if (!workspaceId) {
-      setIsLoadingResources(false);
+      queueMicrotask(() => setIsLoadingResources(false));
       return;
     }
     
@@ -403,13 +403,13 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
   // Load projects
   useEffect(() => {
     if (!accessToken) {
-      setIsLoadingProjects(false);
+      queueMicrotask(() => setIsLoadingProjects(false));
       return;
     }
     
     // Если workspaceId нет - ничего не загружаем
     if (!workspaceId) {
-      setIsLoadingProjects(false);
+      queueMicrotask(() => setIsLoadingProjects(false));
       return;
     }
 
@@ -441,7 +441,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
   // Load grades
   useEffect(() => {
     if (!accessToken) {
-      setIsLoadingGrades(false);
+      queueMicrotask(() => setIsLoadingGrades(false));
       return;
     }
 
@@ -475,7 +475,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
   // Load event patterns
   useEffect(() => {
     if (!accessToken) {
-      setIsLoadingEventPatterns(false);
+      queueMicrotask(() => setIsLoadingEventPatterns(false));
       return;
     }
 
@@ -509,7 +509,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
   // Load companies
   useEffect(() => {
     if (!accessToken) {
-      setIsLoadingCompanies(false);
+      queueMicrotask(() => setIsLoadingCompanies(false));
       return;
     }
 
@@ -543,7 +543,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
   // Load events
   useEffect(() => {
     if (!accessToken) {
-      setIsLoadingEvents(false);
+      queueMicrotask(() => setIsLoadingEvents(false));
       return;
     }
     

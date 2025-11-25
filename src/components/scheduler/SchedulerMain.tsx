@@ -335,20 +335,24 @@ export function SchedulerMain({
     if (!isLoading && !historyInitializedRef.current) {
       console.log(`📝 Инициализация истории: ${events.length} событий, ${projects.length} проектов`);
       
-      // ✅ Оборачиваем в setTimeout чтобы избежать "Cannot update component while rendering"
-      // если useEffect срабатывает синхронно или во время рендера родителя
-      setTimeout(() => {
-        resetHistory(events, eventZOrder, projects);
-        historyInitializedRef.current = true;
-      }, 0);
+      // ✅ Инициализируем историю СИНХРОННО (не через setTimeout)
+      // Это гарантирует что история будет инициализирована ДО первого рендера
+      resetHistory(events, eventZOrder, projects);
+      historyInitializedRef.current = true;
     }
     
-    // Сбрасываем флаг при выходе из воркспейса
-    if (events.length === 0 && historyInitializedRef.current) {
-      console.log('🧹 Сброс флага истории (выход из воркспейса)');
-      historyInitializedRef.current = false;
-    }
+    // ❌ УБРАЛИ: сброс флага при events.length === 0
+    // Это приводило к реинициализации истории с пустым состоянием при Undo
+    // Флаг сбрасывается только при размонтировании компонента (см. cleanup ниже)
   }, [isLoading, events.length, projects.length, eventZOrder, resetHistory]);
+  
+  // Сбрасываем флаг при размонтировании компонента
+  React.useEffect(() => {
+    return () => {
+      console.log('🧹 Сброс флага истории (размонтирование компонента)');
+      historyInitializedRef.current = false;
+    };
+  }, []);
 
   // Автосохранение истории при изменении проектов (для undo/redo удаления проектов)
   const prevProjectsRef = useRef<Project[]>([]);
@@ -388,6 +392,63 @@ export function SchedulerMain({
     }
   }, [projects, events, eventZOrder, saveHistory, events.length, projects.length]);
 
+  // ❌ УДАЛЕНО v4.0.0: Автосохранение истории при изменении событий
+  // 
+  // История теперь сохраняется ТОЛЬКО явно:
+  // 1. Drag/Drop → saveHistory() в useEventInteractions (handlePointerUp)
+  // 2. Resize → saveHistory() в useEventInteractions (handlePointerUp)
+  // 3. Gap Drag → saveHistory() в useGapInteractions (handleGapDragEnd)
+  // 4. Create → saveHistory() в handleModalSave
+  // 5. Paste → saveHistory() в handlePaste
+  // 6. Delete → saveHistory() сразу после setEvents() в context menu handler
+  //
+  // Преимущества:
+  // - Нет промежуточных состояний в истории
+  // - Polling не создаёт новые записи
+  // - Undo/Redo работают предсказуемо
+
+  /* УДАЛЕНО v4.0.0
+  React.useEffect(() => {
+    // Пропускаем первую инициализацию
+    if (!historyInitializedRef.current) {
+      prevEventsRef.current = events;
+      return;
+    }
+    
+    // Если события изменились - проверяем это ли пользовательское изменение
+    // Используем JSON.stringify для глубокого сравнения (медленно, но надежно)
+    const eventsChanged = JSON.stringify(prevEventsRef.current) !== JSON.stringify(events);
+    
+    if (eventsChanged) {
+      // ✅ КРИТИЧЕСКАЯ ПРОВЕРКА: НЕ сохраняем если есть события но НЕТ проектов
+      if (events.length > 0 && projects.length === 0) {
+        console.warn('⚠️ История: пропуск автосохранения - events загружены, но projects ещё нет');
+        prevEventsRef.current = events;
+        return;
+      }
+      
+      // ✅ Сохраняем историю при изменении событий
+      // NOTE: Мы сохраняем историю ВСЕГДА, потому что:
+      // 1. Drag/Drop/Resize уже сохраняют историю через хуки
+      // 2. Polling НЕ должен сохранять историю (загрузка с сервера)
+      // 3. Undo/Redo НЕ должны сохранять историю (восстановление из истории)
+      // 4. Но этот эффект срабатывает ПОСЛЕ всех этих операций
+      // Поэто��у мы добавляем проверку последнего времени Undo/Redo и пропускаем сохранение
+      const timeSinceLastUndoRedo = Date.now() - lastUndoRedoTimeRef.current;
+      if (timeSinceLastUndoRedo < 2000) {
+        console.log('⏭️ Пропуск автосохранения: недавнее Undo/Redo');
+        prevEventsRef.current = events;
+        return;
+      }
+      
+      console.log('📝 Автосохранение истории после изменения событий');
+      saveHistory(events, eventZOrder, projects);
+      prevEventsRef.current = events;
+    }
+  }, [events, eventZOrder, projects, saveHistory]);
+  */
+
+  
   // ✅ Дополнительная защита: мониторинг состояния для раннего обнаружения проблем
   React.useEffect(() => {
     // Пропускаем проверку пока не инициализировали историю
@@ -430,8 +491,13 @@ export function SchedulerMain({
     }
     
     // ✅ v3.3.20: КРИТИЧНО - блокируем Undo если есть события с временными ID (в процессе создания)
-    // Это симметрично с handleRedo и предотвращает баг при быстром Undo после создания
-    const hasPendingEvents = events.some(e => e.id.startsWith('ev_temp_'));
+    // Получаем текущие события через setEvents callback для избежания зависимости от events
+    let hasPendingEvents = false;
+    setEvents(currentEvents => {
+      hasPendingEvents = currentEvents.some(e => e.id.startsWith('ev_temp_'));
+      return currentEvents; // Возвращаем без изменений
+    });
+    
     if (hasPendingEvents) {
       console.log('⏸️ UNDO: Заблокировано - есть события в процессе создания');
       // ✅ Обернём в queueMicrotask чтобы избежать "Cannot update component while rendering"
@@ -484,7 +550,12 @@ export function SchedulerMain({
       console.log('🔄 UNDO/REDO: 🔒 Флаг установлен в:', isUndoRedoInProgressRef.current);
       
       // ✅ Сохраняем текущие события ДО undo (для синхронизации удалений)
-      const previousEvents = events;
+      // Получаем через setEvents callback чтобы не зависеть от events в deps
+      let previousEvents: SchedulerEvent[] = [];
+      setEvents(currentEvents => {
+        previousEvents = currentEvents;
+        return currentEvents; // Возвращаем без изменений
+      });
       
       // ✅ БЛОКИРУЕМ автосохранение при undo (это не пользовательское изменение)
       isUserProjectChangeRef.current = false;
@@ -531,7 +602,7 @@ export function SchedulerMain({
       resetProjectsSyncTimer();
       console.log('🔄 UNDO/REDO: 🔒 Синхронизация проектов заблокирована на 5 секунд');
       
-      // ✅ КРИТИЧНО: Синхронизируем восстановленные события с сервером!
+      // ✅ КРИТИЧНО: Си��хронизируем восстановленные события с сервером!
       // Это предотвратит их удаление Full Sync'ом через 30 секунд
       try {
         await syncRestoredEventsToServer(uniqueEvents, updateHistoryEventId);
@@ -577,7 +648,7 @@ export function SchedulerMain({
       isUndoRedoInProgressRef.current = false;
       console.log('🔄 UNDO/REDO: 🔓 Блокировка снята (теперь:', isUndoRedoInProgressRef.current, ')');
     }
-  }, [historyUndo, events, setEvents, setProjects, resetDeltaSyncTimer, resetProjectsSyncTimer, syncRestoredEventsToServer, syncDeletedEventsToServer, updateHistoryEventId, cancelPendingChange, flushPendingChanges, hasPendingOperations, showToast]);
+  }, [historyUndo, setEvents, setProjects, setEventZOrder, resetDeltaSyncTimer, resetProjectsSyncTimer, syncRestoredEventsToServer, syncDeletedEventsToServer, updateHistoryEventId, cancelPendingChange, flushPendingChanges, hasPendingOperations, showToast]);
 
   const handleRedo = useCallback(async () => {
     // ✅ v3.3.14: Сначала флашим все pending изменения
@@ -605,8 +676,13 @@ export function SchedulerMain({
     }
     
     // ✅ v3.3.19: КРИТИЧНО - блокируем Redo если есть события с временными ID (в процессе создания)
-    // Это предотвращает баг когда событие находится в процессе загрузки
-    const hasPendingEvents = events.some(e => e.id.startsWith('ev_temp_'));
+    // Получаем текущие события через setEvents callback для избежания зависимости от events
+    let hasPendingEvents = false;
+    setEvents(currentEvents => {
+      hasPendingEvents = currentEvents.some(e => e.id.startsWith('ev_temp_'));
+      return currentEvents; // Возвращаем без изменений
+    });
+    
     if (hasPendingEvents) {
       console.log('⏸️ REDO: Заблокировано - есть события в процессе создания');
       // ✅ Обернём в queueMicrotask чтобы избежать "Cannot update component while rendering"
@@ -658,12 +734,17 @@ export function SchedulerMain({
       console.log('🔄 UNDO/REDO: 🔒 Флаг установлен в:', isUndoRedoInProgressRef.current);
       
       // ✅ Сохраняем текущие события ДО redo (для синхронизации удалений)
-      const previousEvents = events;
+      // Получаем через setEvents callback чтобы не зависеть от events в deps
+      let previousEvents: SchedulerEvent[] = [];
+      setEvents(currentEvents => {
+        previousEvents = currentEvents;
+        return currentEvents; // Возвращаем без изменений
+      });
       
       // ✅ БЛОКИРУЕМ автосохранение при redo (это не пользовательское изменение)
       isUserProjectChangeRef.current = false;
       
-      // ✅ БЛОКИРУЕМ очистку orphaned events на 5 секунд (защита от удаления восстановленных событий)
+      // ✅ БЛОКИРУЕМ очистку orphaned events на 5 секунд (защ��та от удаления восстановленных событий)
       lastUndoRedoTimeRef.current = Date.now();
       console.log('🔄 UNDO/REDO: 🛡️ Блокировка orphaned cleanup на 5 секунд');
       
@@ -751,7 +832,7 @@ export function SchedulerMain({
       isUndoRedoInProgressRef.current = false;
       console.log('🔄 UNDO/REDO: 🔓 Блокировка снята (теперь:', isUndoRedoInProgressRef.current, ')');
     }
-  }, [historyRedo, events, setEvents, setProjects, resetDeltaSyncTimer, resetProjectsSyncTimer, syncRestoredEventsToServer, syncDeletedEventsToServer, updateHistoryEventId, cancelPendingChange, flushPendingChanges, hasPendingOperations, showToast]);
+  }, [historyRedo, setEvents, setProjects, setEventZOrder, resetDeltaSyncTimer, resetProjectsSyncTimer, syncRestoredEventsToServer, syncDeletedEventsToServer, updateHistoryEventId, cancelPendingChange, flushPendingChanges, hasPendingOperations, showToast]);
 
   // ✅ Обёртка для deleteProject с флагом пользовательского изменения
   const handleDeleteProject = useCallback(async (id: string) => {
@@ -1187,7 +1268,7 @@ export function SchedulerMain({
       // Это гарантирует что при быстром удалении несколь��их событий
       // все промежуточные состояния сохранятся в истории
       saveHistory(newEvents, newEventZOrder, projects);
-      console.log('📝 История сохранена перед удалением события:', eventId);
+      console.log('📝 История сохр��нена перед удалением события:', eventId);
       
       // Для реальных событий: deleteEvent делает оптимистичное удаление из state
       (async () => {
@@ -1454,7 +1535,7 @@ export function SchedulerMain({
         console.log(`📝 История: обновлен ID ${tempEvent.id} → ${createdEvent.id} (create from modal)`);
 
         // v3.3.7: КРИТИЧНО - сохраняем историю СИНХРОННО через Promise
-        // Это гарантирует что история сохранится ДО того как пользователь начнёт drag
+        // Это гарантирует что история сохранится ДО того как пользователь начн��т drag
         await new Promise<void>(resolve => {
           setEvents(currentEvents => {
             console.log('📝 История: сохранение после создания события (модалка)');
@@ -1621,7 +1702,7 @@ export function SchedulerMain({
 
   // Кэшируем отфильтрованные события для оптимизации
   const sortedEventsWithZOrder = useMemo(() => {
-    console.log('📊 sortedEventsWithZOrder пересчитывается! visibleEvents:', visibleEvents.length, 'filteredResources:', filteredResources.length, 'eventZOrder.size:', eventZOrder.size);
+    console.log('📊 sortedEventsWithZOrder пересчитывается! visibleEvents:', visibleEvents.length, 'filteredResources:', filteredResources.length, 'eventZOrder.size:', eventZOrder?.size || 0);
     const filteredResourceIds = new Set(
       filteredResources.map((r) => r.id),
     );
@@ -1635,7 +1716,7 @@ export function SchedulerMain({
     );
     const eventsWithZOrder = [...sorted];
 
-    if (eventZOrder.size > 0) {
+    if (eventZOrder && eventZOrder.size > 0) {
       eventsWithZOrder.sort((a, b) => {
         const zA = eventZOrder.get(a.id) || 0;
         const zB = eventZOrder.get(b.id) || 0;
@@ -2403,3 +2484,5 @@ export function SchedulerMain({
     </div>
   );
 }
+
+export default SchedulerMain;

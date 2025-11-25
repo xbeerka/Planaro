@@ -22,32 +22,39 @@ export function useHistory(
     canRedo,
     currentEvents,
     currentProjects,
+    currentEventZOrder, // ✅ Получаем eventZOrder
   } = useOptimisticHistory(initialEvents, initialProjects);
 
   // Wrapper for saveHistory to match old API
   // Old API: saveHistory(events, eventZOrder, projects)
-  // New API: pushState(events, projects)
+  // New API: pushState(events, projects, eventZOrder)
   const saveHistory = (
     events: SchedulerEvent[],
     eventZOrder: Record<string, number> | Map<string, number>,
     projects: Project[]
   ) => {
-    // The new history doesn't track eventZOrder separately,
-    // so we just push events and projects
-    pushState(events, projects);
+    // Convert to Map if needed
+    const zOrderMap = eventZOrder instanceof Map 
+      ? eventZOrder 
+      : new Map(Object.entries(eventZOrder).map(([k, v]) => [k, Number(v)]));
+    
+    pushState(events, projects, zOrderMap); // ✅ Передаём eventZOrder
   };
 
   // Wrapper for resetHistory to match old API
   // Old API: resetHistory(events, eventZOrder, projects)
-  // New API: resetHistory(events, projects)
+  // New API: resetHistory(events, projects, eventZOrder)
   const resetHistory = (
     events: SchedulerEvent[],
     eventZOrder: Record<string, number> | Map<string, number>,
     projects: Project[]
   ) => {
-    // The new history doesn't track eventZOrder separately,
-    // so we just reset with events and projects
-    originalResetHistory(events, projects);
+    // Convert to Map if needed
+    const zOrderMap = eventZOrder instanceof Map 
+      ? eventZOrder 
+      : new Map(Object.entries(eventZOrder).map(([k, v]) => [k, Number(v)]));
+    
+    originalResetHistory(events, projects, zOrderMap); // ✅ Передаём eventZOrder
   };
 
   // Placeholder for updateHistoryProjectId (not implemented in useOptimisticHistory)
@@ -67,5 +74,6 @@ export function useHistory(
     updateHistoryProjectId,
     currentEvents,
     currentProjects,
+    currentEventZOrder, // ✅ Экспортируем eventZOrder
   };
 }

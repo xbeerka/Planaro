@@ -1,0 +1,126 @@
+// ✅ v4.0.0: Undo БЕЗ flushPendingChanges - мгновенное восстановление
+const handleUndo = useCallback(() => {  // ✅ Убрали async!
+  // ✅ v4.0.0: КРИТИЧНО - блокируем Undo если есть pending изменения в debounced queue
+  if (hasPendingOperations()) {
+    console.log('⏸️ UNDO: Заблокировано - есть несохранённые изменения (debounced save)');
+    queueMicrotask(() => {
+      showToast({
+        type: 'warning',
+        message: 'Подождите',
+        description: 'Дождитесь завершения сохранения (~500ms)'
+      });
+    });
+    return;
+  }
+  
+  // ✅ v4.0.0: Дополнительная проверка временных ID
+  const hasPendingEvents = events.some(e => e.id.startsWith('ev_temp_'));
+  if (hasPendingEvents) {
+    console.log('⏸️ UNDO: Заблокировано - есть события в процессе создания');
+    queueMicrotask(() => {
+      showToast({
+        type: 'warning',
+        message: 'Подождите',
+        description: 'Дождитесь завершения создания событий'
+      });
+    });
+    return;
+  }
+  
+  // ✅ v3.3.11: Блокируем одновременные Undo операции
+  if (isUndoRedoInProgressRef.current) {
+    console.log('⏸️ UNDO: Другая операция Undo/Redo выполняется');
+    return; // ✅ Просто блокируем без async ожидания
+  }
+  
+  const state = historyUndo();
+  if (!state) {
+    console.log('🔄 UNDO: История пуста');
+    return;
+  }
+  
+  try {
+    isUndoRedoInProgressRef.current = true;
+    console.log('🔄 UNDO: ↩️ Мгновенное восстановление из истории');
+    
+    const previousEvents = events;
+    
+    // ✅ БЛОКИРУЕМ автосохранение при undo (это не пользовательское изменение)
+    isUserProjectChangeRef.current = false;
+    
+    // ✅ Находим удалённые события и очищаем pending операции
+    const currentIds = new Set(state.events.map(e => e.id));
+    const deletedEvents = previousEvents.filter(e => !currentIds.has(e.id));
+    
+    if (deletedEvents.length > 0) {
+      console.log(`🔄 UNDO: Очистка pending для ${deletedEvents.length} удалённых событий`);
+      deletedEvents.forEach(event => {
+        cancelPendingChange(event.id); // ✅ Убираем из debounced queue
+      });
+    }
+    
+    // ✅ Фильтруем дубликаты по ID
+    const uniqueEvents = Array.from(
+      new Map(state.events.map(e => [e.id, e])).values()
+    );
+    
+    if (uniqueEvents.length !== state.events.length) {
+      console.warn(`🔄 UNDO: ⚠️ Обнаружены дубликаты: ${state.events.length} → ${uniqueEvents.length}`);
+    }
+    
+    // ✅ МГНОВЕННО восстанавливаем state
+    setEvents(uniqueEvents);
+    setEventZOrder(state.eventZOrder);
+    setProjects(state.projects);
+    
+    console.log(`🔄 UNDO: ✅ Восстановлено ${uniqueEvents.length} событий, ${state.projects.length} проектов`);
+    
+    // ✅ Блокируем polling на 2 секунды
+    resetDeltaSyncTimer();
+    resetProjectsSyncTimer();
+    resetResourcesSyncTimer();
+    resetDepartmentsSyncTimer();
+    
+    console.log('🔄 UNDO: ⏸️ Блокировка polling на 2 секунды');
+    
+    // ✅ Синхронизируем с сервером АСИНХРОННО (в фоне, не блокируем UI)
+    Promise.all([
+      syncRestoredEventsToServer(uniqueEvents, updateHistoryEventId),
+      syncDeletedEventsToServer(uniqueEvents, previousEvents)
+    ]).then(() => {
+      console.log('🔄 UNDO: ✅ События синхронизированы с сервером');
+    }).catch(err => {
+      console.error('🔄 UNDO: ❌ Ошибка синхронизации:', err);
+      queueMicrotask(() => {
+        showToast({
+          type: 'error',
+          message: 'Ошибка синхронизации',
+          description: 'Не удалось сохранить изменения на сервере'
+        });
+      });
+    });
+    
+    console.log('🔄 UNDO: ✅ Завершён успешно (синхронизация в фоне)');
+    
+  } catch (err) {
+    console.error('🔄 UNDO: ❌ Критическая ошибка:', err);
+  } finally {
+    isUndoRedoInProgressRef.current = false;
+  }
+}, [
+  historyUndo, 
+  events, 
+  setEvents, 
+  setEventZOrder,
+  setProjects,
+  hasPendingOperations, 
+  cancelPendingChange,
+  resetDeltaSyncTimer,
+  resetProjectsSyncTimer,
+  resetResourcesSyncTimer,
+  resetDepartmentsSyncTimer,
+  syncRestoredEventsToServer,
+  syncDeletedEventsToServer,
+  updateHistoryEventId,
+  showToast
+]);
