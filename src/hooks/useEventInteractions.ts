@@ -1,4 +1,4 @@
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, useLayoutEffect } from 'react';
 import { SchedulerEvent, Resource, Department, Project } from '../types/scheduler';
 import { LayoutConfig, modelFromGeometry, topFor, heightFor, getResourceGlobalTop } from '../utils/schedulerLayout';
 import { clamp, WEEKS, UNITS } from '../utils/scheduler';
@@ -20,6 +20,8 @@ interface UseEventInteractionsProps {
   resetDeltaSyncTimer: () => void; // ✅ v3.3.5: Для блокировки Delta Sync после drag/resize
   flushPendingChanges: (updateHistoryEventId?: (oldId: string, newId: string) => void) => Promise<void>; // ✅ v3.3.7: Flush pending operations перед drag/resize
   updateHistoryEventId: (oldId: string, newId: string) => void; // ✅ Для обновления истории после flush
+  getEvents: () => { events: SchedulerEvent[], projects: Project[], eventZOrder: Map<string, number> }; // ✅ Функция для получения свежего снапшота
+  eventNeighbors?: Map<string, any>; // ✅ Оптимизация: принимаем готовые соседи
 }
 
 interface PointerState {
@@ -29,6 +31,10 @@ interface PointerState {
   el: HTMLElement;
   evData: SchedulerEvent;
   tableRect: DOMRect;
+  currentLeft?: number;
+  currentTop?: number;
+  currentWidth?: number;
+  currentHeight?: number;
   [key: string]: any;
 }
 
@@ -47,8 +53,21 @@ export function useEventInteractions({
   setIsUserInteracting,
   resetDeltaSyncTimer,
   flushPendingChanges,
-  updateHistoryEventId
+  updateHistoryEventId,
+  getEvents, // ✅ Получаем функцию для доступа к снапшоту
+  eventNeighbors
 }: UseEventInteractionsProps) {
+  // ✅ Используем refs для events/projects/zOrder чтобы избежать stale closures в асинхронных onUp
+  // Это критично для корректной работы истории (Undo/Redo) и предотвращения "группировки" действий
+  const eventsRef = useRef(events);
+  const projectsRef = useRef(projects);
+  const eventZOrderRef = useRef(eventZOrder);
+
+  // Обновляем refs при изменении props
+  eventsRef.current = events;
+  projectsRef.current = projects;
+  eventZOrderRef.current = eventZOrder;
+
   const pointerStateRef = useRef<PointerState | null>(null);
 
   const startDrag = useCallback((
@@ -82,24 +101,45 @@ export function useEventInteractions({
 
     document.body.classList.add('dragging-mode');
     el.classList.add('dragging');
+    
+    // 🔧 ВРЕМЕННОЕ РЕШЕНИЕ: меняем z-index напрямую
+    el.style.zIndex = '1000';
 
-    const maxZ = Math.max(...Array.from(eventZOrder.values()), 0);
-    onEventZOrderUpdate(prev => new Map(prev).set(evData.id, maxZ + 1));
-
-    const tableRect = eventsContainerRef.current?.getBoundingClientRect();
-    if (!tableRect) return;
+    // 🛡️ FALLBACK: Если ref недоступен, используем offsetParent
+    let tableRect: DOMRect;
+    const container = eventsContainerRef.current || el.offsetParent as HTMLElement;
+    
+    if (container) {
+      tableRect = container.getBoundingClientRect();
+    } else {
+      console.error('❌ Container not found (both ref and offsetParent are null)!');
+      return;
+    }
 
     const startLeft = parseFloat(el.style.left || '0');
     const startTop = parseFloat(el.style.top || '0');
     const offsetX = e.clientX - tableRect.left - startLeft;
     const offsetY = e.clientY - tableRect.top - startTop;
-
-    // ✅ Вычисляем за какой юнит внутри события взялись (0, 1, 2, ...)
     const offsetUnit = Math.floor(offsetY / config.unitStride);
 
-    // 🔍 КРИТИЧНО: Вычисляем РЕАЛЬНЫЕ padding события ПЕРЕД драгом (как в resize)
-    // Это предотвращает смещение на 1 гап при перемещении склеенных событий
-    const neighborsMap = calculateEventNeighbors(events, projects);
+    console.log('📏 Drag geometry:', { startLeft, startTop, offsetX, offsetY, offsetUnit });
+
+    let neighborsMap;
+    if (eventNeighbors) {
+      // ✅ Оптимизация: используем переданные соседи, если они есть
+      neighborsMap = eventNeighbors;
+    } else {
+      // Fallback: вычисляем на месте (как было раньше)
+      try {
+        neighborsMap = calculateEventNeighbors(events, projects);
+      } catch (err) {
+        console.error('❌ Error calculating neighbors:', err);
+        // Fallback to basic neighbors or continue without neighbors?
+        // Better to return to prevent weird behavior
+        return;
+      }
+    }
+    
     const neighborInfo = neighborsMap.get(evData.id);
     const hasAnyLeftNeighbor = neighborInfo?.hasFullLeftNeighbor || false;
     const hasAnyRightNeighbor = neighborInfo?.hasFullRightNeighbor || false;
@@ -152,6 +192,8 @@ export function useEventInteractions({
       lastValidModel: initialModel,
       startLeft,
       startTop,
+      currentLeft: startLeft,
+      currentTop: startTop,
       realPaddingLeft,
       realPaddingRight,
       expandLeftAmount,
@@ -178,17 +220,23 @@ export function useEventInteractions({
 
       // ✅ Используем реальную позицию курсора для определения ресурса (строки)
       // Но передаём offsetUnit чтобы unitStart внутри строки учитывал точку захвата
-      const newModel = modelFromGeometry(
-        snappedLeftAbs,
-        cursorTopAbs, // ✅ Реальная позиция курсора для определения строки
-        pointerStateRef.current.el.offsetWidth,
-        pointerStateRef.current.el.offsetHeight,
-        pointerStateRef.current.evData,
-        resources,
-        visibleDepartments,
-        config,
-        pointerStateRef.current.offsetUnit // ✅ Передаём offset для корректного unitStart
-      );
+      let newModel = null;
+      try {
+        newModel = modelFromGeometry(
+          snappedLeftAbs,
+          cursorTopAbs, // ✅ Реальная позиция курсора для определения строки
+          pointerStateRef.current.el.offsetWidth,
+          pointerStateRef.current.el.offsetHeight,
+          pointerStateRef.current.evData,
+          resources,
+          visibleDepartments,
+          config,
+          pointerStateRef.current.offsetUnit // ✅ Передаём offset для корректного unitStart
+        );
+      } catch (err) {
+        console.error('❌ Error in modelFromGeometry:', err);
+        return;
+      }
 
       if (newModel) {
         pointerStateRef.current.lastValidModel = newModel;
@@ -252,6 +300,10 @@ export function useEventInteractions({
         // ⚠️ КРИТИЧНО: Вычитаем expandLeftAmount чтобы событие смещалось влево как при рендере!
         finalSnappedLeftAbs -= pointerStateRef.current.expandLeftAmount;
         
+        // ✅ Обновляем текущие координаты в ref
+        pointerStateRef.current.currentLeft = finalSnappedLeftAbs;
+        pointerStateRef.current.currentTop = snappedTop;
+
         pointerStateRef.current.el.style.left = `${finalSnappedLeftAbs}px`;
         pointerStateRef.current.el.style.top = `${snappedTop}px`;
       }
@@ -263,6 +315,7 @@ export function useEventInteractions({
       el.releasePointerCapture(ev.pointerId);
       document.body.classList.remove('dragging-mode');
       el.classList.remove('dragging');
+      el.style.zIndex = ''; // 🔧 Сбрасываем z-index
 
       // 🚫 ВКЛЮЧАЕМ polling обратно
       setIsUserInteracting(false);
@@ -285,8 +338,25 @@ export function useEventInteractions({
         const ws = savedState.evData.weeksSpan;
         newStart = clamp(newStart, 0, Math.max(0, WEEKS - ws));
 
+        // ✅ Получаем АБСОЛЮТНО СВЕЖЕЕ состояние из истории
+        let currentEvents = eventsRef.current;
+        let currentProjects = projectsRef.current;
+        let currentZOrder = eventZOrderRef.current;
+
+        if (typeof getEvents === 'function') {
+           const snapshot = getEvents();
+           currentEvents = snapshot.events;
+           currentProjects = snapshot.projects;
+           currentZOrder = snapshot.eventZOrder;
+        } else {
+           console.warn('⚠️ useEventInteractions: getEvents is not a function, using refs fallback');
+        }
+
+        // ✅ Получаем актуальное событие из snapshot
+        const latestEvent = currentEvents.find(e => e.id === savedState.evData.id) || savedState.evData;
+
         const updatedEvent = {
-          ...savedState.evData,
+          ...latestEvent, // ✅ Используем latestEvent вместо savedState.evData
           startWeek: newStart,
           resourceId: savedState.lastValidModel.resourceId,
           unitStart: savedState.lastValidModel.unitStart
@@ -300,10 +370,11 @@ export function useEventInteractions({
         });
 
         // 🔍 Проверяем, действительно ли событие изменилось (защита от ложных обновлений)
+        // Сравниваем с latestEvent (актуальным состоянием), а не savedState.evData (старым)
         const hasChanged = 
-          updatedEvent.startWeek !== savedState.evData.startWeek ||
-          updatedEvent.resourceId !== savedState.evData.resourceId ||
-          updatedEvent.unitStart !== savedState.evData.unitStart;
+          updatedEvent.startWeek !== latestEvent.startWeek ||
+          updatedEvent.resourceId !== latestEvent.resourceId ||
+          updatedEvent.unitStart !== latestEvent.unitStart;
 
         if (!hasChanged) {
           console.log('⏭️ Событие не изменилось - восстанавливаем DOM стили напрямую');
@@ -327,10 +398,12 @@ export function useEventInteractions({
 
         // ✅ Оптимистичное обновление UI (только если есть изменения)
         onEventsUpdate(prev => prev.map(e => e.id === updatedEvent.id ? updatedEvent : e));
+        
+        // ✅ Используем snapshot для сохранения истории
         onSaveHistory(
-          events.map(e => e.id === updatedEvent.id ? updatedEvent : e),
-          eventZOrder,
-          projects // ✅ ИСПРАВЛЕНО: добавили projects
+          currentEvents.map(e => e.id === updatedEvent.id ? updatedEvent : e),
+          currentZOrder,
+          currentProjects
         );
 
         // ✅ Обновление в базе данных происходит в фоне после завершения взаимодействия
@@ -345,8 +418,53 @@ export function useEventInteractions({
     window.addEventListener('pointerup', onUp);
 
     // 🚫 Отключаем polling
+    console.log('✅ DRAG START successful, setting isUserInteracting(true)');
     setIsUserInteracting(true);
   }, [config, resources, visibleDepartments, events, projects, eventZOrder, onEventsUpdate, onEventZOrderUpdate, onSaveHistory, onEventUpdate, eventsContainerRef, setIsUserInteracting, resetDeltaSyncTimer, flushPendingChanges, updateHistoryEventId]); // ✅ v3.3.7: добавили flushPendingChanges и updateHistoryEventId
+
+  // ✅ v3.3.21: Восстанавливаем стили dragged элемента после ре-рендера
+  // Это критично для предотвращения залипания курсора, если во время drag
+  // происходит ре-рендер (например, из-за Delta Sync или flushPendingChanges)
+  useLayoutEffect(() => {
+    if (pointerStateRef.current) {
+      const { id, el, currentLeft, currentTop, currentWidth, currentHeight } = pointerStateRef.current;
+      
+      // Если элемент исчез из DOM (например, при ре-рендере с изменением key),
+      // пытаемся найти новый элемент по ID
+      let targetEl = el;
+      if (!document.contains(el)) {
+        console.warn('⚠️ Drag элемент потерян из DOM, ищем замену...', id);
+        const newEl = document.querySelector(`[data-event-id="${id}"]`) as HTMLElement;
+        if (newEl) {
+          console.log('✅ Найден новый элемент для drag:', id);
+          targetEl = newEl;
+          // Обновляем ref
+          pointerStateRef.current.el = newEl;
+        } else {
+          console.error('❌ Новый элемент не найден! Drag может сломаться.');
+          return;
+        }
+      }
+
+      // Восстанавливаем стили на (возможно новом) элементе
+      if (document.contains(targetEl)) {
+        // Восстанавливаем координаты и размеры
+        if (currentLeft !== undefined) targetEl.style.left = `${currentLeft}px`;
+        if (currentTop !== undefined) targetEl.style.top = `${currentTop}px`;
+        if (currentWidth !== undefined) targetEl.style.width = `${currentWidth}px`;
+        if (currentHeight !== undefined) targetEl.style.height = `${currentHeight}px`;
+        
+        // Гарантируем, что z-index и классы на месте
+        targetEl.style.zIndex = '1000';
+        if (!targetEl.classList.contains('dragging')) targetEl.classList.add('dragging');
+        document.body.classList.add('dragging-mode');
+        
+        if (pointerStateRef.current.type === 'resize') {
+          if (!targetEl.classList.contains('resizing')) targetEl.classList.add('resizing');
+        }
+      }
+    }
+  }); // Запускаем после каждого рендера
 
   const startResize = useCallback((
     e: React.PointerEvent,
@@ -381,6 +499,9 @@ export function useEventInteractions({
     document.body.classList.add('dragging-mode');
     el.classList.add('dragging');
     el.classList.add('resizing'); // Скрываем внутренние скругления во время ресайза
+    
+    // 🔧 ВРЕМЕННОЕ РЕШЕНИЕ: меняем z-index напрямую
+    el.style.zIndex = '1000';
 
     // Находим и помечаем соседние события того же проекта
     const affectedNeighbors: HTMLElement[] = [];
@@ -411,11 +532,16 @@ export function useEventInteractions({
       }
     });
 
-    const maxZ = Math.max(...Array.from(eventZOrder.values()), 0);
-    onEventZOrderUpdate(prev => new Map(prev).set(evData.id, maxZ + 1));
-
-    const tableRect = eventsContainerRef.current?.getBoundingClientRect();
-    if (!tableRect) return;
+    // 🛡️ FALLBACK: Если ref недоступен, используем offsetParent
+    let tableRect: DOMRect;
+    const container = eventsContainerRef.current || el.offsetParent as HTMLElement;
+    
+    if (container) {
+      tableRect = container.getBoundingClientRect();
+    } else {
+      console.error('❌ Container not found (both ref and offsetParent are null)!');
+      return;
+    }
 
     const startLeft = parseFloat(el.style.left || '0');
     const startTop = parseFloat(el.style.top || '0');
@@ -425,7 +551,18 @@ export function useEventInteractions({
     const startY = e.clientY;
 
     // 🔍 КРИТИЧНО: Вычисляем РЕАЛЬНЫЕ padding события ПЕРЕД ресайзом
-    const neighborsMap = calculateEventNeighbors(events, projects);
+    let neighborsMap;
+    if (eventNeighbors) {
+      // ✅ Оптимизация: используем переданные соседи, если они есть
+      neighborsMap = eventNeighbors;
+    } else {
+      try {
+        neighborsMap = calculateEventNeighbors(events, projects);
+      } catch (err) {
+        console.error('❌ Error calculating neighbors:', err);
+        return;
+      }
+    }
     const neighborInfo = neighborsMap.get(evData.id);
     const hasAnyLeftNeighbor = neighborInfo?.hasAnyLeftNeighbor || false;
     const hasAnyRightNeighbor = neighborInfo?.hasAnyRightNeighbor || false;
@@ -441,6 +578,10 @@ export function useEventInteractions({
       startTop,
       startWidth,
       startHeight,
+      currentLeft: startLeft,
+      currentTop: startTop,
+      currentWidth: startWidth,
+      currentHeight: startHeight,
       startX,
       startY,
       el,
@@ -522,6 +663,12 @@ export function useEventInteractions({
         }
       }
 
+      // ✅ Обновляем текущие координаты в ref
+      pointerStateRef.current.currentLeft = newLeft;
+      pointerStateRef.current.currentTop = newTop;
+      pointerStateRef.current.currentWidth = Math.max(24, newWidth);
+      pointerStateRef.current.currentHeight = newHeight;
+
       pointerStateRef.current.el.style.left = `${newLeft}px`;
       pointerStateRef.current.el.style.top = `${newTop}px`;
       pointerStateRef.current.el.style.width = `${Math.max(24, newWidth)}px`;
@@ -535,6 +682,7 @@ export function useEventInteractions({
       document.body.classList.remove('dragging-mode');
       el.classList.remove('dragging');
       el.classList.remove('resizing'); // Восстанавливаем внутренние скругления после ресайза
+      el.style.zIndex = ''; // 🔧 Сбрасываем z-index
 
       // Снимаем метку с соседних событий
       affectedNeighbors.forEach(neighborEl => {
@@ -551,7 +699,25 @@ export function useEventInteractions({
 
       // Сохраняем данные перед очисткой состояния
       const savedState = pointerStateRef.current;
-      const updatedEvent = { ...savedState.evData };
+
+      // ✅ Получаем АБСОЛЮТНО СВЕЖЕЕ состояние из истории
+      let currentEvents = eventsRef.current;
+      let currentProjects = projectsRef.current;
+      let currentZOrder = eventZOrderRef.current;
+
+      if (typeof getEvents === 'function') {
+         const snapshot = getEvents();
+         currentEvents = snapshot.events;
+         currentProjects = snapshot.projects;
+         currentZOrder = snapshot.eventZOrder;
+      } else {
+         console.warn('⚠️ useEventInteractions: getEvents is not a function (resize), using refs fallback');
+      }
+
+      // ✅ Получаем актуальное событие из snapshot
+      const latestEvent = currentEvents.find(e => e.id === savedState.evData.id) || savedState.evData;
+
+      const updatedEvent = { ...latestEvent }; // ✅ Копируем из latestEvent
 
       if (savedState.edges.left || savedState.edges.right) {
         // ✅ ИСПОЛЬЗУЕМ сохранённые значения из onMove вместо пересчёта из gWidth!
@@ -589,10 +755,10 @@ export function useEventInteractions({
 
       // 🔍 Проверяем, действительно ли событие изменилось (защита от ложных обновлений)
       const hasChanged = 
-        updatedEvent.startWeek !== savedState.originalStartWeek ||
-        updatedEvent.weeksSpan !== savedState.originalWeeksSpan ||
-        updatedEvent.unitStart !== savedState.originalUnitStart ||
-        updatedEvent.unitsTall !== savedState.originalUnitsTall;
+        updatedEvent.startWeek !== latestEvent.startWeek || // Сравниваем с latestEvent
+        updatedEvent.weeksSpan !== latestEvent.weeksSpan ||
+        updatedEvent.unitStart !== latestEvent.unitStart ||
+        updatedEvent.unitsTall !== latestEvent.unitsTall;
 
       if (!hasChanged) {
         console.log('⏭️ Событие не изменилось при ресайзе - восстанавливаем исходные стили');
@@ -607,10 +773,13 @@ export function useEventInteractions({
 
       // ✅ Оптимистичное обновление UI (только если есть изменения)
       onEventsUpdate(prev => prev.map(e => e.id === updatedEvent.id ? updatedEvent : e));
+      
+      // ✅ Используем snapshot для сохранения истории
+      // Это гарантирует строгую последовательность изменений без пропусков
       onSaveHistory(
-        events.map(e => e.id === updatedEvent.id ? updatedEvent : e),
-        eventZOrder,
-        projects // ✅ ИСПРАВЛЕНО: добавили projects
+        currentEvents.map(e => e.id === updatedEvent.id ? updatedEvent : e),
+        currentZOrder,
+        currentProjects
       );
 
       // ✅ Обновление в базе данных происходит в фоне после завершения взаимодействия
@@ -624,6 +793,7 @@ export function useEventInteractions({
     window.addEventListener('pointerup', onUp);
 
     // 🚫 Отключаем polling
+    console.log('✅ RESIZE START successful, setting isUserInteracting(true)');
     setIsUserInteracting(true);
   }, [config, resources, visibleDepartments, events, projects, eventZOrder, onEventsUpdate, onEventZOrderUpdate, onSaveHistory, onEventUpdate, eventsContainerRef, setIsUserInteracting, resetDeltaSyncTimer, flushPendingChanges, updateHistoryEventId]); // ✅ v3.3.7: добавили flushPendingChanges и updateHistoryEventId
 

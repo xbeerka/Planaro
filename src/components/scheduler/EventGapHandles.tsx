@@ -28,7 +28,7 @@ export const EventGapHandles: React.FC<EventGapHandlesProps> = React.memo(({
     const positions = new Map<string, number>();
     
     resources.forEach(resource => {
-      const top = getResourceGlobalTop(resource.id, resources, visibleDepartments, config);
+      const top = getResourceGlobalTop(resource.id, resources, visibleDepartments || [], config);
       positions.set(resource.id, top);
     });
     
@@ -37,7 +37,7 @@ export const EventGapHandles: React.FC<EventGapHandlesProps> = React.memo(({
   
   return (
     <div className="event-gap-handles" style={{ pointerEvents: 'none' }}>
-      {gaps.map(gap => {
+      {gaps && gaps.map(gap => {
         const resourceTop = resourcePositions.get(gap.resourceId);
         if (resourceTop === undefined) return null;
         

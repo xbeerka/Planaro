@@ -92,6 +92,15 @@ export function useOptimisticHistory(initialEvents: SchedulerEvent[], initialPro
     notifyChange();
   }, [notifyChange]);
 
+  // ✅ Direct access to current state (bypassing React render cycle)
+  const getSnapshot = useCallback(() => {
+    return {
+      events: historyRef.current.present.events,
+      projects: historyRef.current.present.projects,
+      eventZOrder: historyRef.current.present.eventZOrder
+    };
+  }, []);
+
   // Undo
   const undo = useCallback(() => {
     const current = historyRef.current;
@@ -172,6 +181,7 @@ export function useOptimisticHistory(initialEvents: SchedulerEvent[], initialPro
     canRedo: historyRef.current.future.length > 0,
     currentEvents: historyRef.current.present.events,
     currentProjects: historyRef.current.present.projects,
-    currentEventZOrder: historyRef.current.present.eventZOrder // ✅ Добавляем getter
+    currentEventZOrder: historyRef.current.present.eventZOrder, // ✅ Добавляем getter
+    getSnapshot // ✅ Добавляем getSnapshot
   };
 }

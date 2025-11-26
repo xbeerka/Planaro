@@ -23,6 +23,7 @@ export function useHistory(
     currentEvents,
     currentProjects,
     currentEventZOrder, // ✅ Получаем eventZOrder
+    getSnapshot, // ✅ Получаем getSnapshot
   } = useOptimisticHistory(initialEvents, initialProjects);
 
   // Wrapper for saveHistory to match old API
@@ -75,5 +76,6 @@ export function useHistory(
     currentEvents,
     currentProjects,
     currentEventZOrder, // ✅ Экспортируем eventZOrder
+    getSnapshot, // ✅ Экспортируем getSnapshot
   };
 }

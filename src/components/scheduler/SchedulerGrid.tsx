@@ -1,5 +1,5 @@
-import { useMemo, memo } from 'react';
-import { Department, Resource, Grade, Company, Workspace } from '../../types/scheduler';
+import { useMemo, memo, forwardRef } from 'react';
+import { Department, Resource, Grade, Company, Workspace, Month, LayoutConfig as LayoutConfigType } from '../../types/scheduler';
 import { generateMonths, getLastWeeksOfMonths, WEEKS, weekLabel, sortResourcesByGrade } from '../../utils/scheduler';
 import { LayoutConfig } from '../../utils/schedulerLayout';
 import { ArrowLeft, User, ChevronDown, Settings, Trash2 } from 'lucide-react';
@@ -14,10 +14,19 @@ import {
 interface SchedulerGridProps {
   config: LayoutConfig;
   visibleDepartments: Department[];
+  departments: Department[]; // Added to match SchedulerMain usage
   resources: Resource[];
   grades: Grade[];
   companies: Company[];
   workspace?: Workspace;
+  months: Month[]; // Added to match SchedulerMain usage
+  lastWeeks: Set<number>; // Added to match SchedulerMain usage
+  currentWeekIndex: number; // Added to match SchedulerMain usage
+  showCurrentWeekMarker: boolean; // Added to match SchedulerMain usage
+  renderEvents: () => React.ReactNode; // Added to match SchedulerMain usage
+  hoverHighlight: any; // Added to match SchedulerMain usage
+  ghost: any; // Added to match SchedulerMain usage
+  eventsContainerRef: React.RefObject<HTMLDivElement>; // Added to match SchedulerMain usage
   onCellClick: (resourceId: string, week: number, unitIndex: number) => void;
   onCellContextMenu?: (e: React.MouseEvent, resourceId: string, week: number) => void;
   onCellMouseMove: (e: React.MouseEvent, resourceId: string, week: number) => void;
@@ -29,7 +38,7 @@ interface SchedulerGridProps {
   currentUserDisplayName?: string;
   currentUserEmail?: string;
   currentUserAvatarUrl?: string;
-  gridRef: React.RefObject<HTMLDivElement>;
+  children?: React.ReactNode; // Added to support children
 }
 
 // Вспомогательная функция для получения инициалов
@@ -47,12 +56,12 @@ function getUserInitials(displayName?: string, email?: string): string {
   return 'U';
 }
 
-export function SchedulerGrid({
+export const SchedulerGrid = memo(forwardRef<HTMLDivElement, SchedulerGridProps>(({
   config,
   visibleDepartments,
   resources,
-  grades,
-  companies,
+  grades = [], // Default empty array to prevent undefined errors
+  companies = [], // Default empty array
   workspace,
   onCellClick,
   onCellContextMenu,
@@ -65,266 +74,288 @@ export function SchedulerGrid({
   currentUserDisplayName,
   currentUserEmail,
   currentUserAvatarUrl,
-  gridRef
-}: SchedulerGridProps) {
+  renderEvents,
+  hoverHighlight,
+  ghost,
+  children
+}, ref) => {
   const timelineYear = workspace?.timeline_year || new Date().getFullYear();
   const months = useMemo(() => generateMonths(timelineYear), [timelineYear]);
   const lastWeeks = useMemo(() => getLastWeeksOfMonths(months), [months]);
 
   const getGradeName = (gradeId: string | undefined): string | undefined => {
     if (!gradeId) return undefined;
-    const grade = grades.find(g => g.id === gradeId);
+    const grade = grades?.find(g => g.id === gradeId);
     return grade?.name;
   };
 
   const getCompanyName = (companyId: string | undefined): string | undefined => {
     if (!companyId) return undefined;
-    const company = companies.find(c => c.id === companyId);
+    const company = companies?.find(c => c.id === companyId);
     return company?.name;
   };
 
   const gridCols = `${config.resourceW}px repeat(${WEEKS}, ${config.weekPx}px)`;
-  const cells: JSX.Element[] = [];
+  const cells = useMemo(() => {
+    const elements: JSX.Element[] = [];
 
-  // Month headers
-  let col = 2;
-  months.forEach((month, idx) => {
-    const isLastMonth = idx === months.length - 1;
-    cells.push(
-      <div
-        key={`month-${idx}`}
-        className={`cell sticky-top month ${isLastMonth ? 'last-in-month' : ''}`}
-        style={{
-          gridColumn: `${col} / span ${month.weeks}`,
-          gridRow: 1,
-          position: 'sticky',
-          top: 0,
-          background: '#f3f3f3',
-          borderRight: '1px solid #bbb',
-          fontWeight: 700,
-          display: 'flex',
-          alignItems: 'center',
-          padding: '6px 8px',
-          height: `${config.rowH}px`,
-          zIndex: 60
-        }}
-      >
-        {month.name}
-      </div>
-    );
-    col += month.weeks;
-  });
-
-  // Week headers
-  for (let i = 0; i < WEEKS; i++) {
-    const isLastInMonth = lastWeeks.has(i);
-    cells.push(
-      <div
-        key={`week-${i}`}
-        className={`cell sticky-top2 ${isLastInMonth ? 'last-in-month' : ''}`}
-        style={{
-          gridColumn: i + 2,
-          gridRow: 2,
-          background: '#f9f9f9',
-          position: 'sticky',
-          top: `${config.rowH}px`,
-          fontSize: `${config.weekPx <= 48 ? 10 : config.weekPx <= 80 ? 11 : config.weekPx <= 112 ? 12 : 14}px`,
-          color: '#ccc',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '0 6px',
-          height: `${config.rowH}px`,
-          borderRight: '0.5px solid #dfe7ee',
-          borderBottom: '0.5px solid #dfe7ee',
-          zIndex: 60,
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis'
-        }}
-      >
-        {weekLabel(i, timelineYear)}
-      </div>
-    );
-  }
-
-  // Department and resource rows
-  let gridRow = 3;
-  visibleDepartments.forEach(dept => {
-    // Department header
-    cells.push(
-      <div
-        key={`dept-header-${dept.id}`}
-        className="cell sticky-col department-row"
-        style={{
-          gridColumn: 1,
-          gridRow,
-          height: `${config.rowH}px`,
-          position: 'sticky',
-          left: 0,
-          top: `${config.rowH * 2}px`,
-          zIndex: 150,
-          background: '#f0f5fa',
-          fontWeight: 800,
-          fontSize: '14px',
-          color: '#2c3e50',
-          borderBottom: '1px solid #e6eef8',
-          padding: '0 16px',
-          display: 'flex',
-          alignItems: 'center'
-        }}
-      >
-        {dept.name}
-      </div>
-    );
-
-    // Department cells
-    for (let w = 0; w < WEEKS; w++) {
-      const isLastInMonth = lastWeeks.has(w);
-      cells.push(
+    // Month headers
+    let col = 2;
+    months.forEach((month, idx) => {
+      const isLastMonth = idx === months.length - 1;
+      elements.push(
         <div
-          key={`dept-${dept.id}-week-${w}`}
-          className={`cell department-row ${isLastInMonth ? 'last-in-month' : ''}`}
+          key={`month-${idx}`}
+          className={`cell sticky-top month ${isLastMonth ? 'last-in-month' : ''}`}
           style={{
-            gridColumn: w + 2,
-            gridRow,
-            height: `${config.rowH}px`,
+            gridColumn: `${col} / span ${month.weeks}`,
+            gridRow: 1,
             position: 'sticky',
-            top: `${config.rowH * 2}px`,
-            background: '#f0f5fa',
-            borderRight: '0.5px solid #dfe7ee',
-            borderBottom: '1px solid #e6eef8',
-            zIndex: 140
+            top: 0,
+            background: '#f3f3f3',
+            borderRight: '1px solid #bbb',
+            fontWeight: 700,
+            display: 'flex',
+            alignItems: 'center',
+            padding: '6px 8px',
+            height: `${config.rowH}px`,
+            zIndex: 60
           }}
-        />
+        >
+          {month.name}
+        </div>
+      );
+      col += month.weeks;
+    });
+
+    // Week headers
+    for (let i = 0; i < WEEKS; i++) {
+      const isLastInMonth = lastWeeks.has(i);
+      elements.push(
+        <div
+          key={`week-${i}`}
+          className={`cell sticky-top2 ${isLastInMonth ? 'last-in-month' : ''}`}
+          style={{
+            gridColumn: i + 2,
+            gridRow: 2,
+            background: '#f9f9f9',
+            position: 'sticky',
+            top: `${config.rowH}px`,
+            fontSize: `${config.weekPx <= 48 ? 10 : config.weekPx <= 80 ? 11 : config.weekPx <= 112 ? 12 : 14}px`,
+            color: '#ccc',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '0 6px',
+            height: `${config.rowH}px`,
+            borderRight: '0.5px solid #dfe7ee',
+            borderBottom: '0.5px solid #dfe7ee',
+            zIndex: 60,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis'
+          }}
+        >
+          {weekLabel(i, timelineYear)}
+        </div>
       );
     }
-    gridRow++;
 
-    // Resources in department
-    const deptResources = sortResourcesByGrade(resources.filter(r => r.departmentId === dept.id));
-    deptResources.forEach((resource, resIndex) => {
-      const isLastInDepartment = resIndex === deptResources.length - 1;
-      
-      // Resource header
-      cells.push(
+    // Department and resource rows
+    let gridRow = 3;
+    visibleDepartments.forEach(dept => {
+      // Department header
+      elements.push(
         <div
-          key={`resource-header-${resource.id}`}
-          className="cell sticky-col resource-row event-row"
+          key={`dept-header-${dept.id}`}
+          className="cell sticky-col department-row"
           style={{
             gridColumn: 1,
             gridRow,
-            height: `${config.eventRowH}px`,
+            height: `${config.rowH}px`,
             position: 'sticky',
             left: 0,
-            zIndex: 50,
-            background: '#fff',
-            display: 'flex',
-            alignItems: 'center',
+            top: `${config.rowH * 2}px`,
+            zIndex: 150,
+            background: '#f0f5fa',
+            fontWeight: 800,
+            fontSize: '14px',
+            color: '#2c3e50',
+            borderBottom: '1px solid #e6eef8',
             padding: '0 16px',
-            borderRight: '0.5px solid #dfe7ee',
-            borderBottom: isLastInDepartment ? '2px solid #000' : '0.5px solid #dfe7ee'
+            display: 'flex',
+            alignItems: 'center'
           }}
         >
-          <div className="resource-info flex flex-col items-start justify-center w-full gap-1">
-            <div className="flex items-center gap-2 w-full">
-              <div className="resource-name" style={{ fontWeight: 600, fontSize: '14px', width:'100%', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {resource.fullName || `User ${resource.id}`}
-              </div>
-            </div>
-            <div
-              className="resource-position"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                fontSize: '12px',
-                color: '#000',
-                fontWeight: 400,
-                lineHeight: 1.1,
-                opacity: 0.4,
-                marginTop: '2px',
-              }}
-            >
-              {resource.companyId && resource.companyId !== '1' && getCompanyName(resource.companyId) && (
-                <div
-                  className="company-badge"
-                  style={{
-                    fontSize: '11px',
-                    color: '#fff',
-                    background: '#aa66cc',
-                    padding: '2px 8px',
-                    borderRadius: '4px',
-                    fontWeight: 600,
-                    lineHeight: 1,
-                  }}
-                >
-                  {getCompanyName(resource.companyId)}
-                </div>
-              )}
-              {resource.grade && getGradeName(resource.grade) && (
-                <div
-                  className="grades"
-                  style={{
-                    fontSize: '11px',
-                    color: '#fff',
-                    background: '#3a87ad',
-                    padding: '2px 8px',
-                    borderRadius: '4px',
-                    fontWeight: 600,
-                    lineHeight: 1,
-                  }}
-                >
-                  {getGradeName(resource.grade)}
-                </div>
-              )}
-              <span>{resource.position || 'No position'}</span>
-            </div>
-          </div>
+          {dept.name}
         </div>
       );
 
-      // Resource cells
+      // Department cells
       for (let w = 0; w < WEEKS; w++) {
         const isLastInMonth = lastWeeks.has(w);
-        cells.push(
+        elements.push(
           <div
-            key={`resource-${resource.id}-week-${w}`}
-            className={`cell resource-row event-row ${isLastInMonth ? 'last-in-month' : ''}`}
+            key={`dept-${dept.id}-week-${w}`}
+            className={`cell department-row ${isLastInMonth ? 'last-in-month' : ''}`}
             style={{
               gridColumn: w + 2,
               gridRow,
-              height: `${config.eventRowH}px`,
-              background: '#fff',
+              height: `${config.rowH}px`,
+              position: 'sticky',
+              top: `${config.rowH * 2}px`,
+              background: '#f0f5fa',
               borderRight: '0.5px solid #dfe7ee',
-              borderBottom: isLastInDepartment ? '2px solid #000' : '0.5px solid #dfe7ee',
-              cursor: 'pointer'
-            }}
-            data-resource-id={resource.id}
-            data-week={w}
-            onMouseMove={(e) => onCellMouseMove(e, resource.id, w)}
-            onMouseLeave={onCellMouseLeave}
-            onClick={(e) => {
-              const rect = e.currentTarget.getBoundingClientRect();
-              const y = e.clientY - rect.top;
-              const unitIndex = Math.floor((y - config.rowPaddingTop) / config.unitStride);
-              onCellClick(resource.id, w, unitIndex);
-            }}
-            onContextMenu={(e) => {
-              if (onCellContextMenu) {
-                onCellContextMenu(e, resource.id, w);
-              }
+              borderBottom: '1px solid #e6eef8',
+              zIndex: 140
             }}
           />
         );
       }
       gridRow++;
+
+      // Resources in department
+      const deptResources = sortResourcesByGrade(resources.filter(r => r.departmentId === dept.id));
+      deptResources.forEach((resource, resIndex) => {
+        const isLastInDepartment = resIndex === deptResources.length - 1;
+        
+        // Resource header
+        elements.push(
+          <div
+            key={`resource-header-${resource.id}`}
+            className="cell sticky-col resource-row event-row"
+            style={{
+              gridColumn: 1,
+              gridRow,
+              height: `${config.eventRowH}px`,
+              position: 'sticky',
+              left: 0,
+              zIndex: 50,
+              background: '#fff',
+              display: 'flex',
+              alignItems: 'center',
+              padding: '0 16px',
+              borderRight: '0.5px solid #dfe7ee',
+              borderBottom: isLastInDepartment ? '2px solid #000' : '0.5px solid #dfe7ee'
+            }}
+          >
+            <div className="resource-info flex flex-col items-start justify-center w-full gap-1">
+              <div className="flex items-center gap-2 w-full">
+                <div className="resource-name" style={{ fontWeight: 600, fontSize: '14px', width:'100%', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {resource.fullName || `User ${resource.id}`}
+                </div>
+              </div>
+              <div
+                className="resource-position"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '12px',
+                  color: '#000',
+                  fontWeight: 400,
+                  lineHeight: 1.1,
+                  opacity: 0.4,
+                  marginTop: '2px',
+                }}
+              >
+                {resource.companyId && resource.companyId !== '1' && getCompanyName(resource.companyId) && (
+                  <div
+                    className="company-badge"
+                    style={{
+                      fontSize: '11px',
+                      color: '#fff',
+                      background: '#aa66cc',
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                      fontWeight: 600,
+                      lineHeight: 1,
+                      marginTop: 0,
+                    }}
+                  >
+                    {getCompanyName(resource.companyId)}
+                  </div>
+                )}
+                {resource.grade && getGradeName(resource.grade) && (
+                  <div
+                    className="grades"
+                    style={{
+                      fontSize: '11px',
+                      color: '#fff',
+                      background: '#3a87ad',
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                      fontWeight: 600,
+                      lineHeight: 1,
+                      marginTop: 0,
+                    }}
+                  >
+                    {getGradeName(resource.grade)}
+                  </div>
+                )}
+                <span>{resource.position || 'No position'}</span>
+              </div>
+            </div>
+          </div>
+        );
+
+        // Resource cells
+        for (let w = 0; w < WEEKS; w++) {
+          const isLastInMonth = lastWeeks.has(w);
+          elements.push(
+            <div
+              key={`resource-${resource.id}-week-${w}`}
+              className={`cell resource-row event-row ${isLastInMonth ? 'last-in-month' : ''}`}
+              style={{
+                gridColumn: w + 2,
+                gridRow,
+                height: `${config.eventRowH}px`,
+                background: '#fff',
+                borderRight: '0.5px solid #dfe7ee',
+                borderBottom: isLastInDepartment ? '2px solid #000' : '0.5px solid #dfe7ee',
+                cursor: 'pointer'
+              }}
+              data-resource-id={resource.id}
+              data-week={w}
+              onMouseMove={(e) => onCellMouseMove(e, resource.id, w)}
+              onMouseLeave={onCellMouseLeave}
+              onClick={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const y = e.clientY - rect.top;
+                const unitIndex = Math.floor((y - config.rowPaddingTop) / config.unitStride);
+                onCellClick(resource.id, w, unitIndex);
+              }}
+              onContextMenu={(e) => {
+                if (onCellContextMenu) {
+                  onCellContextMenu(e, resource.id, w);
+                }
+              }}
+            />
+          );
+        }
+        gridRow++;
+      });
     });
-  });
+
+    return elements;
+  }, [
+    config,
+    months,
+    lastWeeks,
+    visibleDepartments,
+    resources,
+    grades,
+    companies,
+    timelineYear,
+    onCellMouseMove,
+    onCellMouseLeave,
+    onCellClick,
+    onCellContextMenu
+  ]);
 
   return (
     <div
-      ref={gridRef}
+      ref={ref}
       className="grid-table"
       style={{
         display: 'grid',
@@ -436,6 +467,53 @@ export function SchedulerGrid({
       </div>
 
       {cells}
+      
+      {/* Render events layer if provided */}
+      {renderEvents && renderEvents()}
+
+      {/* Hover Highlight */}
+      {hoverHighlight?.visible && (
+        <div
+          className="hover-highlight"
+          style={{
+            position: 'absolute',
+            left: hoverHighlight.left,
+            top: hoverHighlight.top,
+            width: hoverHighlight.width,
+            height: hoverHighlight.height,
+            border: '2px dashed #3b82f6',
+            borderRadius: '6px',
+            pointerEvents: 'none',
+            zIndex: 100,
+            backgroundColor: 'rgba(59, 130, 246, 0.05)'
+          }}
+        />
+      )}
+
+      {/* Ghost Event (Drag Preview) */}
+      {ghost?.visible && (
+        <div
+          className="ghost-event"
+          style={{
+            position: 'absolute',
+            left: ghost.left,
+            top: ghost.top,
+            width: ghost.width,
+            height: ghost.height,
+            backgroundColor: 'rgba(59, 130, 246, 0.3)',
+            border: '1px solid #2563eb',
+            borderRadius: '4px',
+            pointerEvents: 'none',
+            zIndex: 1000,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+          }}
+        />
+      )}
+
+      {/* Render children (e.g. GapHandles) */}
+      {children}
     </div>
   );
-}
+}));
+
+SchedulerGrid.displayName = 'SchedulerGrid';

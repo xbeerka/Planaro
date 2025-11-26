@@ -15,7 +15,7 @@ import {
 } from '../services/api';
 import { getStorageJSON, setStorageJSON } from '../utils/storage';
 import { usePendingOperations } from '../hooks/usePendingOperations';
-import { useDebouncedSave } from '../hooks/useDebouncedSave';
+import { useSyncManager } from '../hooks/useSyncManager';
 import { projectId } from '../utils/supabase/info';
 import { handleCloudflareError } from '../utils/cloudflareErrorHandler';
 import { toast } from 'sonner@2.0.3';
@@ -44,14 +44,18 @@ interface SchedulerContextType {
   setEvents: (events: SchedulerEvent[] | ((prev: SchedulerEvent[]) => SchedulerEvent[])) => void;
   
   // ✨ Sync operations (для Undo/Redo)
+  queueChange: (id: string, op: 'create' | 'update' | 'delete', data?: any) => void; // ✅ Exposed for optimistic updates
   cancelPendingChange: (id: string) => void;
   flushPendingChanges: (updateHistoryEventId?: (oldId: string, newId: string) => void) => Promise<void>;
   syncRestoredEventsToServer: (events: SchedulerEvent[], updateHistoryEventId?: (oldId: string, newId: string) => void) => Promise<void>;
   syncDeletedEventsToServer: (currentEvents: SchedulerEvent[], previousEvents: SchedulerEvent[]) => Promise<void>; // ✅ Синхронизация удалений
   hasPendingOperations: () => boolean; // ✅ Проверка наличия активных pending операций
   
+  // 🔄 History ID Updater Registration
+  setHistoryIdUpdater: (updater: (oldId: string, newId: string) => void) => void;
+
   // 🚫 User interaction state (для отключения polling во время drag/resize)
-  isUserInteracting: boolean;
+  isUserInteractingRef: React.MutableRefObject<boolean>;
   setIsUserInteracting: (value: boolean) => void;
   
   // ⏱️ Delta Sync control (для блокировки синхронизации после локальных изменений)
@@ -82,6 +86,7 @@ interface SchedulerContextType {
   // Utility
   getGradeName: (gradeId: string | undefined) => string | undefined;
   loadedEventIds: Set<string>;
+  getEvents: () => { events: SchedulerEvent[], projects: Project[], eventZOrder: Map<string, number> }; // ✅ Функция для получения свежего снапшота
 }
 
 const SchedulerContext = createContext<SchedulerContextType | undefined>(undefined);
@@ -96,6 +101,12 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
   const [eventsState, setEventsState] = useState<SchedulerEvent[]>([]);
   const loadedEventIds = useRef<Set<string>>(new Set());
 
+  // 🔄 Reference to history updater (for background syncs)
+  const historyIdUpdaterRef = useRef<((oldId: string, newId: string) => void) | null>(null);
+  const setHistoryIdUpdater = useCallback((updater: (oldId: string, newId: string) => void) => {
+    historyIdUpdaterRef.current = updater;
+  }, []);
+
   // 🗑️ Отслеживание удаленных событий (для защиты от "воскрешения")
   const deletedEventIdsRef = useRef<Set<string>>(new Set());
   const lastLocalChangeRef = useRef<number>(0);
@@ -105,69 +116,48 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
   
   const pendingOps = usePendingOperations();
   
-  // ✨ Debounced Save - накопление изменений для пакетного сохранения
-  const { queueChange: queueEventUpdate, flush: flushPendingUpdates } = useDebouncedSave(
-    async (changes: Map<string, Partial<SchedulerEvent>>, updateHistoryEventId?: (oldId: string, newId: string) => void) => {
-      // 🚀 BATCH API - отправляем ВСЕ изменения ОДНИМ запросом!
-      console.log(`📦 BATCH v4.0.0: отправка ${changes.size} изменений на сервер...`);
+  // ✨ SyncManager - новый движок синхронизации (v4.0.0)
+  const { queueChange, flush: flushSync, remapKey, isSyncing, queueSize, hasPendingChanges } = useSyncManager({
+    delay: 2000, // 2 секунды задержки (Local-First)
+    onSync: async (items, context: any) => {
+      if (items.size === 0) return;
       
-      // ✅ ШАГ 2 v4.0.0: Фильтруем только СТАРЫЕ временные ID (e1732005123456789)
-      // НОВЫЕ временные ID (ev_temp_XXX) РАЗРЕШЕНЫ - они будут созданы на сервере!
-      const validChanges = Array.from(changes.entries()).filter(([id]) => {
-        // ✅ Новые временные ID ev_temp_* РАЗРЕШЕНЫ
-        if (id.startsWith('ev_temp_')) {
-          console.log(`✅ BATCH: временное событие ${id} будет создано на сервере`);
-          return true;
-        }
-        
-        // ❌ Старые временные ID e1732005123456789 НЕ разрешены
+      console.log(`📦 SyncManager: Sending batch of ${items.size} operations...`);
+      
+      const operations: BatchOperation[] = [];
+      
+      items.forEach((item, id) => {
+        // Фильтр старых временных ID
         const numericPart = id.replace('e', '');
-        const isOldTemporaryId = numericPart.length > 10;
+        const isOldTemporaryId = id.startsWith('e') && !id.startsWith('ev_temp_') && numericPart.length > 10;
         
         if (isOldTemporaryId) {
-          console.log(`⏭️ BATCH: пропуск старого временного ID ${id} (устаревший формат)`);
-          return false;
+          console.log(`⏭️ SyncManager: Skipping old temporary ID ${id}`);
+          return;
         }
-        
-        return true;
-      });
-      
-      if (validChanges.length === 0) {
-        console.log('⏭️ BATCH: нет валидных изменений для отправки');
-        return;
-      }
-      
-      console.log(`📦 BATCH: ${validChanges.length} валидных изменений из ${changes.size} (отфильтровано ${changes.size - validChanges.length} устаревших ID)`);
-      
-      // ✅ ШАГ 2 v4.0.0: Определяем create vs update на основе формата ID и loadedEventIds
-      const operations: BatchOperation[] = validChanges.map(([id, eventData]) => {
-        const isTemporary = id.startsWith('ev_temp_');
-        const isLoaded = loadedEventIds.current.has(id);
-        
-        // Временные ID → всегда create
-        // Реальные ID → create если не загружен, update если загружен
-        const op = isTemporary ? 'create' : (isLoaded ? 'update' : 'create');
-        
-        console.log(`📦 BATCH: событие ${id} → ${op} (isTemporary=${isTemporary}, isLoaded=${isLoaded})`);
-        
-        const data: any = { ...eventData };
-        
-        // ✅ ШАГ 2 v4.0.0: НЕ передаём временный ID в data для CREATE
-        // Для временных ID сервер создаст новый ID через PostgreSQL sequence
-        if (!isTemporary) {
-          data.id = id;
-        }
-        
-        return {
-          op,
-          id, // Для отслеживания в результатах (сопоставление temp → real)
-          data,
+
+        // ✅ КРИТИЧНО: Передаем workspace_id для обхода ошибки P0001
+        const op: BatchOperation = {
+          op: item.op,
+          id: item.id,
+          data: item.data,
           workspace_id: workspaceId
         };
+        
+        // Для CREATE не передаем ID в data (сервер создаст новый)
+        if (item.op === 'create' && item.data && item.id.startsWith('ev_temp_')) {
+           const { id, ...rest } = item.data;
+           op.data = rest;
+        } else if (item.op === 'update' && item.data) {
+           // Для UPDATE передаем ID
+           op.data.id = item.id;
+        }
+
+        operations.push(op);
       });
-      
-      console.log('📦 BATCH: операции:', operations.map(op => `${op.op}:${op.id}`).join(', '));
-      
+
+      if (operations.length === 0) return;
+
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-73d66528/events/batch`,
         {
@@ -179,115 +169,83 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
           body: JSON.stringify({ operations })
         }
       );
-      
-      console.log('📦 BATCH: response status:', response.status);
-      
+
       if (!response.ok) {
         const error = await response.json();
-        console.error('❌ BATCH: ответ сервера:', error);
+        console.error('❌ SyncManager: Server error:', error);
         throw new Error(error.error || 'Batch update failed');
       }
-      
+
       const results: BatchResult = await response.json();
-      console.log(`✅ BATCH: успешно - created: ${results.created?.length || 0}, updated: ${results.updated.length}`);
-      
-      // ✅ ШАГ 2 v4.0.0: Заменяем временные ID на реальные после CREATE
+      console.log(`✅ SyncManager: Success. Created: ${results.created?.length || 0}, Updated: ${results.updated.length}, Deleted: ${results.deleted?.length || 0}`);
+
+      // ⚠️ Log errors if any
+      if (results.errors && results.errors.length > 0) {
+        console.error('❌ SyncManager: Server reported errors in batch:', results.errors);
+        results.errors.forEach(err => {
+           toast.error(`Ошибка сохранения: ${err.error || 'Unknown error'} (ID: ${err.id})`);
+        });
+      }
+
+      // Обработка созданных событий (замена ID)
       if (results.created && results.created.length > 0) {
-        console.log(`🔄 BATCH: начало замены временных ID на реальные для ${results.created.length} событий...`);
-        
-        // Получаем CREATE операции для сопоставления temp → real
         const createOps = operations.filter(op => op.op === 'create');
         
-        results.created.forEach((createdEvent: SchedulerEvent) => {
-          const realId = createdEvent.id;
-          
-          // ✅ ИСПРАВЛЕНИЕ v4.0.1: Сопоставляем по данным события, а не по индексу!
-          // Если некоторые CREATE failed, индексы не совпадут
-          const matchingOp = createOps.find(op => {
-            const opData = op.data;
-            return opData?.resourceId === createdEvent.resourceId &&
-                   opData?.startWeek === createdEvent.startWeek &&
-                   opData?.unitStart === createdEvent.unitStart &&
-                   opData?.projectId === createdEvent.projectId;
-          });
-          
-          if (!matchingOp) {
-            console.warn(`⚠️ BATCH: не найдена CREATE операция для события ${realId}`);
-            return;
-          }
-          
-          const tempId = matchingOp.id;
-          console.log(`🔄 BATCH: замена ${tempId} → ${realId}`);
+        results.created.forEach(createdEvent => {
+           const realId = createdEvent.id;
+           
+           // Находим соответствующую операцию создания
+           const matchingOp = createOps.find(op => 
+              op.data?.resourceId === createdEvent.resourceId &&
+              op.data?.startWeek === createdEvent.startWeek &&
+              op.data?.unitStart === createdEvent.unitStart &&
+              op.data?.projectId === createdEvent.projectId
+           );
 
-          // ✅ Обновляем историю (если передана функция)
-          if (updateHistoryEventId) {
-            updateHistoryEventId(tempId, realId);
-            console.log(`   📜 History: ID обновлён ${tempId} → ${realId}`);
-          }
-          
-          // 1️⃣ Заменить в eventsState
-          setEventsState(prev => {
-            const replaced = prev.map(e => e.id === tempId ? { ...e, ...createdEvent } : e);
-            console.log(`   ✅ eventsState: заменён ${tempId} → ${realId}`);
-            
-            // Сохраняем в кэш
-            setStorageJSON(`cache_events_${workspaceId}`, replaced).catch(err =>
-              console.error('❌ Ошибка сохранения в кэш:', err)
-            );
-            
-            return replaced;
-          });
-          
-          // 2️⃣ Добавить в loadedEventIds
-          loadedEventIds.current.delete(tempId); // Удаляем временный
-          loadedEventIds.current.add(realId); // Добавляем реальный
-          console.log(`   ✅ loadedEventIds: ${tempId} → ${realId}`);
-          
-          // 3️⃣ Удалить из pending операций
-          pendingOps.removePending(tempId);
-        });
-        
-        console.log(`✅ BATCH: замена временных ID завершена`);
-      }
-      
-      // ✅ ШАГ 2 v4.0.0: Обработка ошибок UPDATE
-      if (results.errors && results.errors.length > 0) {
-        console.warn(`⚠️ BATCH: обнаружено ${results.errors.length} ошибок`);
-        
-        results.errors.forEach(err => {
-          console.error(`❌ BATCH ${err.op} error:`, err);
-          
-          // Если событие не найдено при UPDATE - удаляем из loadedEventIds
-          if (err.op === 'update' && err.id && err.message === 'Event not found') {
-            console.log(`🧹 BATCH: удаление ${err.id} из loadedEventIds (не найдено на сервере)`);
-            
-            loadedEventIds.current.delete(err.id);
-            
-            // Также удаляем из pending
-            pendingOps.removePending(err.id);
-            
-            // Пометим как удалённое чтобы не синхронизировать снова
-            deletedEventIdsRef.current.add(err.id);
-          }
+           if (matchingOp) {
+             const tempId = matchingOp.id;
+             if (tempId !== realId) {
+               console.log(`🔄 SyncManager: Swapping ${tempId} -> ${realId}`);
+               
+               // 1. Обновляем локальный стейт
+               setEventsState(prev => prev.map(e => e.id === tempId ? { ...e, ...createdEvent } : e));
+               
+               // 2. Обновляем loadedEventIds
+               loadedEventIds.current.delete(tempId);
+               loadedEventIds.current.add(realId);
+               
+               // 3. Обновляем очередь (если были изменения пока летело)
+               remapKey(tempId, realId);
+               
+               // 4. Убираем из UI pending
+               pendingOps.removePending(tempId);
+               
+               // 5. ✅ КРИТИЧНО: Обновляем историю (если передана функция updateHistoryEventId)
+               // Это исправляет баг, когда Undo возвращает событие с временным ID (спиннером)
+               const updater = (context && context.updateHistoryEventId) || historyIdUpdaterRef.current;
+               if (updater) {
+                 console.log(`📝 SyncManager: Updating history ID ${tempId} -> ${realId}`);
+                 updater(tempId, realId);
+               } else {
+                 // Если функция не передана, попробуем найти ее в глобальной области или контексте (fallback?)
+                 // В данный момент мы полагаемся на явную передачу через flushPendingChanges
+                 console.log('ℹ️ SyncManager: updateHistoryEventId not provided in context or via registration');
+               }
+             }
+           }
         });
       }
       
-      // 🔍 ВАЖНО: НЕ ПЕРЕЗАПИСЫВАЕМ локальное состояние данными с сервера!
-      // Локальное состояние уже правильное (оптимистичное обновление)
-      console.log('⏭️ BATCH: пропускаем обновление state для UPDATE операций (локальное состояние актуальнее)');
-      
-      // Удаляем из pending операций после успешного сохранения (для UPDATE)
-      changes.forEach((_, id) => {
-        if (!id.startsWith('ev_temp_')) { // Временные ID уже удалены выше
-          pendingOps.removePending(id);
+      // Удаляем из UI pending успешно обновленные/удаленные
+      operations.forEach(op => {
+        if (op.op !== 'create') {
+           pendingOps.removePending(op.id);
         }
       });
       
-      // Отмечаем что было локальное изменение
       lastLocalChangeRef.current = Date.now();
-    },
-    500 // ⏱️ Debounce delay 500ms (компромисс между производительностью и сохранением истории)
-  );
+    }
+  });
   
   const [isLoadingDepartments, setIsLoadingDepartments] = useState(true);
   const [isLoadingResources, setIsLoadingResources] = useState(true);
@@ -297,8 +255,11 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
   const [isLoadingCompanies, setIsLoadingCompanies] = useState(true);
   const [isLoadingEvents, setIsLoadingEvents] = useState(true);
   
-  // 🚫 User interaction state (для отключения polling во время drag/resize)
-  const [isUserInteracting, setIsUserInteracting] = useState(false);
+  // 🚫 User interaction state (для отклю��ения polling во время drag/resize)
+  const isUserInteractingRef = useRef(false);
+  const setIsUserInteracting = useCallback((value: boolean) => {
+    isUserInteractingRef.current = value;
+  }, []);
   
   // Data state
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -603,7 +564,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
     
     const syncChanges = async () => {
       // Пропускаем если пользователь взаимодействует с событиями
-      if (isUserInteracting) {
+      if (isUserInteractingRef.current) {
         console.log('⏸️ Delta Sync: пропуск (пользователь взаимодействует)');
         return;
       }
@@ -647,6 +608,11 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
             // ✅ КРИТИЧНО: МЕРЖИМ с локальными событиями вместо полной замены!
             // Это защищает восстановленные Undo/Redo события от перезаписи
             const mergedEvents = prev.map(localEvent => {
+              // 🛡️ PROTECTION: If event is pending sync, keep local version
+              if (hasPendingChanges(localEvent.id)) {
+                 return localEvent;
+              }
+
               // Если событие с таким ID есть на сервере - используем данные с сервера
               const serverEvent = filtered.find(e => e.id === localEvent.id);
               if (serverEvent) {
@@ -727,7 +693,11 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
               const changedMap = new Map(changedEvents.map(e => [e.id, e]));
               
               // Обновляем изменённые события + добавляем новые
-              const updated = prev.map(e => changedMap.get(e.id) || e);
+              const updated = prev.map(e => {
+                 // 🛡️ PROTECTION
+                 if (hasPendingChanges(e.id)) return e;
+                 return changedMap.get(e.id) || e;
+              });
               const newEventIds = new Set(prev.map(e => e.id));
               const newEvents = changedEvents.filter(e => !newEventIds.has(e.id));
               
@@ -774,7 +744,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
       clearTimeout(initialTimeout);
       clearInterval(interval);
     };
-  }, [accessToken, workspaceId, isLoadingEvents, isUserInteracting]);
+  }, [accessToken, workspaceId, isLoadingEvents]);
 
   // ✨ Polling для ПРОЕКТОВ каждые 15 секунд (согласно Guidelines v1.9.4)
   useEffect(() => {
@@ -798,7 +768,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
           const hasChanges = JSON.stringify(prev) !== JSON.stringify(serverProjects);
 
           if (hasChanges) {
-            console.log(`📥 Projects Sync: обнаружены изменения (сервер: ${serverProjects.length}, локально: ${prev.length})`);
+            console.log(`📥 Projects Sync: обнаружены изменени�� (сервер: ${serverProjects.length}, локально: ${prev.length})`);
 
             // Обновляем кэш
             setStorageJSON(`cache_projects_${workspaceId}`, serverProjects).catch(err =>
@@ -834,7 +804,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
     };
   }, [accessToken, workspaceId, isLoadingProjects]);
 
-  // ✨ Polling для СОТРУДНИКОВ каждые 15 секунд (согласно Guidelines v1.9.4)
+  // ✨ Polling для СОТ��УДНИКОВ каждые 15 секунд (согласно Guidelines v1.9.4)
   useEffect(() => {
     if (!accessToken || !workspaceId || isLoadingResources) return;
 
@@ -1065,7 +1035,6 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
     const validWeeksSpan = Math.max(1, Math.min(event.weeksSpan || 1, maxWeeks));
     
     // ✅ ШАГ 1 v4.0.0: Генерируем УНИКАЛЬНЫЙ временный ID с рандомизацией
-    // Date.now() + Math.random() предотвращает коллизии при параллельном создании событий
     const tempEvent: SchedulerEvent = {
       id: event.id || `ev_temp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
       resourceId: event.resourceId!,
@@ -1081,13 +1050,6 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
       const exists = prev.some(e => e.id === tempEvent.id);
       const newState = exists ? prev : [...prev, tempEvent];
       
-      console.log(`📝 createEvent: добавление временного события ${tempEvent.id}`, {
-        exists,
-        added: !exists,
-        prevLength: prev.length,
-        newLength: newState.length
-      });
-      
       // Сохраняем в кэш асинхронно
       if (!exists) {
         setStorageJSON(`cache_events_${workspaceId}`, newState).catch(err => 
@@ -1098,71 +1060,56 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
       return newState;
     });
 
-    // ✅ ШАГ 1 v4.0.0: Добавляем в pending queue для batch сохранения
+    // ✅ ШАГ 1 v4.0.0: Добавляем в pending queue (UI feedback)
     pendingOps.addPending(tempEvent.id, 'create', tempEvent, tempEvent);
-    console.log(`⏳ createEvent: событие ${tempEvent.id} добавлено в pending queue (op: create)`);
     
-    // ✅ ШАГ 1 v4.0.0: Добавляем в debounced save queue (автоматически сохранится через 500ms)
-    queueEventUpdate(tempEvent.id, tempEvent);
+    // ✅ ШАГ 1 v4.0.0: Добавляем в SyncManager (Local-First saving)
+    queueChange(tempEvent.id, 'create', tempEvent);
     
-    // ✅ ШАГ 1 v4.0.0: Отмечаем что было локальное изменение
     lastLocalChangeRef.current = Date.now();
     
-    console.log('✅ createEvent завершён: событие создано локально (сохранится через flushPendingChanges):', tempEvent.id);
-    
-    // ✅ ШАГ 1 v4.0.0: Возвращаем временное событие (БЕЗ API запроса!)
     return tempEvent;
-  }, [projects, workspaceId, pendingOps, queueEventUpdate]);
+  }, [projects, workspaceId, pendingOps, queueChange]);
 
   const updateEvent = useCallback(async (id: string, event: Partial<SchedulerEvent>) => {
     // Пропускаем обновление на сервере только для временных ID
-    if (id.startsWith('ev_temp_')) {
-      console.log('⏭️ Пропуск обновления временного события:', id);
-      return;
-    }
-
-    // 🎯 НОВАЯ ЛОГИКА: Добавляем в pending операции и debounced save
-    // Оптимистичное обновление уже сделано в вызывающем коде
+    // (если событие еще летит, SyncManager смаржит create+update)
+    // Но если create уже улетел, а ответ еще не пришел, id все еще temp.
+    // SyncManager корректно обработает это (create in-flight, update in queue).
     
-    // Находим оригинальное событие для rollback
     const originalEvent = events.find(e => e.id === id);
-    
     if (originalEvent) {
-      // Создаём обновлённое событие
       const updatedEvent = { ...originalEvent, ...event };
       
-      // Добавляем в pending операции
+      // UI Feedback
       pendingOps.addPending(id, 'update', originalEvent, updatedEvent);
       
-      console.log('⏳ Добавление обновления в debounced queue:', id);
+      // ✅ FIX: Если обновляем weeksSpan, нужно также передать startWeek
+      // Сервер использует startWeek для валидации maxWeeksSpan
+      // Если startWeek не передан, сервер считает его 0, что может привести к ошибкам валидации в БД
+      const dataToQueue = { ...event };
+      if (event.weeksSpan !== undefined && event.startWeek === undefined) {
+          dataToQueue.startWeek = originalEvent.startWeek;
+          console.log(`🔧 updateEvent: добавлена startWeek=${originalEvent.startWeek} к обновлению weeksSpan=${event.weeksSpan}`);
+      }
+
+      // SyncManager Saving
+      queueChange(id, 'update', dataToQueue);
     }
     
-    // Добавляем в очередь debounced save (автоматически сохранится через 500ms)
-    queueEventUpdate(id, event);
-    
-    // Отмечаем что было локальное изменение (для защиты от polling)
     lastLocalChangeRef.current = Date.now();
-  }, [events, pendingOps, queueEventUpdate]);
+  }, [events, pendingOps, queueChange]);
 
   const deleteEvent = useCallback(async (id: string) => {
-    // ✅ КРИТИЧНО: Очищаем pending операции для этого события (если есть)
-    pendingOps.removePending(id);
-    console.log('🧹 Очистка pending операций для события:', id);
-    
-    // Используем функциональный setState для избежания stale closure
+    // 1. Update Local State (Optimistic)
     let originalEvent: SchedulerEvent | undefined;
     
     setEventsState(prev => {
       originalEvent = prev.find(e => e.id === id);
-      if (!originalEvent) {
-        // Событие не найдено в state - это нормально для Undo/Redo
-        console.log('ℹ️ Событие не найдено в state при удалении (уже удалено локально):', id);
-        return prev;
-      }
+      if (!originalEvent) return prev;
       
       const newEvents = prev.filter(e => e.id !== id);
       
-      // Сохраняем в кэш асинхронно
       setStorageJSON(`cache_events_${workspaceId}`, newEvents).catch(err =>
         console.error('❌ Ошибка сохранения в кэш:', err)
       );
@@ -1170,41 +1117,22 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
       return newEvents;
     });
     
-    // Удаляем из loadedEventIds даже если события нет в state
     loadedEventIds.current.delete(id);
-
-    // 🗑️ КРИТИЧНО: Помечаем событие как удаленное СРАЗУ (даже если не было в state)
     deletedEventIdsRef.current.add(id);
-    console.log(`🗑️ Событие помечено как удаленное: ${id} (всего удалено: ${deletedEventIdsRef.current.size})`);
 
-    // Пропускаем удаление на сервере только для временных ID
-    if (id.startsWith('ev_temp_')) {
-      console.log('⏭️ Пропуск удаления временного события:', id);
-      return;
-    }
-
-    try {
-      console.log('🗑️ Удаление события на сервере:', id);
-      await eventsApi.delete(id, accessToken);
-      console.log('✅ Событие удлено на сервере:', id);
-      
-      // Отмечаем что было локальное изменение
-      lastLocalChangeRef.current = Date.now();
-      
-      // Очищаем пометку удаления через 10 секунд (достаточно для всех sync'ов)
-      setTimeout(() => {
-        deletedEventIdsRef.current.delete(id);
-        console.log(`🧹 Очистка пометки удаления: ${id}`);
-      }, 10000);
-    } catch (error) {
-      console.error('❌ Ошибка удаления события на сервере:', error);
-      // При ошибке снимаем пометку удаления и восстанавливаем событие
+    // 2. Queue Delete in SyncManager
+    queueChange(id, 'delete');
+    
+    // 3. Remove UI pending
+    pendingOps.removePending(id);
+    
+    lastLocalChangeRef.current = Date.now();
+    
+    // Очищаем пометку удаления через 10 секунд
+    setTimeout(() => {
       deletedEventIdsRef.current.delete(id);
-      setEventsState(prev => [...prev, originalEvent!]);
-      loadedEventIds.current.add(id);
-      throw error;
-    }
-  }, [accessToken, workspaceId, pendingOps]);
+    }, 10000);
+  }, [workspaceId, pendingOps, queueChange]);
 
   const setEvents = useCallback((eventsOrUpdater: SchedulerEvent[] | ((prev: SchedulerEvent[]) => SchedulerEvent[])) => {
     setEventsState(eventsOrUpdater);
@@ -1216,355 +1144,75 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
   }, [pendingOps]);
 
   const flushPendingChanges = useCallback(async (updateHistoryEventId?: (oldId: string, newId: string) => void) => {
-    await flushPendingUpdates(updateHistoryEventId);
-  }, [flushPendingUpdates]);
+    await flushSync({ updateHistoryEventId });
+  }, [flushSync]);
 
   const hasPendingOperations = useCallback(() => {
     const pending = pendingOps.getAllPending();
-    const hasPending = pending.length > 0;
+    // Проверяем и UI pending, и реальную очередь SyncManager
+    const hasPending = pending.length > 0 || isSyncing || queueSize > 0;
     
     if (hasPending) {
-      console.log(`⏳ hasPendingOperations: ${pending.length} операций в очереди:`, 
-        pending.map(op => `${op.type}:${op.id}`).join(', ')
-      );
+      console.log(`⏳ hasPendingOperations: pending=${pending.length}, queue=${queueSize}, syncing=${isSyncing}`);
     }
     
     return hasPending;
-  }, [pendingOps]);
+  }, [pendingOps, isSyncing, queueSize]);
 
   const syncRestoredEventsToServer = useCallback(async (events: SchedulerEvent[], updateHistoryEventId?: (oldId: string, newId: string) => void) => {
-    console.log(`🔄 UNDO/REDO: Синхронизация восстановленных событий с сервером...`);
-    console.log(`🔄 UNDO/REDO: Всего событий для проверки: ${events.length}`);
-    console.log(`🔄 UNDO/REDO: loadedEventIds содержит: ${loadedEventIds.current.size} событий`);
+    console.log(`🔄 UNDO/REDO (SyncManager): Restoring ${events.length} events...`);
     
-    // ✅ КРИТИЧНО: Разделяем события на ДВЕ группы:
-    // 1. eventsToCreate - событий НЕТ на сервере
-    //    (временные ID "ev_temp_..." ИЛИ реальные ID которых нет в loadedEventIds)
-    // 2. eventsToUpdate - события ЕСТЬ на сервере (реальные ID в loadedEventIds)
-    const eventsToCreate: SchedulerEvent[] = [];
-    const eventsToUpdate: SchedulerEvent[] = [];
-    
+    // Используем SyncManager для восстановления событий
     events.forEach(event => {
-      const isTemporaryId = event.id.startsWith('ev_temp_');
-      const isLoaded = loadedEventIds.current.has(event.id);
-      
-      if (isTemporaryId) {
-        console.log(`🔄 UNDO/REDO: Событие ${event.id} имеет временный ID -> CREATE`);
-        eventsToCreate.push(event);
-      } else if (!isLoaded) {
-        console.log(`🔄 UNDO/REDO: Событие ${event.id} имеет реальный ID но не загружено (восстановление удалённого) -> CREATE`);
-        eventsToCreate.push(event);
-      } else {
-        console.log(`🔄 UNDO/REDO: Событие ${event.id} имеет реальный ID и загружено -> UPDATE`);
-        eventsToUpdate.push(event);
-      }
+       const isTemporaryId = event.id.startsWith('ev_temp_');
+       const isLoaded = loadedEventIds.current.has(event.id);
+       
+       if (isTemporaryId || !isLoaded) {
+          // Create (восстановление удаленного или временного)
+          console.log(`🔄 UNDO/REDO: Queue CREATE for ${event.id}`);
+          queueChange(event.id, 'create', event);
+       } else {
+          // Update (восстановление измененного)
+          console.log(`🔄 UNDO/REDO: Queue UPDATE for ${event.id}`);
+          queueChange(event.id, 'update', event);
+       }
+       
+       // Очищаем пометку удаления
+       if (deletedEventIdsRef.current.has(event.id)) {
+         deletedEventIdsRef.current.delete(event.id);
+       }
     });
     
-    console.log(`🔄 UNDO/REDO: Событий для создания: ${eventsToCreate.length}`);
-    console.log(`🔄 UNDO/REDO: Событий для обновления: ${eventsToUpdate.length}`);
-    
-    if (eventsToCreate.length === 0 && eventsToUpdate.length === 0) {
-      console.log('✅ Нет событий для синхронизации');
-      return;
-    }
-    
-    // Очищаем пометки удаления для всех восстанавливаемых событий
-    [...eventsToCreate, ...eventsToUpdate].forEach(event => {
-      if (deletedEventIdsRef.current.has(event.id)) {
-        deletedEventIdsRef.current.delete(event.id);
-        console.log(`🧹 Очистка пометки удаления для восстановленного: ${event.id}`);
-      }
-    });
-    
-    try {
-      const operations: BatchOperation[] = [];
-      
-      // ✅ ЧАСТЬ 1: Операции создания (для событий которых нет на сервере)
-      if (eventsToCreate.length > 0) {
-        console.log(`📦 BATCH CREATE: подготовка ${eventsToCreate.length} событий для создания...`);
-        eventsToCreate.forEach(e => {
-          const isTemporary = e.id.startsWith('ev_temp_');
-          const data: any = {
-            resourceId: e.resourceId,
-            startWeek: e.startWeek,
-            weeksSpan: e.weeksSpan,
-            unitStart: e.unitStart,
-            unitsTall: e.unitsTall,
-            projectId: e.projectId
-          };
-          
-          // ✅ КРИТИЧНО: Если это реальный ID (восстановление удалённого), передаём его серверу!
-          if (!isTemporary) {
-            data.id = e.id;
-          }
-
-          operations.push({
-            op: 'create',
-            id: e.id, // Для отслеживания в результатах (сопоставление temp → real)
-            data: data,
-            workspace_id: workspaceId
-          });
-        });
-      }
-      
-      // ✅ ЧАСТЬ 2: Операции обновления (для событий которые есть на сервере)
-      // КРИТИЧНО: Это исправляет проблему когда Full Sync возвращает старые данные!
-      if (eventsToUpdate.length > 0) {
-        console.log(`📦 BATCH UPDATE: подготовка ${eventsToUpdate.length} событий для обновления...`);
-        eventsToUpdate.forEach(e => {
-          operations.push({
-            op: 'update',
-            id: e.id,
-            data: {
-              resourceId: e.resourceId,
-              startWeek: e.startWeek,
-              weeksSpan: e.weeksSpan,
-              unitStart: e.unitStart,
-              unitsTall: e.unitsTall,
-              projectId: e.projectId
-            },
-            workspace_id: workspaceId
-          });
-        });
-      }
-      
-      console.log(`📦 BATCH: всего операций для отправки: ${operations.length}`);
-      console.log(`📦 BATCH: ${eventsToCreate.length} create + ${eventsToUpdate.length} update`);
-      
-      // ✅ v3.3.22: КРИТИЧНО - строгая валидация ПЕРЕД использованием
-      console.log('🔍 BATCH: Валидация параметров...');
-      console.log(`   projectId: "${projectId}" (тип: ${typeof projectId})`);
-      console.log(`   accessToken: ${accessToken ? `"${accessToken.substring(0, 20)}..." (длина: ${accessToken.length})` : 'ОТСУТСТВУЕТ'}`);
-      console.log(`   workspaceId: ${workspaceId} (тип: ${typeof workspaceId})`);
-      
-      if (!projectId || projectId === 'undefined' || projectId === 'null' || projectId.trim() === '') {
-        console.error('❌ BATCH: projectId невалиден!', { projectId, type: typeof projectId });
-        throw new Error(`Invalid project ID: "${projectId}". Check /utils/supabase/info.tsx`);
-      }
-      if (!accessToken || accessToken === 'undefined' || accessToken === 'null' || accessToken.trim() === '') {
-        console.error('❌ BATCH: accessToken невалиден!', { hasToken: !!accessToken, type: typeof accessToken });
-        throw new Error('Invalid access token. Please re-login.');
-      }
-      if (!workspaceId) {
-        console.error('❌ BATCH: workspaceId не определён!', { workspaceId, type: typeof workspaceId });
-        throw new Error('Workspace ID is required for batch operations');
-      }
-      
-      console.log('✅ BATCH: Валидация пройдена');
-      
-      const batchUrl = `https://${projectId}.supabase.co/functions/v1/make-server-73d66528/events/batch`;
-      console.log(`📦 BATCH: Отправка запроса к: ${batchUrl}`);
-      console.log(`📦 BATCH: Workspace ID: ${workspaceId}`);
-      
-      // ✅ v3.3.22: Таймаут 15 секунд для запроса
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => {
-        console.error('❌ BATCH: Таймаут 15 секунд истёк');
-        controller.abort();
-      }, 15000);
-      
-      let response: Response;
-      try {
-        response = await fetch(batchUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${accessToken}`
-          },
-          body: JSON.stringify({ operations }),
-          signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-        console.log(`✅ BATCH: Получен ответ от сервера (status: ${response.status})`);
-      } catch (fetchError: any) {
-        clearTimeout(timeoutId);
-        
-        // Детальная диагностика ошибки fetch
-        if (fetchError.name === 'AbortError') {
-          console.error('❌ BATCH: Запрос прерван по таймауту (15 сек)');
-          throw new Error('Request timeout after 15 seconds. Server may be overloaded or Edge Function not responding.');
-        }
-        
-        console.error('❌ BATCH: Ошибка fetch:', {
-          name: fetchError.name,
-          message: fetchError.message,
-          cause: fetchError.cause,
-          stack: fetchError.stack
-        });
-        
-        throw new Error(`Network error: ${fetchError.message}. Check server availability and CORS settings.`);
-      }
-      
-      if (!response.ok) {
-        let errorData: any;
-        try {
-          errorData = await response.json();
-        } catch (parseError) {
-          console.error('❌ BATCH: Не удалось распарсить ответ сервера');
-          throw new Error(`Server returned ${response.status}: ${response.statusText}`);
-        }
-        console.error('❌ BATCH: ответ сервера:', errorData);
-        throw new Error(errorData.error || `Batch operation failed with status ${response.status}`);
-      }
-      
-      const results: BatchResult = await response.json();
-      
-      console.log(`✅ BATCH CREATE: создано ${results.created.length} событий на сервере`);
-      console.log(`✅ BATCH UPDATE: обновлено ${results.updated.length} событий на сервере`);
-      console.log(`📦 Восстановленные события:`, [...results.created, ...results.updated].map((e: SchedulerEvent) => ({ id: e.id, resourceId: e.resourceId })));
-      
-      // Обновляем loadedEventIds для созданных событий
-      results.created.forEach((event: SchedulerEvent) => {
-        loadedEventIds.current.add(event.id);
-      });
-      
-      // ✅ ВАЖНО: Обновляем state событий с данными с сервера (на случай если что-то изменилось)
-      setEventsState(prev => {
-        // 1. Создаем карту Temp -> Real (CREATE) для замены ID
-        const tempToRealMap = new Map<string, SchedulerEvent>();
-        if (results.created.length > 0) {
-           eventsToCreate.forEach((tempEvent, index) => {
-              const createdEvent = results.created[index];
-              if (createdEvent) {
-                  tempToRealMap.set(tempEvent.id, createdEvent);
-              }
-           });
-        }
-
-        // 2. Множество обновлённых реальных ID (UPDATE)
-        const updatedIds = new Set(results.updated.map((e: SchedulerEvent) => e.id));
-
-        return prev.map(e => {
-          // Если это временное событие которое мы только что создали -> заменяем на реальное
-          if (tempToRealMap.has(e.id)) {
-             console.log(`🔄 Sync: замена временного ID в стейте ${e.id} → ${tempToRealMap.get(e.id)!.id}`);
-             return tempToRealMap.get(e.id)!;
-          }
-          
-          // Если это реальное событие которое мы обновили -> берем свежие данные с сервера
-          if (updatedIds.has(e.id)) {
-            const serverEvent = results.updated.find((se: SchedulerEvent) => se.id === e.id);
-            return serverEvent || e;
-          }
-          
-          return e;
-        });
-      });
-      
-      // Отмечаем что было локальное изменение
-      lastLocalChangeRef.current = Date.now();
-      
-      // ✅ v3.3.20: КРИТИЧНО - обновляем ID в истории для созданных событий!
-      // Это исправляет баг когда Redo блокируется из-за временных ID в истории
-      if (updateHistoryEventId && results.created.length > 0) {
-        console.log(`📝 История: обновление ID для ${results.created.length} созданных событий...`);
-        
-        // Создаём map: временный ID → реальный ID
-        const tempToRealIdMap = new Map<string, string>();
-        eventsToCreate.forEach((tempEvent, index) => {
-          const createdEvent = results.created[index];
-          if (createdEvent) {
-            tempToRealIdMap.set(tempEvent.id, createdEvent.id);
-            console.log(`   ${tempEvent.id} → ${createdEvent.id}`);
-          }
-        });
-        
-        // Обновляем ID в истории
-        tempToRealIdMap.forEach((realId, tempId) => {
-          updateHistoryEventId(tempId, realId);
-        });
-        
-        console.log(`📝 История: обновлено ${tempToRealIdMap.size} ID`);
-      }
-      
-      console.log('✅ Восстановленные события успешно синхронизированы с сервером');
-      
-    } catch (error: any) {
-      console.error('❌ Ошибка синхронизации восстановленных событий:', error);
-      console.error('❌ Тип ошибки:', error?.constructor?.name);
-      console.error('❌ Сообщение:', error?.message);
-      console.error('❌ Stack:', error?.stack);
-      
-      // ✅ Детальная информация для диагностики
-      if (error instanceof TypeError && error.message === 'Failed to fetch') {
-        console.error('❌ СЕТЕВАЯ ОШИБКА: Не удалось подключиться к серверу');
-        console.error('❌ Проверьте:');
-        console.error('   1. Edge Function деплоен: supabase functions list');
-        console.error(`   2. URL корректен: https://${projectId}.supabase.co`);
-        console.error('   3. Токен валиден:', accessToken ? '✅ есть' : '❌ нет');
-      }
-      
-      throw error;
-    }
-  }, [accessToken, workspaceId, pendingOps]);
+    lastLocalChangeRef.current = Date.now();
+  }, [queueChange]);
 
   const syncDeletedEventsToServer = useCallback(async (currentEvents: SchedulerEvent[], previousEvents: SchedulerEvent[]) => {
-    console.log(`🔄 UNDO/REDO: Проверка удалённых событий...`);
-    console.log(`🔄 UNDO/REDO: Текущих событий: ${currentEvents.length}, было: ${previousEvents.length}`);
-    
-    // Находим события которые были удалены (есть в previous, нет в current)
     const currentIds = new Set(currentEvents.map(e => e.id));
     const deletedEvents = previousEvents.filter(e => !currentIds.has(e.id));
     
-    if (deletedEvents.length === 0) {
-      console.log('✅ Нет удалённых событий для синхронизации');
-      return;
-    }
+    if (deletedEvents.length === 0) return;
     
-    console.log(`🔄 UNDO/REDO: Найдено ${deletedEvents.length} удалённых событий:`, deletedEvents.map(e => e.id));
+    console.log(`🔄 UNDO/REDO (SyncManager): Deleting ${deletedEvents.length} events...`);
     
-    // Помечаем события как удалённые (чтобы Full Sync их не вернул)
     deletedEvents.forEach(event => {
-      deletedEventIdsRef.current.add(event.id);
-      console.log(`🔄 UNDO/REDO: Пометка удалённого: ${event.id}`);
+       console.log(`🔄 UNDO/REDO: Queue DELETE for ${event.id}`);
+       
+       // Queue Delete
+       queueChange(event.id, 'delete');
+       
+       // Оптимистичная очистка
+       loadedEventIds.current.delete(event.id);
+       deletedEventIdsRef.current.add(event.id);
+       pendingOps.removePending(event.id);
     });
     
-    // Удаляем события на сервере
-    try {
-      await Promise.all(deletedEvents.map(async (event) => {
-        // Пропускаем временные ID
-        if (event.id.startsWith('ev_temp_')) {
-          console.log(`⏭️ Пропуск временного ID: ${event.id}`);
-          return;
-        }
-        
-        // ✅ КРИТИЧНО: Сначала удаляем из loadedEventIds (оптимистично)
-        // Это гарантирует, что если удаление пройдёт успешно (или даже с ошибкой),
-        // при последующем Redo мы попытаемся СОЗДАТЬ событие (CREATE), а не обновить (UPDATE).
-        // Если событие останется в БД (ошибка удаления) и мы пошлём CREATE -> получим "Duplicate key" (лучше чем "Not found")
-        // или backend сделает UPSERT.
-        if (loadedEventIds.current.has(event.id)) {
-          loadedEventIds.current.delete(event.id);
-          console.log(`🧹 Оптимистичное удаление из loadedEventIds: ${event.id}`);
-        }
-        
-        try {
-          await eventsApi.delete(event.id, accessToken);
-          console.log(`✅ Событие удалено на сервере: ${event.id}`);
-        } catch (error) {
-          console.error(`❌ Ошибка удаления события ${event.id}:`, error);
-          // При ошибке можно было бы вернуть в loadedEventIds, но для Redo безопаснее оставить удалённым
-          // чтобы попытаться пересоздать
-        }
-      }));
-      
-      console.log('✅ Удалённые события синхронизированы с сервером');
-      
-      // ✅ КРИТИЧНО: Увеличили время хранения пометки с 10 до 60 секунд
-      // Это гарантирует что минимум 2 Full Sync'a (каждые 30 сек) пройдут с пометкой
-      // Защита от "воскрешения" удалённых событий
-      setTimeout(() => {
-        deletedEvents.forEach(event => {
-          deletedEventIdsRef.current.delete(event.id);
-          console.log(`🧹 Очистка пометки удаления: ${event.id}`);
-        });
-      }, 60000); // ✅ БЫЛО: 10000 (10 сек) → СТАЛО: 60000 (60 сек)
-      
-    } catch (error) {
-      console.error('❌ Ошибка синхронизации удалённых событий:', error);
-      throw error;
-    }
-  }, [accessToken]);
+    lastLocalChangeRef.current = Date.now();
+    
+    // Очищаем пометку удаления через 60 секунд
+    setTimeout(() => {
+      deletedEvents.forEach(event => deletedEventIdsRef.current.delete(event.id));
+    }, 60000);
+  }, [queueChange, pendingOps]);
 
   // Resource operations
   const createResource = useCallback(async (data: CreateResourceData) => {
@@ -1636,7 +1284,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
       return newEvents;
     });
     
-    // Отмечаем что было локальное изменение
+    // Отмеча��м что было локальное изменение
     lastResourcesChangeRef.current = Date.now();
     
     console.log('✅ Сотрудник удален:', id);
@@ -1918,8 +1566,10 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
     syncRestoredEventsToServer,
     syncDeletedEventsToServer,
     hasPendingOperations,
-    isUserInteracting,
+    setHistoryIdUpdater, // ✅ Export setHistoryIdUpdater
+    isUserInteractingRef,
     setIsUserInteracting,
+    queueChange, // ✅ Export queueChange
     resetDeltaSyncTimer: () => lastLocalChangeRef.current = Date.now(),
     resetProjectsSyncTimer: () => lastProjectsChangeRef.current = Date.now(),
     resetResourcesSyncTimer: () => lastResourcesChangeRef.current = Date.now(),
@@ -1938,6 +1588,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
     reorderDepartments,
     toggleDepartmentVisibility,
     getGradeName,
+    setHistoryIdUpdater, // ✅ Export setHistoryIdUpdater
     loadedEventIds: loadedEventIds.current
   }), [
     eventsState,
@@ -1959,7 +1610,8 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
     syncRestoredEventsToServer,
     syncDeletedEventsToServer,
     hasPendingOperations,
-    isUserInteracting,
+    setHistoryIdUpdater, // ✅ Export
+    // isUserInteracting // Removed to prevent re-renders
     setIsUserInteracting,
     createResource,
     updateResource,

@@ -347,6 +347,7 @@ function AppContent() {
               onBackToWorkspaces={handleBackToWorkspaces}
               accessToken={accessToken}
               onTokenRefresh={handleTokenRefresh}
+              onSignOut={handleSignOut}
             />
           </PresenceProvider>
         </FilterProvider>

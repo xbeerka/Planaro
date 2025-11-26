@@ -1,4 +1,5 @@
 import { useRef, useCallback } from 'react';
+import { flushSync } from 'react-dom';
 import type { EventGap, SchedulerEvent, Project } from '../types/scheduler';
 import type { LayoutConfig } from '../utils/schedulerLayout';
 import { calculateGapResize } from '../utils/eventGaps';
@@ -39,7 +40,7 @@ export function useGapInteractions({
   updateHistoryEventId,
   events,
 }: UseGapInteractionsProps) {
-  const gapPointerStateRef = useRef<GapPointerState | null>(null);
+  const gapPointerStateRef = useRef<GapPointerState & { initialAllEvents: SchedulerEvent[] } | null>(null);
   
   // Используем refs для обработчиков чтобы избежать циклических зависимостей
   const onGapMoveRef = useRef<((e: PointerEvent) => void) | null>(null);
@@ -51,6 +52,11 @@ export function useGapInteractions({
   
   // ✅ КРИТИЧНО: Блокировка gap drag пока предыдущий flush не завершился
   const isFlushingRef = useRef(false);
+
+  // ✅ КРИТИЧНО: Ref для доступа к актуальным событиям внутри обработчиков
+  // Это защищает от stale closures если React не успел обновить пропсы
+  const eventsRef = useRef(events);
+  eventsRef.current = events;
   
   /**
    * Движение gap handle
@@ -59,7 +65,7 @@ export function useGapInteractions({
     if (!gapPointerStateRef.current) return;
     
     const { gap } = gapPointerStateRef.current;
-    const { startX, startY } = gapPointerStateRef.current;
+    const { startX, startY, initialAllEvents } = gapPointerStateRef.current;
     
     // Вычисляем delta в зависимости от типа gap
     let delta = 0;
@@ -75,10 +81,9 @@ export function useGapInteractions({
     }
     
     // Вычисляем новые размеры событий + прилипшие события
-    // Передаём allEvents для поиска прилипших событий
-    const allEvents = events;
-    
-    const result = calculateGapResize(gap, delta, allEvents);
+    // ✅ ИСПОЛЬЗУЕМ initialAllEvents для корректного поиска прилипших событий!
+    // Если использовать modified events, boundary check сломается
+    const result = calculateGapResize(gap, delta, initialAllEvents);
     
     if (!result) {
       // Невалидное изменение - игнорируем
@@ -117,7 +122,7 @@ export function useGapInteractions({
     const state = gapPointerStateRef.current;
     gapPointerStateRef.current = null;
     
-    const { gap, startX, startY, initialEvent1, initialEvent2 } = state;
+    const { gap, startX, startY, initialEvent1, initialEvent2, initialAllEvents } = state;
     
     // Удаляем слушатели
     if (onGapMoveRef.current) {
@@ -139,10 +144,8 @@ export function useGapInteractions({
       delta = Math.round(deltaX / config.weekPx);
     }
     
-    // Получаем все события для поиска прилипших
-    const allEvents = events;
-    
-    const result = calculateGapResize(gap, delta, allEvents);
+    // ✅ ИСПОЛЬЗУЕМ initialAllEvents для корректного поиска прилипших событий
+    const result = calculateGapResize(gap, delta, initialAllEvents);
     
     if (!result) {
       // Невалидное изменение - откатываем
@@ -178,30 +181,45 @@ export function useGapInteractions({
     
     const { event1Update, event2Update, attachedUpdates } = result;
     
-    // Применяем финальные изменения (включая прилипшие события)
-    onEventsUpdate(prevEvents => {
-      return prevEvents.map(event => {
-        if (event.id === gap.event1.id) {
-          return { ...event, ...event1Update };
-        }
-        if (event.id === gap.event2.id) {
-          return { ...event, ...event2Update };
-        }
-        // Проверяем прилипшие события
-        if (attachedUpdates?.has(event.id)) {
-          const update = attachedUpdates.get(event.id)!;
-          return { ...event, ...update };
-        }
-        return event;
-      });
+    // ✅ Формируем nextEvents явно для сохранения в историю
+    // ИСПОЛЬЗУЕМ initialAllEvents как базу для применения изменений!
+    // Это гарантирует согласованность (delta применяется к тому же состоянию, на котором считалась)
+    let nextEvents = [...initialAllEvents];
+    
+    // Применяем изменения к nextEvents
+    nextEvents = nextEvents.map(event => {
+      if (event.id === gap.event1.id) {
+        return { ...event, ...event1Update };
+      }
+      if (event.id === gap.event2.id) {
+        return { ...event, ...event2Update };
+      }
+      if (attachedUpdates?.has(event.id)) {
+        const update = attachedUpdates.get(event.id)!;
+        return { ...event, ...update };
+      }
+      return event;
     });
     
-    // ✅ КРИТИЧНО: Сохраняем историю используя АКТУАЛЬНЫЙ state!
-    // НЕ используем локальную переменную finalEvents - она может быть устаревшей!
-    // Используем события из props (актуальный state после обновления)
-    // Задержка через setTimeout(0) гарантирует что state обновился
+    // Применяем финальные изменения в UI
+    // ✅ КРИТИЧНО: Используем flushSync чтобы гарантировать обновление DOM и State
+    // ПЕРЕД тем как мы начнем flush (который yielding)
+    // Это предотвращает race condition, когда следующий клик (Drag 2)
+    // происходит ДО ре-рендера и захватывает старые events
+    try {
+      flushSync(() => {
+        onEventsUpdate(() => nextEvents);
+      });
+    } catch (e) {
+      // Fallback если flushSync недоступен или вызывает ошибку (редко)
+      console.warn('flushSync failed, falling back to normal update', e);
+      onEventsUpdate(() => nextEvents);
+    }
+    
+    // ✅ КРИТИЧНО: Сохраняем историю используя nextEvents!
+    // Теперь история точно соответствует тому что мы видим
     setTimeout(() => {
-      onSaveHistory(events, eventZOrder, projects);
+      onSaveHistory(nextEvents, eventZOrder, projects);
     }, 0);
     
     // ✅ БЛОКИРУЕМ Delta Sync на 5 секунд (как в обычном drag/resize)
@@ -263,11 +281,11 @@ export function useGapInteractions({
     resetDeltaSyncTimer();
     console.log('⏸️ Gap drag начат: блокировка Delta Sync на 5 сек');
     
-    // ✅ v3.3.7: Flush pending changes ПЕРЕД началом gap drag
-    // Это гарантирует что все события с временными ID будут созданы на сервере
-    // и получат реальные ID ДО того как gap drag попадёт в историю
-    console.log('🚀 GAP DRAG: Flush pending операций перед началом gap drag');
-    flushPendingChangesRef.current(updateHistoryEventId).catch(err => console.error('❌ Ошибка flush перед gap drag:', err));
+    // ✅ v3.3.7 (UPDATED): Flush pending changes ПЕРЕД началом gap drag
+    // Мы НЕ должны делать flush если есть просто pending обновления, только если есть create
+    // Так как flush блокирует следующий flush, который должен отправить gap resize
+    // console.log('🚀 GAP DRAG: Flush pending операций перед начало�� gap drag');
+    // flushPendingChangesRef.current(updateHistoryEventId).catch(err => console.error('❌ Ошибка flush перед gap drag:', err));
     
     const target = e.currentTarget as HTMLElement;
     target.setPointerCapture(e.pointerId);
@@ -286,6 +304,7 @@ export function useGapInteractions({
       startY: e.clientY,
       initialEvent1: { ...gap.event1 },
       initialEvent2: { ...gap.event2 },
+      initialAllEvents: eventsRef.current, // ✅ Используем eventsRef для гарантии свежести
     };
     
     // Блокируем polling во время drag
@@ -299,7 +318,7 @@ export function useGapInteractions({
       document.addEventListener('pointerup', onGapEndRef.current);
       document.addEventListener('pointercancel', onGapEndRef.current);
     }
-  }, [setIsUserInteracting, flushPendingChangesRef, updateHistoryEventId, resetDeltaSyncTimer]);
+  }, [setIsUserInteracting, flushPendingChangesRef, updateHistoryEventId, resetDeltaSyncTimer, events]); // ✅ Добавлен events в зависимости
   
   return {
     startGapDrag,

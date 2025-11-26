@@ -272,10 +272,15 @@ export function calculateGapResize(
         // → Расширяем/сжимаем его weeksSpan (граница двигается → событие тоже)
         if (eventRight === boundary) {
           const newWeeksSpan = event.weeksSpan + delta;
-          if (newWeeksSpan >= 1) {
-            attachedUpdates.set(event.id, { weeksSpan: newWeeksSpan });
-            console.log(`  📌 Прилипшее (конец): событие ${event.id} на границе ${boundary}, новый weeksSpan: ${newWeeksSpan}`);
+          
+          // FIX: Не даем уменьшить меньше 1 недели
+          if (newWeeksSpan < 1) {
+            console.log(`  ⚠️ Невозможно сжать attached событие ${event.id} меньше 1 недели`);
+            return; 
           }
+          
+          attachedUpdates.set(event.id, { weeksSpan: newWeeksSpan });
+          console.log(`  📌 Прилипшее (конец): событие ${event.id} на границе ${boundary}, новый weeksSpan: ${newWeeksSpan}`);
         }
         
         // СЛУЧАЙ 2: Событие НАЧИНАЕТСЯ на границе
@@ -283,13 +288,18 @@ export function calculateGapResize(
         else if (event.startWeek === boundary) {
           const newStartWeek = event.startWeek + delta;
           const newWeeksSpan = event.weeksSpan - delta;
-          if (newWeeksSpan >= 1 && newStartWeek >= 0) {
-            attachedUpdates.set(event.id, { 
-              startWeek: newStartWeek,
-              weeksSpan: newWeeksSpan 
-            });
-            console.log(`  📌 Прилипшее (начало): событие ${event.id} на границе ${boundary}, новый startWeek: ${newStartWeek}, weeksSpan: ${newWeeksSpan}`);
+          
+          // FIX: Не даем уменьшить меньше 1 недели
+          if (newWeeksSpan < 1 || newStartWeek < 0) {
+             console.log(`  ⚠️ Невозможно сжать attached событие ${event.id} меньше 1 недели`);
+             return;
           }
+          
+          attachedUpdates.set(event.id, { 
+            startWeek: newStartWeek,
+            weeksSpan: newWeeksSpan 
+          });
+          console.log(`  📌 Прилипшее (начало): событие ${event.id} на границе ${boundary}, новый startWeek: ${newStartWeek}, weeksSpan: ${newWeeksSpan}`);
         }
       });
       
