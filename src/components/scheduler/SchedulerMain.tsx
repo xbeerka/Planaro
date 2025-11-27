@@ -1967,10 +1967,10 @@ export function SchedulerMain({
         departments={departments}
         onCreateDepartment={createDepartment}
         onDeleteDepartment={deleteDepartment}
-        getDepartmentUsersCount={getDepartmentUsersCount}
+        onGetDepartmentUsersCount={getDepartmentUsersCount}
         onRenameDepartment={renameDepartment}
         onReorderDepartments={reorderDepartments}
-        onToggleVisibility={toggleDepartmentVisibility}
+        onToggleDepartmentVisibility={toggleDepartmentVisibility}
       />
 
       <KeyboardShortcutsModal

@@ -621,7 +621,7 @@ app.post("/make-server-73d66528/auth/signup", async (c) => {
     
     // Local part must exist and start with a letter
     if (localPart.length === 0 || !/^[a-z]/.test(localPart)) {
-      console.log(`❌ Отклонен email с неверным форматом: ${normalizedEmail}`);
+      console.log(`❌ Отклонен email с неверным формат��м: ${normalizedEmail}`);
       return c.json({ error: 'Email должен начинаться с буквы до @kode.ru' }, 400);
     }
     
@@ -3193,66 +3193,7 @@ app.get("/make-server-73d66528/workspaces", async (c) => {
   }
 });
 
-// Get workspace summary
-app.get("/make-server-73d66528/workspaces/:id/summary", async (c) => {
-  try {
-    const workspaceId = c.req.param('id');
-    console.log('📊 Запрос summary для workspace:', workspaceId);
-    
-    // Используем view workspaces_summary вместо динамического вычисления
-    // В view поле называется 'id', а не 'workspace_id'
-    const { data: summary, error } = await supabase
-      .from('workspaces_summary')
-      .select('*')
-      .eq('id', workspaceId)
-      .single();
-    
-    if (error) {
-      console.error('❌ Ошибка загрузки summary из view:', error);
-      return c.json({ error: `Failed to fetch summary: ${error.message}` }, 404);
-    }
-    
-    console.log(`✓ Summary получен из view для workspace ${workspaceId}:`, summary);
-    return c.json(summary);
-  } catch (error) {
-    console.error('❌ Exception fetching summary:', error);
-    return c.json({ error: `Failed to fetch summary: ${error.message || error}` }, 500);
-  }
-});
-
-// Get all workspaces for current user
-app.get("/make-server-73d66528/workspaces", async (c) => {
-  try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    
-    // Verify user
-    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(accessToken);
-    if (authError || !user) {
-      console.error('❌ Ошибка авторизации при получении workspaces:', authError);
-      return c.json({ error: 'Unauthorized' }, 401);
-    }
-
-    console.log(`📂 Загрузка workspaces для ${user.email}`);
-
-    // Get workspaces where user is owner (RLS will filter automatically)
-    const { data: workspaces, error } = await supabase
-      .from('workspaces')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      console.error('❌ Ошибка загрузки workspaces:', error);
-      return c.json({ error: `Failed to load workspaces: ${error.message}` }, 500);
-    }
-
-    console.log(`✅ Загружено ${workspaces?.length || 0} workspaces`);
-
-    return c.json(workspaces || []);
-  } catch (error: any) {
-    console.error('❌ Exception loading workspaces:', error);
-    return c.json({ error: error.message || 'Failed to load workspaces' }, 500);
-  }
-});
+// [Deleted duplicate endpoints]
 
 // Get workspace summary (from workspaces_summary view)
 app.get("/make-server-73d66528/workspaces/:id/summary", async (c) => {
@@ -3276,7 +3217,7 @@ app.get("/make-server-73d66528/workspaces/:id/summary", async (c) => {
       .from('workspaces_summary')
       .select('*')
       .eq('id', workspaceId)
-      .single();
+      .maybeSingle();
 
     if (error) {
       console.error('❌ Ошибка загрузки summary:', error);
@@ -3322,7 +3263,7 @@ app.get("/make-server-73d66528/workspaces/:id/summary", async (c) => {
         .select('*', { count: 'exact', head: true })
         .eq('workspace_id', workspaceId);
       
-      console.log(`📊 Ручной подсчет:`, {
+      console.log(`📊 Руч��ой подсчет:`, {
         projects: projectsCount,
         users: usersCount,
         departments: departmentsCount
@@ -3362,14 +3303,6 @@ app.get("/make-server-73d66528/workspaces/:id/summary", async (c) => {
       updated_at: summary?.updated_at || null,
       summary_json: summary?.summary_json || null
     };
-
-    console.log(`✅ Summary из view:`, {
-      projects: mappedSummary.project_count,
-      members: mappedSummary.member_count,
-      departments: mappedSummary.department_count
-    });
-    
-    console.log(`📤 ОТПРАВЛЯЕМ КЛИЕНТУ mapped summary:`, JSON.stringify(mappedSummary, null, 2));
 
     return c.json(mappedSummary);
   } catch (error: any) {
@@ -3750,6 +3683,96 @@ app.post("/make-server-73d66528/workspaces", async (c) => {
           console.error('❌ Ошибка создания департамента по умолчанию:', deptError);
         } else {
           console.log('✅ Департамент "Разработка" создан:', defaultDept.id);
+          
+          // Создаем дефолтного пользователя
+          console.log('📋 Создание дефолтного пользователя...');
+
+          try {
+            // 1. Находим Grade "Lead"
+            const { data: gradeData } = await supabase
+              .from('grades')
+              .select('id')
+              .ilike('name', 'Lead') // Case-insensitive match
+              .limit(1)
+              .maybeSingle();
+            
+            const leadGradeId = gradeData?.id;
+            console.log('   Grade Lead ID:', leadGradeId || 'не найден');
+
+            // 2. Находим Company "KODE"
+            const { data: companyData } = await supabase
+              .from('companies')
+              .select('id')
+              .ilike('name', 'KODE') // Case-insensitive match
+              .limit(1)
+              .maybeSingle();
+              
+            const kodeCompanyId = companyData?.id;
+            console.log('   Company KODE ID:', kodeCompanyId || 'не найден');
+
+            // 3. Определяем имя пользователя
+            // Используем имя из токена авторизации
+            const userName = user?.user_metadata?.name || 
+                             user?.user_metadata?.display_name || 
+                             user?.user_metadata?.full_name ||
+                             user?.email?.split('@')[0] || 
+                             'Новый пользователь';
+            
+            console.log('   Имя пользователя:', userName);
+
+            // 4. Создаем пользователя (ПРОВЕРЯЕМ СТРУКТУРУ ТАБЛИЦЫ ПЕРЕД ВСТАВКОЙ)
+            // Сначала получаем одного пользователя чтобы узнать какие колонки есть
+            const { data: sampleUsers } = await supabase
+              .from('users')
+              .select('*')
+              .limit(1);
+              
+            const existingColumns = sampleUsers && sampleUsers.length > 0 ? Object.keys(sampleUsers[0]) : [];
+            console.log('   Доступные колонки в users:', existingColumns);
+            
+            const userData: any = {
+              workspace_id: workspace.id,
+              department_id: defaultDept.id,
+              position: 'Новый пользователь', // Запрошено: "Новый пользователь"
+              grade_id: leadGradeId,
+              company_id: kodeCompanyId
+            };
+            
+            // Адаптивно заполняем имя
+            if (existingColumns.includes('full_name')) {
+              userData.full_name = userName;
+            } else if (existingColumns.includes('fullName')) {
+              userData.fullName = userName;
+            } else if (existingColumns.includes('name')) {
+              userData.name = userName;
+            } else if (existingColumns.includes('first_name') && existingColumns.includes('last_name')) {
+              // Если есть только first_name/last_name, пытаемся разбить
+              const parts = userName.split(' ');
+              userData.first_name = parts[0];
+              userData.last_name = parts.slice(1).join(' ') || '';
+            } else if (existingColumns.includes('firstName') && existingColumns.includes('lastName')) {
+              const parts = userName.split(' ');
+              userData.firstName = parts[0];
+              userData.lastName = parts.slice(1).join(' ') || '';
+            } else {
+              // Fallback: пробуем самые вероятные, если не удалось определить
+              // Но, судя по ошибке, 'first_name' нет. Скорее всего 'full_name' или 'name'.
+              console.warn('⚠️ Не удалось определить колонки имени, используем безопасный набор');
+              userData.name = userName; // Самый безопасный вариант, часто это алиас или основное поле
+            }
+            
+            console.log('   Данные для создания:', userData);
+
+            const { error: userError } = await supabase.from('users').insert([userData]);
+
+            if (userError) {
+              console.error('❌ Ошибка создания дефолтного пользователя:', userError);
+            } else {
+              console.log('✅ Дефолтный пользователь создан');
+            }
+          } catch (userCreationError) {
+            console.error('⚠️ Исключение при создании дефолтного пользователя:', userCreationError);
+          }
         }
       } catch (deptError) {
         console.error('⚠️ Ошибка при создании департамента по умолчанию:', deptError);

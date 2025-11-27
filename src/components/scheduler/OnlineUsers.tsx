@@ -6,8 +6,9 @@ import {
   TooltipTrigger,
 } from '../ui/tooltip';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
-import { decodeSupabaseJWT } from '../../utils/jwt';
+import { decodeSupabaseJWT, getEmailFromToken, getDisplayNameFromToken } from '../../utils/jwt';
 import { getStorageJSON } from '../../utils/storage';
+import { presenceApi } from '../../services/api/presence';
 
 interface OnlineUser {
   userId: string;
@@ -98,43 +99,19 @@ function OnlineUsersComponent({ workspaceId, accessToken, currentUserEmail }: On
     }
 
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+      // Используем presenceApi с автоматическими ретраями
+      const newUsers = await presenceApi.getOnlineUsers(workspaceId);
       
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-73d66528/presence/online/${workspaceId}`,
-        {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json'
-          },
-          signal: controller.signal
+      // Обновляем только если изменился состав пользователей
+      setOnlineUsers(prev => {
+        if (JSON.stringify(prev) !== JSON.stringify(newUsers)) {
+          return newUsers;
         }
-      );
-      
-      clearTimeout(timeoutId);
-
-      if (response.ok) {
-        const data = await response.json();
-        const newUsers = data.users || [];
-        
-        // Обновляем только если изменился состав пользователей
-        setOnlineUsers(prev => {
-          if (JSON.stringify(prev) !== JSON.stringify(newUsers)) {
-            return newUsers;
-          }
-          return prev;
-        });
-      } else {
-        console.warn('⚠️ OnlineUsers: сервер вернул ошибку', response.status, response.statusText);
-        // Keep showing last known online users
-      }
+        return prev;
+      });
     } catch (error: any) {
       // Gracefully handle network errors
-      if (error.name === 'AbortError') {
-        console.warn('⚠️ OnlineUsers: таймаут запроса (30 секунд)');
-      } else if (error.message?.includes('Failed to fetch')) {
+      if (error.message?.includes('Failed to fetch')) {
         console.warn('⚠️ OnlineUsers: Временная сетевая ошибка (retry через 30 сек)');
       } else if (error.message?.includes('Cloudflare')) {
         console.warn('⚠️ OnlineUsers: База данных временно недоступна (retry через 30 сек)');
@@ -152,31 +129,10 @@ function OnlineUsersComponent({ workspaceId, accessToken, currentUserEmail }: On
     }
 
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
-      
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-73d66528/presence/leave/${workspaceId}`,
-        {
-          method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json'
-          },
-          signal: controller.signal
-        }
-      );
-      
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        console.warn('⚠️ Leave: сервер вернул ошибку', response.status);
-      }
+      await presenceApi.leaveWorkspace(workspaceId);
     } catch (error: any) {
       // Не критично если leave не дошел - через 60 секунд presence истечет автоматически
-      if (error.name !== 'AbortError') {
-        console.warn('⚠️ Leave: ошибка', error.message || error);
-      }
+      console.warn('⚠️ Leave: ошибка', error.message || error);
     }
   }, [workspaceId, accessToken]);
 
@@ -187,35 +143,9 @@ function OnlineUsersComponent({ workspaceId, accessToken, currentUserEmail }: On
     }
 
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
-      
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-73d66528/presence/heartbeat`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ workspace_id: workspaceId }),
-          signal: controller.signal
-        }
-      );
-      
-      clearTimeout(timeoutId);
-
-      if (response.ok) {
-        // Сброс счетчика ошибок при успешной отправке
-        heartbeatFailureCount.current = 0;
-      } else {
-        heartbeatFailureCount.current++;
-        
-        // Показываем предупреждение только после 3 неудачных попыток подряд
-        if (heartbeatFailureCount.current >= 3) {
-          console.error('❌ Heartbeat: множественные ошибки - проверьте развертывание сервера');
-        }
-      }
+      await presenceApi.sendHeartbeat(workspaceId);
+      // Сброс счетчика ошибок при успешной отправке
+      heartbeatFailureCount.current = 0;
     } catch (error: any) {
       heartbeatFailureCount.current++;
       

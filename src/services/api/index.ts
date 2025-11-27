@@ -7,3 +7,4 @@ export * from './grades';
 export * from './eventPatterns';
 export * from './companies';
 export * from './workspaces';
+export * from './presence';

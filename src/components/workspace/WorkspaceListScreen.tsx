@@ -159,71 +159,46 @@ export function WorkspaceListScreen({ onSelectWorkspace, onSignOut, onTokenRefre
         const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
         
         // Один батч-запрос вместо N запросов - оптимизация для снижения DDOS базы
-        const response = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-73d66528/presence/online-batch`,
-          {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${accessToken}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              workspace_ids: workspaceIds
-            }),
-            signal: controller.signal
-          }
-        );
+        // Используем presenceApi для автоматических ретраев
+        let workspacesData = await presenceApi.getOnlineUsersBatch(workspaceIds);
         
-        clearTimeout(timeoutId);
-
-        if (response.ok) {
-          const data = await response.json();
+        // 🔒 Проверяем блокировку текущего пользователя (предотвращение "мигания")
+        // Если пользователь только что вышел из календаря, фильтруем его из batch данных
+        try {
+          const suppressData = await getStorageJSON<{ email: string, timestamp: number, ttl: number }>('suppress_current_user_presence');
           
-          // ВАЖНО: Сервер возвращает { workspaces: { "1": [...], "14": [...] } }
-          // Но в старой версии возвращал просто { "1": [...], "14": [...] }
-          // Поддерживаем оба формата для совместимости
-          let workspacesData = data.workspaces || data;
-          
-          // 🔒 Проверяем блокировку текущего пользователя (предотвращение "мигания")
-          // Если пользователь только что вышел из календаря, фильтруем его из batch данных
-          try {
-            const suppressData = await getStorageJSON<{ email: string, timestamp: number, ttl: number }>('suppress_current_user_presence');
+          if (suppressData && suppressData.email && suppressData.timestamp) {
+            const age = Date.now() - suppressData.timestamp;
             
-            if (suppressData && suppressData.email && suppressData.timestamp) {
-              const age = Date.now() - suppressData.timestamp;
+            if (age < suppressData.ttl) {
+              // Фильтруем текущего пользователя из ВСЕХ воркспейсов
+              const filteredData: Record<string, OnlineUser[]> = {};
+              Object.entries(workspacesData || {}).forEach(([workspaceId, users]) => {
+                const userArray = users as OnlineUser[];
+                filteredData[workspaceId] = userArray.filter(u => u.email !== suppressData.email);
+              });
               
-              if (age < suppressData.ttl) {
-                // Фильтруем текущего пользователя из ВСЕХ воркспейсов
-                const filteredData: Record<string, OnlineUser[]> = {};
-                Object.entries(workspacesData || {}).forEach(([workspaceId, users]) => {
-                  const userArray = users as OnlineUser[];
-                  filteredData[workspaceId] = userArray.filter(u => u.email !== suppressData.email);
-                });
-                
-                workspacesData = filteredData;
-              }
+              workspacesData = filteredData;
             }
-          } catch (err) {
-            console.warn('⚠️ Ошибка проверки блокировки presence:', err);
           }
-          
-          // Преобразуем объект { workspace_id: users[] } в Map
-          const newMap = new Map<string, OnlineUser[]>();
-          Object.entries(workspacesData || {}).forEach(([workspaceId, users]) => {
-            const userArray = users as OnlineUser[];
-            newMap.set(workspaceId, userArray);
-          });
-          
-          setOnlineUsersMap(newMap);
-          
-          // Сохранить в кэш (уже отфильтрованные данные)
-          await setStorageJSON(CACHE_KEY, {
-            data: workspacesData || {},
-            timestamp: Date.now()
-          });
-        } else {
-          console.warn('⚠️ Batch запрос: ошибка', response.status);
+        } catch (err) {
+          console.warn('⚠️ Ошибка проверки блокировки presence:', err);
         }
+        
+        // Преобразуем объект { workspace_id: users[] } в Map
+        const newMap = new Map<string, OnlineUser[]>();
+        Object.entries(workspacesData || {}).forEach(([workspaceId, users]) => {
+          const userArray = users as OnlineUser[];
+          newMap.set(workspaceId, userArray);
+        });
+        
+        setOnlineUsersMap(newMap);
+        
+        // Сохранить в кэш (уже отфильтрованные данные)
+        await setStorageJSON(CACHE_KEY, {
+          data: workspacesData || {},
+          timestamp: Date.now()
+        });
       } catch (error: any) {
         // Gracefully handle errors
         if (error.name === 'AbortError') {
