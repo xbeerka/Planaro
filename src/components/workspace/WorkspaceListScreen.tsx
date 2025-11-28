@@ -18,8 +18,11 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator 
 } from '../ui/dropdown-menu';
-import { getStorageJSON, setStorageJSON } from '../../utils/storage';
 import { projectId } from '../../utils/supabase/info';
+import { Button } from '../ui/button';
+import { Card, CardContent, CardFooter, CardHeader } from '../ui/card';
+import { Badge } from '../ui/badge';
+import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 
 // Онлайн пользователь (из presence системы)
 interface OnlineUser {
@@ -47,13 +50,11 @@ export function WorkspaceListScreen({ onSelectWorkspace, onSignOut, onTokenRefre
   const [isLoading, setIsLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingWorkspace, setEditingWorkspace] = useState<Workspace | null>(null);
-  const [activeMenu, setActiveMenu] = useState<string | null>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
+
   const [onlineUsersMap, setOnlineUsersMap] = useState<Map<string, OnlineUser[]>>(new Map());
   const [showProfileModal, setShowProfileModal] = useState(false);
   
   // Извлекаем данные текущего пользователя из accessToken (мемоизировано)
-  // ВАЖНО: используем утилиты из jwt.ts для поддержки кириллицы
   const currentUserEmail = useMemo(() => {
     if (!accessToken) {
       return undefined;
@@ -93,11 +94,9 @@ export function WorkspaceListScreen({ onSelectWorkspace, onSignOut, onTokenRefre
     if (accessToken) {
       loadWorkspaces();
     }
-  }, [accessToken]); // Запускаем когда accessToken становится доступен
+  }, [accessToken]);
 
   // Fetch online users for all workspaces - используем батч-запрос для оптимизации + кэширование
-  // Было: N запросов каждые 10 секунд (для 10 воркспейсов = 60 req/min)
-  // Стало: 1 запрос каждые 15 секунд (4 req/min) + кэш = снижение нагрузки в 15 раз!
   useEffect(() => {
     if (!accessToken || workspaces.length === 0) {
       return;
@@ -159,11 +158,9 @@ export function WorkspaceListScreen({ onSelectWorkspace, onSignOut, onTokenRefre
         const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
         
         // Один батч-запрос вместо N запросов - оптимизация для снижения DDOS базы
-        // Используем presenceApi для автоматических ретраев
         let workspacesData = await presenceApi.getOnlineUsersBatch(workspaceIds);
         
         // 🔒 Проверяем блокировку текущего пользователя (предотвращение "мигания")
-        // Если пользователь только что вышел из календаря, фильтруем его из batch данных
         try {
           const suppressData = await getStorageJSON<{ email: string, timestamp: number, ttl: number }>('suppress_current_user_presence');
           
@@ -208,7 +205,6 @@ export function WorkspaceListScreen({ onSelectWorkspace, onSignOut, onTokenRefre
         } else {
           console.warn('⚠️ Batch запрос: ошибка загрузки', error.message || error);
         }
-        // Keep showing last known data
       }
     };
 
@@ -224,42 +220,7 @@ export function WorkspaceListScreen({ onSelectWorkspace, onSignOut, onTokenRefre
     return () => {
       clearInterval(intervalId);
     };
-  }, [accessToken, workspaces]); // Зависимость от accessToken и workspaces
-
-  // Close menu when clicking outside
-  useEffect(() => {
-    const handlePointerDown = (e: PointerEvent) => {
-      if (activeMenu && menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        // Полностью блокируем событие, чтобы предотвратить любые действия под меню
-        e.preventDefault();
-        e.stopPropagation();
-        e.stopImmediatePropagation();
-      }
-    };
-
-    const handleClick = (e: MouseEvent) => {
-      if (activeMenu && menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        // Блокируем клик-события, которые могли проскочить после pointerdown
-        e.preventDefault();
-        e.stopPropagation();
-        e.stopImmediatePropagation();
-        // Закрываем меню ПОСЛЕ блокировки события, чтобы состояние не изменилось до блокировки
-        setActiveMenu(null);
-      }
-    };
-
-    if (activeMenu) {
-      // Используем pointerdown для перехвата ВСЕХ указательных событий (мышь, тач) ДО их обработки
-      document.addEventListener('pointerdown', handlePointerDown, true);
-      // Дополнительно блокируем click события для React onClick handlers и закрываем меню
-      document.addEventListener('click', handleClick, true);
-    }
-
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown, true);
-      document.removeEventListener('click', handleClick, true);
-    };
-  }, [activeMenu]);
+  }, [accessToken, workspaces]);
 
   const loadWorkspaces = async () => {
     try {
@@ -275,7 +236,7 @@ export function WorkspaceListScreen({ onSelectWorkspace, onSignOut, onTokenRefre
       // Load fresh data in background
       const data = await getWorkspaces();
       
-      // Load summaries for each workspace (убрали загрузку users - они приходят через presence)
+      // Load summaries for each workspace
       const workspacesWithSummaries = await Promise.all(
         data.map(async (workspace) => {
           try {
@@ -294,7 +255,6 @@ export function WorkspaceListScreen({ onSelectWorkspace, onSignOut, onTokenRefre
       await setStorageJSON(cacheKey, workspacesWithSummaries);
     } catch (error) {
       console.error('Failed to load workspaces:', error);
-      // Error will be handled by base.ts - it will clear auth and reload
     } finally {
       setIsLoading(false);
     }
@@ -315,48 +275,37 @@ export function WorkspaceListScreen({ onSelectWorkspace, onSignOut, onTokenRefre
       return;
     }
     
-    // Оптимистичное удаление: сразу убираем из UI
+    // Оптимистичное удаление
     const workspaceToDelete = workspaces.find(w => w.id === workspaceId);
     const updatedWorkspaces = workspaces.filter(w => w.id !== workspaceId);
     setWorkspaces(updatedWorkspaces);
-    setActiveMenu(null);
     
     // Обновляем кэш
     const cacheKey = 'cache_workspaces_list';
     await setStorageJSON(cacheKey, updatedWorkspaces).catch(() => {});
     
-    // Фоновое удаление из БД
     try {
       await deleteWorkspace(workspaceId);
       console.log('✅ Воркспейс успешно удален из БД');
+      toast({
+        title: "Пространство удалено",
+        description: "Рабочее пространство успешно удалено",
+      });
     } catch (error) {
       console.error('Failed to delete workspace from DB:', error);
       
-      // Откатываем изменения в UI если удаление не удалось
       if (workspaceToDelete) {
         const restoredWorkspaces = [...workspaces];
         setWorkspaces(restoredWorkspaces);
         await setStorageJSON(cacheKey, restoredWorkspaces).catch(() => {});
       }
       
-      alert('Ошибка при удалении рабочего пространства из базы данных');
+      toast({
+        title: "Ошибка удаления",
+        description: "Не удалось удалить рабочее пространство",
+        variant: "destructive"
+      });
     }
-  };
-
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-    
-    if (diffMins < 1) return 'только что';
-    if (diffMins < 60) return `${diffMins} мин. назад`;
-    if (diffHours < 24) return `${diffHours} ч. назад`;
-    if (diffDays < 7) return `${diffDays} дн. назад`;
-    
-    return date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' });
   };
 
   const formatRelativeDate = (dateString: string) => {
@@ -365,7 +314,6 @@ export function WorkspaceListScreen({ onSelectWorkspace, onSignOut, onTokenRefre
     const diffMs = now.getTime() - date.getTime();
     const diffHours = Math.floor(diffMs / 3600000);
     
-    // Менее 24 часов - показываем относительное время
     if (diffHours < 24) {
       const diffMins = Math.floor(diffMs / 60000);
       if (diffMins < 1) return 'только что';
@@ -374,7 +322,6 @@ export function WorkspaceListScreen({ onSelectWorkspace, onSignOut, onTokenRefre
       return `${diffHours} часа назад`;
     }
     
-    // Вчера
     const yesterday = new Date(now);
     yesterday.setDate(yesterday.getDate() - 1);
     if (
@@ -385,7 +332,6 @@ export function WorkspaceListScreen({ onSelectWorkspace, onSignOut, onTokenRefre
       return 'вчера';
     }
     
-    // Старше - показываем дату
     return date.toLocaleDateString('ru-RU', { 
       day: '2-digit', 
       month: '2-digit', 
@@ -393,19 +339,14 @@ export function WorkspaceListScreen({ onSelectWorkspace, onSignOut, onTokenRefre
     });
   };
 
-  // Проверяем, был ли воркспейс действительно обновлён (по summary.last_updated из view)
   const wasUpdated = (workspace: WorkspaceWithSummary) => {
-    // Используем last_updated из view workspaces_summary
     if (workspace.summary?.last_updated) {
       const created = new Date(workspace.created_at).getTime();
       const lastUpdated = new Date(workspace.summary.last_updated).getTime();
-      
-      // Если разница больше 1 секунды, считаем что обновлялся
       if (Math.abs(lastUpdated - created) > 1000) {
         return true;
       }
     }
-    
     return false;
   };
 
@@ -414,19 +355,18 @@ export function WorkspaceListScreen({ onSelectWorkspace, onSignOut, onTokenRefre
   }
 
   return (
-    <div className="min-h-screen bg-[#f7f9fb]">
-      {/* Header */}
-      <header className="bg-white border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="inline-flex items-center justify-center w-10 h-10">
-              <svg width="40" height="40" viewBox="0 0 310 310" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <div className="min-h-screen bg-[#f0f4f8]">
+      {/* Header - Removed shadow-sm, using border only */}
+      <header className="sticky top-0 z-10 bg-[#f0f4f8]/95 backdrop-blur-sm pt-4 pb-2">
+        <div className="max-w-7xl mx-auto px-6 py-3 bg-white rounded-full border border-border/50 flex items-center justify-between mx-4 md:mx-auto">
+          <div className="flex items-center gap-4 pl-2">
+            <div className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-primary/5">
+              <svg width="24" height="24" viewBox="0 0 310 310" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-primary">
                 <g clipPath="url(#clip0_7774_71753)">
-                <rect width="310" height="310" rx="72" fill="#39EC00"/>
-                <path d="M245.732 225.863H267.872L267.392 165.327C264.438 158.235 261.189 151.061 257.937 144.087C248.871 124.654 240.379 104.964 231.552 85.4318L176.344 85.4698C157.43 127.128 140.373 169.865 121.304 211.483C119.165 216.152 117.097 220.891 115.133 225.638L162.931 225.819C164.899 221.181 167.104 215.585 169.199 211.085C188.844 210.352 211.144 210.851 230.982 210.845C226.293 200.107 220.618 186.796 215.416 176.393C205.085 176.403 193.931 176.6 183.657 176.385C189.681 161.054 196.399 145.732 202.644 130.429C213.917 154.227 224.353 178.639 235.575 202.487C239.186 210.161 242.608 217.975 245.732 225.863Z" fill="white"/>
-                <path d="M246.073 225.819C244.105 221.181 241.9 215.585 239.805 211.085L224.633 95.4316V85.4698H232.66C251.574 127.128 268.631 169.865 287.7 211.483C289.839 216.152 291.907 220.891 293.871 225.638L246.073 225.819Z" fill="white"/>
-                <path d="M214.133 0.5L78.1328 311.5H-1.36719V-6H217.133L214.133 0.5Z" fill="black"/>
-                <path fillRule="evenodd" clipRule="evenodd" d="M89.5634 85.4772C116.314 85.4453 151.887 83.5109 166.768 108.811L131.09 190.398C116.395 192.487 100.159 191.781 85.5039 191.78L85.5166 225.606L39.5185 225.592C39.3794 179.39 38.8382 131.695 39.3457 85.5827L89.5634 85.4772ZM113.296 122.019C104.079 120.941 94.7669 121.447 85.4922 121.58L85.3867 156.198C97.1124 156.272 115.241 158.339 124.12 151.212C133.316 140.046 128.347 123.779 113.296 122.019Z" fill="#39EC00"/>
+                <path d="M245.732 225.863H267.872L267.392 165.327C264.438 158.235 261.189 151.061 257.937 144.087C248.871 124.654 240.379 104.964 231.552 85.4318L176.344 85.4698C157.43 127.128 140.373 169.865 121.304 211.483C119.165 216.152 117.097 220.891 115.133 225.638L162.931 225.819C164.899 221.181 167.104 215.585 169.199 211.085C188.844 210.352 211.144 210.851 230.982 210.845C226.293 200.107 220.618 186.796 215.416 176.393C205.085 176.403 193.931 176.6 183.657 176.385C189.681 161.054 196.399 145.732 202.644 130.429C213.917 154.227 224.353 178.639 235.575 202.487C239.186 210.161 242.608 217.975 245.732 225.863Z" fill="currentColor"/>
+                <path d="M246.073 225.819C244.105 221.181 241.9 215.585 239.805 211.085L224.633 95.4316V85.4698H232.66C251.574 127.128 268.631 169.865 287.7 211.483C289.839 216.152 291.907 220.891 293.871 225.638L246.073 225.819Z" fill="currentColor" opacity="0.8"/>
+                <path d="M214.133 0.5L78.1328 311.5H-1.36719V-6H217.133L214.133 0.5Z" fill="currentColor" opacity="0.2"/>
+                <path fillRule="evenodd" clipRule="evenodd" d="M89.5634 85.4772C116.314 85.4453 151.887 83.5109 166.768 108.811L131.09 190.398C116.395 192.487 100.159 191.781 85.5039 191.78L85.5166 225.606L39.5185 225.592C39.3794 179.39 38.8382 131.695 39.3457 85.5827L89.5634 85.4772ZM113.296 122.019C104.079 120.941 94.7669 121.447 85.4922 121.58L85.3867 156.198C97.1124 156.272 115.241 158.339 124.12 151.212C133.316 140.046 128.347 123.779 113.296 122.019Z" fill="currentColor"/>
                 </g>
                 <defs>
                 <clipPath id="clip0_7774_71753">
@@ -436,49 +376,57 @@ export function WorkspaceListScreen({ onSelectWorkspace, onSignOut, onTokenRefre
               </svg>
             </div>
             <div>
-              <h1 className="text-xl">Planaro v1.0</h1>
-              <p className="text-sm text-gray-500">Управление рабочими пространствами</p>
+              <h1 className="text-lg font-medium tracking-tight text-foreground">Planaro</h1>
             </div>
           </div>
           
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
-                {/* Avatar */}
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center overflow-hidden">
-                  {currentUserAvatarUrl ? (
-                    <img 
-                      src={currentUserAvatarUrl} 
-                      alt={currentUserDisplayName || currentUserEmail || 'User'} 
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <span className="text-white text-xs font-semibold">
-                      {getUserInitials(currentUserDisplayName, currentUserEmail)}
-                    </span>
-                  )}
+              <Button variant="ghost" className="flex items-center gap-3 h-12 pl-2 pr-4 rounded-full hover:bg-secondary/50 transition-colors">
+                <Avatar className="w-9 h-9 border border-border/50">
+                  <AvatarImage src={currentUserAvatarUrl} alt={currentUserDisplayName || 'User'} />
+                  <AvatarFallback className="bg-primary/10 text-primary text-xs">
+                    {getUserInitials(currentUserDisplayName, currentUserEmail)}
+                  </AvatarFallback>
+                </Avatar>
+                
+                <div className="hidden sm:flex flex-col items-start text-sm">
+                  <span className="max-w-[120px] truncate font-medium leading-none">
+                    {currentUserDisplayName || currentUserEmail?.split('@')[0] || 'Пользователь'}
+                  </span>
                 </div>
                 
-                {/* Display Name */}
-                <span className="max-w-[150px] truncate">
-                  {currentUserDisplayName || currentUserEmail || 'Пользователь'}
-                </span>
-                
-                {/* Chevron Down */}
-                <ChevronDown className="w-4 h-4 text-gray-500" />
-              </button>
+                <ChevronDown className="w-4 h-4 text-muted-foreground opacity-50" />
+              </Button>
             </DropdownMenuTrigger>
             
-            <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuItem onClick={() => setShowProfileModal(true)}>
-                <User className="w-4 h-4 mr-2" />
+            <DropdownMenuContent align="end" className="w-64 rounded-2xl p-2 border-border">
+              <div className="flex items-center justify-start gap-3 p-3 bg-muted/30 rounded-xl mb-2">
+                <Avatar className="w-10 h-10">
+                  <AvatarImage src={currentUserAvatarUrl} />
+                  <AvatarFallback>{getUserInitials(currentUserDisplayName, currentUserEmail)}</AvatarFallback>
+                </Avatar>
+                <div className="flex flex-col space-y-1 leading-none overflow-hidden">
+                  {currentUserDisplayName && (
+                    <p className="font-medium truncate">{currentUserDisplayName}</p>
+                  )}
+                  {currentUserEmail && (
+                    <p className="truncate text-xs text-muted-foreground">
+                      {currentUserEmail}
+                    </p>
+                  )}
+                </div>
+              </div>
+              
+              <DropdownMenuItem onClick={() => setShowProfileModal(true)} className="cursor-pointer rounded-lg py-2.5">
+                <User className="w-4 h-4 mr-3 opacity-70" />
                 Редактировать профиль
               </DropdownMenuItem>
               
-              <DropdownMenuSeparator />
+              <DropdownMenuSeparator className="my-1" />
               
-              <DropdownMenuItem onClick={onSignOut} className="text-red-600">
-                <Trash2 className="w-4 h-4 mr-2" />
+              <DropdownMenuItem onClick={onSignOut} className="text-red-600 cursor-pointer focus:text-red-600 focus:bg-red-50 rounded-lg py-2.5">
+                <Trash2 className="w-4 h-4 mr-3 opacity-70" />
                 Выйти
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -488,161 +436,141 @@ export function WorkspaceListScreen({ onSelectWorkspace, onSignOut, onTokenRefre
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-6 py-8">
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex flex-col md:flex-row md:items-center justify-between mb-10 gap-6">
           <div>
-            <h2 className="text-2xl mb-1">Мои пространства</h2>
-            <p className="text-gray-600">
+            <h2 className="text-4xl font-normal tracking-tight mb-2 text-foreground">Мои пространства</h2>
+            <p className="text-lg text-muted-foreground font-light">
               {workspaces.length === 0 
-                ? 'У вас пока нет рабочих пространств' 
-                : `${workspaces.length} ${workspaces.length === 1 ? 'пространство' : 'пространств'}`}
+                ? 'Добро пожаловать! Создайте свое первое пространство.' 
+                : `Управляйте ${workspaces.length} ${workspaces.length === 1 ? 'активным пространством' : 'активными пространствами'}`}
             </p>
           </div>
           
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
-          >
-            <Plus className="w-5 h-5" />
-            Создать пространство
-          </button>
+          {/* Updated Button - no shadow */}
+          <Button size="lg" onClick={() => setShowCreateModal(true)} className="active:scale-95 transition-all">
+            <Plus className="w-5 h-5 mr-2" />
+            Новое пространство
+          </Button>
         </div>
 
         {/* Workspaces Grid */}
         {workspaces.length === 0 ? (
-          <div className="text-center py-16">
-            <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-4">
-              <Calendar className="w-8 h-8 text-gray-400" />
+          <Card className="flex flex-col items-center justify-center py-24 text-center border-dashed border-2 bg-transparent">
+            <div className="w-24 h-24 rounded-3xl bg-primary/5 flex items-center justify-center mb-6 animate-in zoom-in-50 duration-500">
+              <Calendar className="w-10 h-10 text-primary/40" />
             </div>
-            <h3 className="text-lg mb-2 text-gray-900">Нет рабочих пространств</h3>
-            <p className="text-gray-500 mb-6">Создайте первое пространство для начала работы</p>
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              <Plus className="w-5 h-5" />
+            <h3 className="text-2xl font-medium mb-3">Здесь пока пусто</h3>
+            <p className="text-muted-foreground mb-8 max-w-md text-lg">
+              Рабочие пространства помогают организовать проекты и сотрудников. Создайте первое пространство прямо сейчас.
+            </p>
+            <Button size="lg" onClick={() => setShowCreateModal(true)} className="px-8">
+              <Plus className="w-5 h-5 mr-2" />
               Создать пространство
-            </button>
-          </div>
+            </Button>
+          </Card>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             {workspaces.map((workspace) => {
-              // ВАЖНО: конвертируем workspace.id в строку для поиска в Map,
-              // т.к. JSON возвращает строковые ключи, а workspace.id может быть number
               const workspaceIdStr = String(workspace.id);
-              
-              // Показываем ТОЛЬКО пользователей из presence (т.е. тех кто внутри воркспейса)
-              // Текущий пользователь показывается ТОЛЬКО если он тоже внутри
               const users = onlineUsersMap.get(workspaceIdStr) || [];
               
               return (
-              <div
+              <Card 
                 key={workspace.id}
-                className="bg-white rounded-xl border border-gray-200 overflow-hidden hover:shadow-lg transition-shadow cursor-pointer group"
+                // Removed shadow-md, hover:shadow-xl, hover:-translate-y-1. Added hover:bg-muted/10 and border-transparent -> border-border for interaction or similar
+                className="group overflow-hidden cursor-pointer border border-border bg-card hover:border-primary/20 transition-all duration-300"
                 onClick={() => onSelectWorkspace(workspace)}
               >
                 {/* Preview Image */}
-                <div className="relative h-40 bg-gradient-to-br from-blue-50 to-purple-50 overflow-hidden">
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <Calendar className="w-16 h-16 text-blue-200" />
+                <div className="relative h-40 bg-gradient-to-br from-sky-50 via-indigo-50 to-purple-50 overflow-hidden">
+                  <div className="absolute inset-0 flex items-center justify-center opacity-60 group-hover:opacity-80 transition-opacity duration-500 group-hover:scale-110">
+                    <Calendar className="w-16 h-16 text-indigo-200" />
                   </div>
-                  <div className="absolute top-3 right-3">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setActiveMenu(activeMenu === workspace.id ? null : workspace.id);
-                      }}
-                      className="w-8 h-8 rounded-lg bg-white/90 backdrop-blur-sm flex items-center justify-center hover:bg-white transition-colors opacity-0 group-hover:opacity-100"
-                    >
-                      <MoreVertical className="w-4 h-4 text-gray-600" />
-                    </button>
-                    
-                    {activeMenu === workspace.id && (
-                      <div 
-                        ref={menuRef}
-                        className="absolute right-0 top-10 w-48 bg-white rounded-lg shadow-xl border border-gray-200 py-1 z-10"
-                      >
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setEditingWorkspace(workspace);
-                            setActiveMenu(null);
-                          }}
-                          className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 flex items-center gap-2 text-gray-700"
-                        >
-                          <Pencil className="w-4 h-4" />
+                  
+                  {/* Hover overlay */}
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition-colors duration-300" />
+                  
+                  <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-all duration-200" onClick={(e) => e.stopPropagation()}>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="secondary" size="icon" className="h-10 w-10 bg-white/90 backdrop-blur-sm rounded-full hover:bg-white">
+                          <MoreVertical className="w-5 h-5 text-muted-foreground" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-48 rounded-xl">
+                        <DropdownMenuItem onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingWorkspace(workspace);
+                        }} className="py-2.5">
+                          <Pencil className="w-4 h-4 mr-2 opacity-70" />
                           Переименовать
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteWorkspace(workspace.id);
-                          }}
-                          className="w-full px-4 py-2 text-left text-sm hover:bg-red-50 flex items-center gap-2 text-red-600"
-                        >
-                          <Trash2 className="w-4 h-4" />
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteWorkspace(workspace.id);
+                        }} className="text-red-600 focus:text-red-600 focus:bg-red-50 py-2.5">
+                          <Trash2 className="w-4 h-4 mr-2 opacity-70" />
                           Удалить
-                        </button>
-                      </div>
-                    )}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </div>
 
                 {/* Content */}
-                <div className="p-5">
-                  <div className="flex items-start justify-between mb-3">
+                <CardContent className="p-6">
+                  <div className="flex items-start justify-between mb-6">
                     <div className="flex-1 min-w-0">
-                      <h3 className="text-lg mb-1 truncate">{workspace.name}</h3>
-                      <p className="text-sm text-gray-500">Год: {workspace.timeline_year}</p>
+                      <h3 className="text-xl font-semibold truncate mb-1.5 tracking-tight text-foreground/90">{workspace.name}</h3>
+                      <Badge variant="secondary" className="font-medium bg-secondary/60 hover:bg-secondary/80">
+                        {workspace.timeline_year}
+                      </Badge>
                     </div>
                   </div>
 
                   {/* Stats */}
-                  <div className="grid grid-cols-3 gap-3 mb-4">
+                  <div className="grid grid-cols-3 gap-2 py-4 bg-muted/30 rounded-2xl border border-border/30">
                     <div className="text-center">
-                      <div className="flex items-center justify-center gap-1 text-gray-600 mb-1">
-                        <Folder className="w-4 h-4" />
+                      <div className="text-xl font-bold text-foreground/80 leading-none mb-1.5">
+                        {workspace.summary?.project_count ?? (workspace.summary as any)?.projects_count ?? 0}
                       </div>
-                      <div className="text-sm">{workspace.summary?.project_count ?? (workspace.summary as any)?.projects_count ?? 0}</div>
-                      <div className="text-xs text-gray-500">проектов</div>
+                      <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-medium">проектов</div>
                     </div>
-                    <div className="text-center">
-                      <div className="flex items-center justify-center gap-1 text-gray-600 mb-1">
-                        <Users className="w-4 h-4" />
+                    <div className="text-center border-l border-border/30">
+                      <div className="text-xl font-bold text-foreground/80 leading-none mb-1.5">
+                        {workspace.summary?.member_count ?? (workspace.summary as any)?.users_count ?? 0}
                       </div>
-                      <div className="text-sm">{workspace.summary?.member_count ?? (workspace.summary as any)?.users_count ?? 0}</div>
-                      <div className="text-xs text-gray-500">человек</div>
+                      <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-medium">человек</div>
                     </div>
-                    <div className="text-center">
-                      <div className="flex items-center justify-center gap-1 text-gray-600 mb-1">
-                        <Layers className="w-4 h-4" />
+                    <div className="text-center border-l border-border/30">
+                      <div className="text-xl font-bold text-foreground/80 leading-none mb-1.5">
+                        {workspace.summary?.department_count ?? 0}
                       </div>
-                      <div className="text-sm">{workspace.summary?.department_count ?? 0}</div>
-                      <div className="text-xs text-gray-500">департаментов</div>
+                      <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-medium">отделов</div>
                     </div>
                   </div>
-
-                  {/* Created/Updated & Workspace Users */}
-                  <div className="text-xs text-gray-500 pt-3 border-t border-gray-100 flex justify-between items-center gap-2 h-6">
-                    <span className="truncate">
-                      {wasUpdated(workspace) 
-                        ? `Изменено: ${formatRelativeDate(workspace.summary!.last_updated!)}`
-                        : `Создано: ${formatRelativeDate(workspace.created_at)}`
-                      }
-                    </span>
-                    <WorkspaceUsers 
-                      users={users}
-                      currentUserEmail={currentUserEmail}
-                    />
-                  </div>
-                </div>
-              </div>
+                </CardContent>
+                
+                <CardFooter className="px-6 py-4 bg-muted/10 border-t border-border/30 flex justify-between items-center gap-3 text-xs text-muted-foreground">
+                  <span className="truncate font-medium opacity-80">
+                    {wasUpdated(workspace) 
+                      ? `Изменено: ${formatRelativeDate(workspace.summary!.last_updated!)}`
+                      : `Создано: ${formatRelativeDate(workspace.created_at)}`
+                    }
+                  </span>
+                  <WorkspaceUsers 
+                    users={users}
+                    currentUserEmail={currentUserEmail}
+                  />
+                </CardFooter>
+              </Card>
               );
             })}
           </div>
         )}
       </main>
 
-      {/* Create Workspace Modal */}
+      {/* Modals */}
       {showCreateModal && (
         <CreateWorkspaceModal
           existingWorkspaces={workspaces}
@@ -651,7 +579,6 @@ export function WorkspaceListScreen({ onSelectWorkspace, onSignOut, onTokenRefre
         />
       )}
 
-      {/* Edit Workspace Modal */}
       {editingWorkspace && (
         <EditWorkspaceModal
           workspace={editingWorkspace}
@@ -659,21 +586,21 @@ export function WorkspaceListScreen({ onSelectWorkspace, onSignOut, onTokenRefre
           onUpdate={handleUpdateWorkspace}
         />
       )}
-
-      {/* Profile Modal */}
-      <ProfileModal
-        isOpen={showProfileModal}
-        onClose={() => setShowProfileModal(false)}
-        accessToken={accessToken}
-        currentDisplayName={currentUserDisplayName}
-        currentEmail={currentUserEmail}
-        currentAvatarUrl={currentUserAvatarUrl}
-        onTokenRefresh={onTokenRefresh}
-        onProfileUpdated={() => {
-          // Обновление токена будет обработано через onTokenRefresh
-          // Страница не перезагружается - OnlineUsers автоматически получит новый токен
-        }}
-      />
+      
+      {showProfileModal && (
+        <ProfileModal 
+          isOpen={showProfileModal}
+          onClose={() => setShowProfileModal(false)}
+          accessToken={accessToken}
+          currentEmail={currentUserEmail}
+          currentDisplayName={currentUserDisplayName}
+          currentAvatarUrl={currentUserAvatarUrl}
+          onTokenRefresh={onTokenRefresh}
+          onProfileUpdated={() => {
+            // Optional: reload logic is handled in ProfileModal
+          }}
+        />
+      )}
     </div>
   );
 }

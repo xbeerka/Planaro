@@ -44,7 +44,7 @@ import {
   projectId,
   publicAnonKey,
 } from "../../utils/supabase/info";
-import { ProfileModal } from "../workspace/ProfileModal";
+import { ProfileModal } from "../auth/ProfileModal";
 import { MessageSquarePlus } from "lucide-react";
 import {
   generateMonths,
@@ -70,6 +70,7 @@ interface SchedulerMainProps {
   workspace: Workspace;
   onSignOut: () => void;
   onBackToWorkspaces: () => void;
+  onTokenRefresh: (newToken: string) => Promise<void>;
 }
 
 export function SchedulerMain({
@@ -77,14 +78,17 @@ export function SchedulerMain({
   workspace,
   onSignOut,
   onBackToWorkspaces,
+  onTokenRefresh,
 }: SchedulerMainProps) {
   const {
     weekPx,
     eventRowH,
-    displayMode,
+    showGaps,
+    showPatterns,
     setWeekPx,
     setEventRowH,
-    setDisplayMode,
+    setShowGaps,
+    setShowPatterns,
   } = useSettings();
   
   const { showToast } = useToast();
@@ -309,15 +313,15 @@ export function SchedulerMain({
     );
   }, [visibleDepartments, filteredResources]);
 
-  // Кэшируем config для предотвращения лишних пересчётов и ре-рендерв
+  // Кэшируем config для предотвращения лишних пересчётов и ре-рендеров
   const config = useMemo(
     () =>
       createLayoutConfig(
         weekPx,
         eventRowH,
-        displayMode, // Передаем displayMode для правильных отступов
+        showGaps,
       ),
-    [weekPx, eventRowH, displayMode],
+    [weekPx, eventRowH, showGaps],
   );
 
   const {
@@ -1441,9 +1445,9 @@ export function SchedulerMain({
       
       // В режиме производительности отключаем логику склейки
       // Padding убирается ТОЛЬКО при ПОЛНОЙ склейке (одинаковая высота)
-      const hasAnyLeftNeighbor = displayMode === 'performance' ? false : 
+      const hasAnyLeftNeighbor = !showGaps ? false : 
         (neighborInfo?.hasFullLeftNeighbor);
-      const hasAnyRightNeighbor = displayMode === 'performance' ? false : 
+      const hasAnyRightNeighbor = !showGaps ? false : 
         (neighborInfo?.hasFullRightNeighbor);
       
       let paddingLeft = hasAnyLeftNeighbor ? 0 : config.cellPaddingLeft;
@@ -1517,7 +1521,7 @@ export function SchedulerMain({
     });
     
     return positions;
-  }, [sortedEventsWithZOrder, eventNeighbors, displayMode, config, filteredResources, filteredDepartments]);
+  }, [sortedEventsWithZOrder, eventNeighbors, showGaps, config, filteredResources, filteredDepartments]);
 
   const renderEvents = useCallback(() => {
     // Viewport culling с большим буфером для плавной подгрузки при быстром скролле
@@ -1614,7 +1618,8 @@ export function SchedulerMain({
             isPending={isPending}
             isBlocked={isBlocked}
             dimmed={isDimmed}
-            displayMode={displayMode}
+            showGaps={showGaps}
+            showPatterns={showPatterns}
             isContextMenuOpen={isContextMenuOpen}
             // Упрощённая логика v3.1: round* флаги (позитивная логика)
             roundTopLeft={neighbors.roundTopLeft}
@@ -1676,7 +1681,8 @@ export function SchedulerMain({
     filteredResources,
     filteredDepartments,
     eventRowH,
-    displayMode, // КРИТИЧНО: добавляем displayMode в зависимости
+    showGaps,
+    showPatterns,
     handleEventContextMenu,
     startDrag,
     startResize,
@@ -1981,8 +1987,15 @@ export function SchedulerMain({
       <ProfileModal
         isOpen={profileModalOpen}
         onClose={() => setProfileModalOpen(false)}
-        userEmail={currentUserEmail}
+        currentEmail={currentUserEmail}
+        currentDisplayName={currentUserDisplayName}
+        currentAvatarUrl={currentUserAvatarUrl}
         accessToken={accessToken}
+        onTokenRefresh={onTokenRefresh}
+        onProfileUpdated={() => {
+          // Profile updated
+          console.log('Profile updated');
+        }}
       />
 
       <SettingsModal

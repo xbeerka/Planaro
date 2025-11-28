@@ -125,7 +125,7 @@ const DialogOverlay = React.forwardRef<
       data-slot="dialog-overlay"
       onClick={() => setOpen(false)}
       className={cn(
-        "fixed inset-0 z-[5000] bg-black/50 animate-in fade-in-0",
+        "fixed inset-0 z-[5000] bg-black/40 backdrop-blur-sm animate-in fade-in-0",
         className
       )}
       {...props}
@@ -146,7 +146,7 @@ const DialogContent = React.forwardRef<
         ref={ref}
         data-slot="dialog-content"
         className={cn(
-          "fixed top-[50%] left-[50%] z-[5000] grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border bg-background p-6 shadow-lg duration-200 animate-in fade-in-0 zoom-in-95 sm:max-w-lg",
+          "fixed top-[50%] left-[50%] z-[5000] grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-6 rounded-[28px] border bg-background p-8 duration-200 animate-in fade-in-0 zoom-in-95 sm:max-w-lg",
           className
         )}
         {...props}
@@ -154,9 +154,9 @@ const DialogContent = React.forwardRef<
         {children}
         <button
           onClick={() => setOpen(false)}
-          className="absolute top-4 right-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground"
+          className="absolute top-6 right-6 rounded-full p-2 opacity-70 ring-offset-background transition-all hover:opacity-100 hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground"
         >
-          <X className="h-4 w-4" />
+          <X className="h-5 w-5" />
           <span className="sr-only">Close</span>
         </button>
       </div>
@@ -180,7 +180,7 @@ function DialogFooter({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="dialog-footer"
       className={cn(
-        "flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
+        "flex flex-col-reverse gap-3 sm:flex-row sm:justify-end",
         className,
       )}
       {...props}
@@ -195,7 +195,7 @@ const DialogTitle = React.forwardRef<
   <h2
     ref={ref}
     data-slot="dialog-title"
-    className={cn("text-lg leading-none font-semibold", className)}
+    className={cn("text-2xl leading-none font-normal tracking-tight", className)}
     {...props}
   />
 ));
@@ -208,7 +208,7 @@ const DialogDescription = React.forwardRef<
   <p
     ref={ref}
     data-slot="dialog-description"
-    className={cn("text-muted-foreground text-sm", className)}
+    className={cn("text-muted-foreground text-base", className)}
     {...props}
   />
 ));

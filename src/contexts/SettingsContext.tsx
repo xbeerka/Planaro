@@ -1,15 +1,15 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { getStorageItem, setStorageItem } from '../utils/storage';
 
-type DisplayMode = 'performance' | 'with-patterns'; // Режим отображения: производительность (без паттернов) или с паттернами
-
 interface SettingsContextType {
   weekPx: number;
   eventRowH: number;
-  displayMode: DisplayMode;
+  showGaps: boolean;
+  showPatterns: boolean;
   setWeekPx: (value: number) => void;
   setEventRowH: (value: number) => void;
-  setDisplayMode: (mode: DisplayMode) => void;
+  setShowGaps: (value: boolean) => void;
+  setShowPatterns: (value: boolean) => void;
 }
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
@@ -17,20 +17,38 @@ const SettingsContext = createContext<SettingsContextType | undefined>(undefined
 export function SettingsProvider({ children }: { children: ReactNode }) {
   const [weekPx, setWeekPxState] = useState(144);
   const [eventRowH, setEventRowHState] = useState(144);
-  const [displayMode, setDisplayModeState] = useState<DisplayMode>('with-patterns'); // Дефолт: с паттернами
+  const [showGaps, setShowGapsState] = useState(true);
+  const [showPatterns, setShowPatternsState] = useState(true);
 
   // Load settings from IndexedDB on mount
   useEffect(() => {
     const loadSettings = async () => {
       const savedWeekPx = await getStorageItem('scheduler_weekPx');
       const savedEventRowH = await getStorageItem('scheduler_eventRowH');
+      // Migration from displayMode to split settings
       const savedDisplayMode = await getStorageItem('scheduler_displayMode');
+      const savedShowGaps = await getStorageItem('scheduler_showGaps');
+      const savedShowPatterns = await getStorageItem('scheduler_showPatterns');
       
       if (savedWeekPx) setWeekPxState(Number(savedWeekPx));
       if (savedEventRowH) setEventRowHState(Number(savedEventRowH));
-      if (savedDisplayMode && (savedDisplayMode === 'performance' || savedDisplayMode === 'with-patterns')) {
-        setDisplayModeState(savedDisplayMode as DisplayMode);
+      
+      // Handle migration
+      if (savedDisplayMode) {
+        if (savedDisplayMode === 'performance') {
+          setShowGapsState(false);
+          setShowPatternsState(false);
+        } else {
+          setShowGapsState(true);
+          setShowPatternsState(true);
+        }
+        // Clear old key
+        // await setStorageItem('scheduler_displayMode', null); // Optional
       }
+      
+      // Overwrite with new explicit settings if they exist
+      if (savedShowGaps !== null) setShowGapsState(savedShowGaps === 'true');
+      if (savedShowPatterns !== null) setShowPatternsState(savedShowPatterns === 'true');
     };
     
     loadSettings();
@@ -46,11 +64,15 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setStorageItem('scheduler_eventRowH', String(eventRowH));
   }, [eventRowH]);
 
-  // Save displayMode to IndexedDB when it changes
+  // Save showGaps to IndexedDB when it changes
   useEffect(() => {
-    // console.log('💾 SettingsContext: Сохранение displayMode в IndexedDB:', displayMode);
-    setStorageItem('scheduler_displayMode', displayMode);
-  }, [displayMode]);
+    setStorageItem('scheduler_showGaps', String(showGaps));
+  }, [showGaps]);
+
+  // Save showPatterns to IndexedDB when it changes
+  useEffect(() => {
+    setStorageItem('scheduler_showPatterns', String(showPatterns));
+  }, [showPatterns]);
 
   const setWeekPx = (value: number) => {
     setWeekPxState(value);
@@ -60,9 +82,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setEventRowHState(value);
   };
 
-  const setDisplayMode = (mode: DisplayMode) => {
-    console.log('🎨 SettingsContext: setDisplayMode вызван', { old: displayMode, new: mode });
-    setDisplayModeState(mode);
+  const setShowGaps = (value: boolean) => {
+    setShowGapsState(value);
+  };
+
+  const setShowPatterns = (value: boolean) => {
+    setShowPatternsState(value);
   };
 
   return (
@@ -70,10 +95,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       value={{
         weekPx,
         eventRowH,
-        displayMode,
+        showGaps,
+        showPatterns,
         setWeekPx,
         setEventRowH,
-        setDisplayMode
+        setShowGaps,
+        setShowPatterns
       }}
     >
       {children}

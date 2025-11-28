@@ -58,17 +58,16 @@ export function getBorderRadiusForRowHeight(eventRowH: number): number {
 export function createLayoutConfig(
   weekPx: number, 
   eventRowH: number,
-  displayMode?: 'with-patterns' | 'performance'
+  showGaps: boolean = true
 ): LayoutConfig {
-  // В режиме производительности используем фиксированные отступы
-  const isPerformanceMode = displayMode === 'performance';
+  // Если showGaps = false, используем нулевые отступы (аналог старого performance mode)
+  const gap = showGaps ? getGapForSize(eventRowH) : 0;
+  const rowPaddingTop = showGaps ? getRowPaddingForSize(eventRowH) : 2;
+  const rowPaddingBottom = showGaps ? getRowPaddingForSize(eventRowH) : 0;
   
-  const gap = isPerformanceMode ? 0 : getGapForSize(eventRowH);
-  const rowPaddingTop = isPerformanceMode ? 2 : getRowPaddingForSize(eventRowH);
-  const rowPaddingBottom = isPerformanceMode ? 0 : getRowPaddingForSize(eventRowH);
   // Унифицированные отступы: cellPadding = gap (вместо gap/2)
   // Теперь одиночные события имеют одинаковые отступы со всех сторон
-  const cellPadding = isPerformanceMode ? 0 : gap;
+  const cellPadding = gap;
   
   // Округляем все вычисления до целых пикселей для pixel-perfect позиционирования
   const unitContentH = Math.floor((eventRowH - (UNITS - 1) * gap - rowPaddingTop - rowPaddingBottom) / UNITS);

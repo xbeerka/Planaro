@@ -8,6 +8,26 @@
 
 ## [Unreleased]
 
+## [4.0.3] - 2025-11-28
+
+### 🐛 Bug Fixes
+
+- **Event Gluing (Project Name Visibility)**:
+  - ✅ Исправлена ошибка при Undo/Redo, когда логика скрытия названия проекта (для коротких событий) применялась некорректно.
+  - ✅ **Причина**: Порядок обработки событий в PASS 5 зависел от порядка в массиве (который мог меняться из-за Z-order при Undo).
+  - ✅ **Решение**: Принудительная сортировка событий по времени (`startWeek`) перед расчетом цепочки скрытия названий.
+
+## [4.0.1] - 2025-11-28
+
+### 🚀 Stable Release (Gluing Logic v6.18)
+
+- **Event Gluing Logic Update (v6.18)**:
+  - ✅ **Clean Pass 2**: Removed blocking logic to allow walls to expand freely
+  - ✅ **New Edge Case Logic (Pass 3)**:
+    - **Rule 1 (B above A)**: Inner Bottom event above Outer Top event -> Top event expands (+1 gap), neighbors reset
+    - **Rule 2 (C above D)**: Outer Bottom event above Inner Top event -> Top event resets, neighbors expand (+1 gap)
+  - ✅ **Stacking Reduction (Pass 2.5)**: Notch event (sandwiched + stacked) reduces expansion to avoid visual noise
+
 ## [4.0.0] - 2025-11-25
 
 ### 🚀 Stable Release (Clean Rollback)
@@ -172,7 +192,7 @@
   - **Документация**: `/UNDO_PENDING_CHECK_FIX_v3.3.15.md`, `/QUICK_TEST_PENDING_OPERATIONS_v3.3.15.md`
 
 - **v3.3.14**: Pending состояние после Undo + убран toast warning (КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ)
-  - **Проблема 1**: События показывают полоски загрузки после Undo
+  - **Проблема 1**: События пок��зывают полоски загрузки после Undo
     - Сценарий: Создал событие → drag → быстрый Undo (< 2 сек) → **полоски загрузки**
     - **Причина**: Debounced save продолжает выполняться после Undo (pending операция в очереди)
     - **Исправление**:
@@ -1037,7 +1057,7 @@ t=500ms  : Debounced save отправляет данные на сервер
 #### Результат
 - ⚡ Изменения появляются через 4 секунды (было 10-30 секунд)
 - 🔄 Full Sync каждые 30 секунд (обнаружение удалений)
-- 🛡️ Защита от конфликтов при drag/drop сохранена
+- 🛡️ За��ита от конфликтов при drag/drop сохранена
 - 🎯 Простая и на��ёжная логика без хитростей
 
 #### Интервалы синхронизации
@@ -1052,7 +1072,7 @@ FULL_SYNC_INTERVAL  = 30000;  // 🔄 30 сек - все события + уда
 
 ---
 
-### 🐛 FIX: Исправлено множественное восстановление событий через Undo/Redo (2025-11-18)
+### 🐛 FIX: Исправлено множественное в��сстановление событий через Undo/Redo (2025-11-18)
 
 **Race conditions при batch restore - ИСПРАВЛЕНО**
 
@@ -1926,7 +1946,7 @@ Event unit 3: top = 33px ✅
 - Защита от бесконечного цикла (1000 итераций)
 - Детальное логирование: "заполнено 208/208 ячеек (100.0%)"
 
-**Оптимизи��ованная очистка**:
+**Оптимизи����ванная очистка**:
 - Новый endpoint: `DELETE /events/clear/:workspaceId`
 - Удаление всех событий одним SQL запросом
 - Подсчет удален��ых событий
@@ -2618,13 +2638,13 @@ ALTER PUBLICATION supabase_realtime ADD TABLE events;
 - **App.tsx - ИСПРАВЛЕНО мигание списка воркспейсов при обновлении страницы в календаре**:
   - **Проблема**: При F5 в календаре (/workspace/:id) на долю секунды отображался список воркспейсов
   - **Причина**: Рендер проходил через `!selectedWorkspace` → WorkspaceListScreen → useEffect загрузки → календарь
-  - **Решение**: Добавлена проверка URL в рендере - если URL = /workspace/:id но selectedWorkspace = null, показывается спиннер "Загрузка рабочего пространства..."
+  - **Решение**: Добавлена проверка URL в рендере - если URL = /workspace/:id но selectedWorkspace = null, показыва��тся спиннер "Загрузка рабочего пространства..."
   - **Результат**: ✅ Плавный переход без мигания при обновлении страницы в календаре
 
 ## [1.8.3] - 2025-10-21
 
 ### ✅ Исправления
-- **WorkspaceListScreen - ИСПРАВЛЕНО отображение онлайн пользователей**:
+- **WorkspaceListScreen - ИСПРАВЛЕНО отображение онлайн пользова��елей**:
   - **Проблема 1**: workspace.id в базе хранится как number (1, 14), но JSON возвращает строковые ключи ("1", "14")
   - **Симптом 1**: `onlineUsersMap.get(14)` не находил данные, т.к. ключи были строками `"14"` (type mismatch)
   - **Решение 1**: Конвертация `workspace.id` в String перед поиском: `const workspaceIdStr = String(workspace.id)`

@@ -1,11 +1,14 @@
-import React, { useState, useRef } from 'react';
-import { X, Upload, User, Loader2, Camera } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { X, Upload, User, Loader2, Camera, Pencil } from 'lucide-react';
 import { updateProfile, uploadAvatar } from '../../services/api/profile';
 import { toast } from '../ui/use-toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
+import { resizeImageOnClient } from '../../utils/imageResize';
+import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { getStorageItem } from '../../utils/storage';
 
 interface ProfileModalProps {
   isOpen: boolean;
@@ -21,6 +24,7 @@ interface ProfileModalProps {
 export function ProfileModal({
   isOpen,
   onClose,
+  accessToken,
   currentDisplayName,
   currentEmail,
   currentAvatarUrl,
@@ -37,7 +41,7 @@ export function ProfileModal({
   const [uploadedAvatarUrl, setUploadedAvatarUrl] = useState<string | null>(null);
 
   // Reset state when opening
-  React.useEffect(() => {
+  useEffect(() => {
     if (isOpen) {
       setDisplayName(currentDisplayName || '');
       setAvatarPreview(currentAvatarUrl || null);
@@ -68,14 +72,18 @@ export function ProfileModal({
       return;
     }
 
-    // Show preview
-    const objectUrl = URL.createObjectURL(file);
-    setAvatarPreview(objectUrl);
-
-    // Upload immediately
     setIsUploading(true);
     try {
-      const url = await uploadAvatar(file);
+      // Client-side resize
+      console.log('🖼️ Сжатие изображения на клиенте...');
+      const resizedFile = await resizeImageOnClient(file);
+
+      // Show preview
+      const objectUrl = URL.createObjectURL(resizedFile);
+      setAvatarPreview(objectUrl);
+
+      // Upload immediately
+      const url = await uploadAvatar(resizedFile);
       setUploadedAvatarUrl(url);
       toast({
         title: "Успешно",
@@ -120,24 +128,78 @@ export function ProfileModal({
 
       await updateProfile(payload);
       
-      // After update, we need to refresh token to get new metadata
-      // This part depends on how the server handles it. 
-      // Usually server should return new token or we need to re-fetch session.
+      // Force refresh token to get new metadata
+      if (onTokenRefresh) {
+        console.log('🔄 Обновление токена для получения свежих user_metadata...');
+        
+        try {
+          const storedSessionId = await getStorageItem('auth_session_id');
+          
+          if (!storedSessionId) {
+            console.warn('⚠️ Session ID не найден - перезагрузка страницы');
+            toast({
+              title: "Профиль обновлен",
+              description: "Страница будет перезагружена..."
+            });
+            setTimeout(() => window.location.reload(), 2000);
+            return;
+          }
+          
+          console.log('🔑 Session ID найден, запрос новой сессии...');
+          
+          // Запросить новую сессию с обновленными user_metadata
+          const sessionResponse = await fetch(
+            `https://${projectId}.supabase.co/functions/v1/make-server-73d66528/auth/session`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${publicAnonKey}`
+              },
+              body: JSON.stringify({ 
+                session_id: storedSessionId,
+                force_refresh: true  // ← КРИТИЧНО!
+              })
+            }
+          );
+          
+          if (sessionResponse.ok) {
+            const sessionData = await sessionResponse.json();
+            if (sessionData.session?.access_token) {
+              console.log('✅ Новый токен получен с обновленными user_metadata');
+              
+              await onTokenRefresh(sessionData.session.access_token);
+              
+              toast({
+                title: "Профиль обновлен",
+                description: "Изменения сохранены успешно"
+              });
+              
+              onProfileUpdated();
+              onClose();
+            } else {
+              throw new Error('No access token in response');
+            }
+          } else {
+             throw new Error('Session refresh failed');
+          }
+        } catch (refreshError) {
+          console.error('❌ Ошибка обновления токена:', refreshError);
+          toast({
+            title: "Профиль обновлен",
+            description: "Страница будет перезагружена..."
+          });
+          setTimeout(() => window.location.reload(), 2000);
+        }
+      } else {
+        // Fallback
+        toast({
+          title: "Профиль обновлен",
+          description: "Страница будет перезагружена..."
+        });
+        setTimeout(() => window.location.reload(), 2000);
+      }
       
-      // For now, we'll trigger the callback and show a message
-      toast({
-        title: "Профиль обновлен",
-        description: "Изменения сохранены. Страница будет перезагружена для применения изменений."
-      });
-      
-      onProfileUpdated();
-      
-      // Force reload to refresh token via session
-      setTimeout(() => {
-        window.location.reload();
-      }, 2000);
-      
-      onClose();
     } catch (error) {
       console.error('Update profile failed:', error);
       toast({
@@ -186,7 +248,7 @@ export function ProfileModal({
                 )}
               </div>
               <div className="absolute bottom-0 right-0 bg-blue-600 text-white p-1.5 rounded-full border-2 border-white shadow-sm">
-                <PencilIcon className="w-3 h-3" />
+                <Pencil className="w-3 h-3" />
               </div>
             </div>
             
@@ -243,19 +305,5 @@ export function ProfileModal({
         </form>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function PencilIcon({ className }: { className?: string }) {
-  return (
-    <svg 
-      className={className} 
-      fill="none" 
-      viewBox="0 0 24 24" 
-      stroke="currentColor" 
-      strokeWidth={2}
-    >
-      <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-    </svg>
   );
 }

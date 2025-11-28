@@ -13,7 +13,8 @@ interface SchedulerEventProps {
   isPending?: boolean;
   isBlocked?: boolean; // ✅ Заблокировано для взаимодействия (временные ID)
   dimmed?: boolean;
-  displayMode?: 'performance' | 'with-patterns';
+  showGaps?: boolean;
+  showPatterns?: boolean;
   isContextMenuOpen?: boolean;
   // УПРОЩЁННАЯ ЛОГИКА v3.1: Позитивные флаги - какие углы скруглены
   roundTopLeft?: boolean;
@@ -50,7 +51,8 @@ function SchedulerEventComponent({
   isPending = false,
   isBlocked = false, // ✅ Заблокировано для взаимодействия
   dimmed = false,
-  displayMode = 'with-patterns',
+  showGaps = true,
+  showPatterns = true,
   isContextMenuOpen = false,
   roundTopLeft = true,
   roundTopRight = true,
@@ -76,8 +78,8 @@ function SchedulerEventComponent({
   
   // Логируем каждый рендер для диагностики
   useEffect(() => {
-    // console.log(`🎨 Event ${event.id}: рендер с displayMode=${displayMode}`);
-  }, [event.id, displayMode]);
+    // console.log(`🎨 Event ${event.id}: рендер с showGaps=${showGaps}, showPatterns=${showPatterns}`);
+  }, [event.id, showGaps, showPatterns]);
 
   const [hoveredScissor, setHoveredScissor] = useState<number | null>(null);
   
@@ -149,7 +151,7 @@ function SchedulerEventComponent({
     // Упрощённая логика v3.1: borderRadius на основе round* флагов
     // CSS border-radius: topLeft topRight bottomRight bottomLeft
     // roundTopLeft/Right/BottomLeft/Right = true означает что угол скруглён
-    if (displayMode === 'performance') {
+    if (!showGaps) {
       baseStyle.borderRadius = '0px';
     } else {
       const tl = roundTopLeft ? baseBorderRadius : 0;
@@ -162,20 +164,20 @@ function SchedulerEventComponent({
     // Добавляем CSS переменные для внутренних скруглений
     // Внутренний радиус = внешний радиус + gap (математически правильно)
     // В режиме производительности - внутренние скругления отключены
-    const innerRadius = displayMode === 'performance' ? 0 : baseBorderRadius + config.gap;
+    const innerRadius = !showGaps ? 0 : baseBorderRadius + config.gap;
     (baseStyle as any)['--inner-radius-size'] = `${innerRadius}px`;
-    (baseStyle as any)['--inner-tl-color'] = displayMode === 'performance' ? 'transparent' : innerTopLeftColor;
-    (baseStyle as any)['--inner-tr-color'] = displayMode === 'performance' ? 'transparent' : innerTopRightColor;
-    (baseStyle as any)['--inner-bl-color'] = displayMode === 'performance' ? 'transparent' : innerBottomLeftColor;
-    (baseStyle as any)['--inner-br-color'] = displayMode === 'performance' ? 'transparent' : innerBottomRightColor;
+    (baseStyle as any)['--inner-tl-color'] = !showGaps ? 'transparent' : innerTopLeftColor;
+    (baseStyle as any)['--inner-tr-color'] = !showGaps ? 'transparent' : innerTopRightColor;
+    (baseStyle as any)['--inner-bl-color'] = !showGaps ? 'transparent' : innerBottomLeftColor;
+    (baseStyle as any)['--inner-br-color'] = !showGaps ? 'transparent' : innerBottomRightColor;
 
     // Use backgroundColor from project if available
     if ('backgroundColor' in project && project.backgroundColor) {
       baseStyle.backgroundColor = project.backgroundColor;
       
       // Use pattern from project's patternId (project inherits pattern from event_patterns table)
-      // Паттерны применяются только если displayMode === 'with-patterns'
-      const projectPattern = displayMode === 'with-patterns' && 'patternId' in project && project.patternId 
+      // Паттерны применяются только если showPatterns === true
+      const projectPattern = showPatterns && 'patternId' in project && project.patternId 
         ? eventPatterns.find(p => p.id === project.patternId)
         : null;
       
@@ -251,7 +253,7 @@ function SchedulerEventComponent({
     }
 
     return baseStyle;
-  }, [left, top, width, height, getPadding, baseBorderRadius, roundTopLeft, roundTopRight, roundBottomLeft, roundBottomRight, config.gap, project, eventPatterns, dimmed, displayMode, innerTopLeftColor, innerBottomLeftColor, innerTopRightColor, innerBottomRightColor, isContextMenuOpen]);
+  }, [left, top, width, height, getPadding, baseBorderRadius, roundTopLeft, roundTopRight, roundBottomLeft, roundBottomRight, config.gap, project, eventPatterns, dimmed, showGaps, showPatterns, innerTopLeftColor, innerBottomLeftColor, innerTopRightColor, innerBottomRightColor, isContextMenuOpen]);
 
   // Вычисляем hasInner* из цветов (для CSS классов ::before/::after)
   const hasInnerTopLeft = innerTopLeftColor !== 'transparent';
@@ -265,13 +267,13 @@ function SchedulerEventComponent({
       className={`scheduler-event absolute flex gap-2 select-none min-w-[40px] ${
         event.unitsTall > 1 ? 'items-start' : ''
       } ${isCtrlPressed ? 'ctrl-move-mode' : ''} ${isPending || isBlocked ? 'pending' : ''} ${!('backgroundColor' in project && project.backgroundColor) ? `proj-${event.projectId}` : ''} ${
-        displayMode !== 'performance' && hasInnerTopLeft ? 'inner-tl' : ''
+        showGaps && hasInnerTopLeft ? 'inner-tl' : ''
       } ${
-        displayMode !== 'performance' && hasInnerBottomLeft ? 'inner-bl' : ''
+        showGaps && hasInnerBottomLeft ? 'inner-bl' : ''
       } ${
-        displayMode !== 'performance' && hasInnerTopRight ? 'inner-tr' : ''
+        showGaps && hasInnerTopRight ? 'inner-tr' : ''
       } ${
-        displayMode !== 'performance' && hasInnerBottomRight ? 'inner-br' : ''
+        showGaps && hasInnerBottomRight ? 'inner-br' : ''
       }`}
       style={eventStyle}
       data-event-id={event.id}
@@ -281,7 +283,7 @@ function SchedulerEventComponent({
     >
       {/* Wrapper для нижних внутренних скруглений - абсолютно позиционированный на дне события */}
       {/* В режиме производительности внутренние скругления отключены */}
-      {displayMode !== 'performance' && (hasInnerBottomLeft || hasInnerBottomRight) && (
+      {showGaps && (hasInnerBottomLeft || hasInnerBottomRight) && (
         <div 
           className={`inner-bottom-wrapper ${hasInnerBottomLeft ? 'inner-bl' : ''} ${hasInnerBottomRight ? 'inner-br' : ''}`}
         />
@@ -440,13 +442,13 @@ export const SchedulerEvent = memo(SchedulerEventComponent, (prevProps, nextProp
     prevProject?.name === nextProject?.name
   );
   
-  // Проверяем изменение displayMode
-  const displayModeChanged = prevProps.displayMode !== nextProps.displayMode;
+  // Проверяем изменение showGaps / showPatterns
+  const displayModeChanged = prevProps.showGaps !== nextProps.showGaps || prevProps.showPatterns !== nextProps.showPatterns;
   if (displayModeChanged) {
-    console.log(`🔄 Event ${nextProps.event.id}: displayMode изменился с ${prevProps.displayMode} на ${nextProps.displayMode}`);
+    console.log(`🔄 Event ${nextProps.event.id}: display settings changed`);
   }
   
-  // Сравниваем только те поля, котоые влияют на визуал
+  // Сравниваем только те поля, которые влияют на визуал
   const shouldSkipRender = (
     prevProps.event.id === nextProps.event.id &&
     prevProps.event.startWeek === nextProps.event.startWeek &&
@@ -465,7 +467,8 @@ export const SchedulerEvent = memo(SchedulerEventComponent, (prevProps, nextProp
     prevProps.isPending === nextProps.isPending &&
     prevProps.isBlocked === nextProps.isBlocked && // ✅ Сравниваем isBlocked для обновления спиннера
     prevProps.dimmed === nextProps.dimmed &&
-    prevProps.displayMode === nextProps.displayMode &&
+    prevProps.showGaps === nextProps.showGaps &&
+    prevProps.showPatterns === nextProps.showPatterns &&
     // Упрощённая логика v3.1: round* флаги
     prevProps.roundTopLeft === nextProps.roundTopLeft &&
     prevProps.roundTopRight === nextProps.roundTopRight &&

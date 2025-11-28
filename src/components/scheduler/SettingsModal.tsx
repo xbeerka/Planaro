@@ -1,5 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useSettings } from '../../contexts/SettingsContext';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Button } from '../ui/button';
+import { Label } from '../ui/label';
+import { Switch } from '../ui/switch';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -7,83 +11,138 @@ interface SettingsModalProps {
 }
 
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
-  const { displayMode, setDisplayMode } = useSettings();
-  
-  // Локальное состояние для изменений (применяется только по кнопке "Сохранить")
-  const [localDisplayMode, setLocalDisplayMode] = useState(displayMode);
-  
-  // Обновляем локальное состояние при открытии модалки
+  const { 
+    weekPx, 
+    eventRowH, 
+    showGaps, 
+    showPatterns, 
+    setWeekPx, 
+    setEventRowH, 
+    setShowGaps, 
+    setShowPatterns 
+  } = useSettings();
+
+  // Локальное состояние для формы
+  const [localWeekPx, setLocalWeekPx] = useState(weekPx);
+  const [localEventRowH, setLocalEventRowH] = useState(eventRowH);
+  const [localShowGaps, setLocalShowGaps] = useState(showGaps);
+  const [localShowPatterns, setLocalShowPatterns] = useState(showPatterns);
+
+  // Синхронизация с глобальным состоянием при открытии
   useEffect(() => {
     if (isOpen) {
-      setLocalDisplayMode(displayMode);
+      setLocalWeekPx(weekPx);
+      setLocalEventRowH(eventRowH);
+      setLocalShowGaps(showGaps);
+      setLocalShowPatterns(showPatterns);
     }
-  }, [isOpen, displayMode]);
-  
-  const hasChanges = localDisplayMode !== displayMode;
-  
+  }, [isOpen, weekPx, eventRowH, showGaps, showPatterns]);
+
   const handleSave = () => {
-    console.log('⚙️ Сохранение настроек:', { from: displayMode, to: localDisplayMode });
-    setDisplayMode(localDisplayMode);
-    console.log('✅ Настройки сохранены');
+    setWeekPx(localWeekPx);
+    setEventRowH(localEventRowH);
+    setShowGaps(localShowGaps);
+    setShowPatterns(localShowPatterns);
     onClose();
   };
-  
-  const handleCancel = () => {
-    // Сбрасываем локальное состояние
-    setLocalDisplayMode(displayMode);
-    onClose();
-  };
-  
-  if (!isOpen) return null;
+
+  // Проверка на наличие изменений
+  const hasChanges = 
+    localWeekPx !== weekPx || 
+    localEventRowH !== eventRowH || 
+    localShowGaps !== showGaps || 
+    localShowPatterns !== showPatterns;
 
   return (
-    <div className="fixed inset-0 z-[1000] bg-black/50 flex items-center justify-center">
-      <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-        <h2 className="text-xl font-semibold mb-6">
-          Настройки
-        </h2>
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-[425px]">
+        <DialogHeader>
+          <DialogTitle>Настройки отображения</DialogTitle>
+        </DialogHeader>
         
-        {/* Отображение проектов */}
-        <div className="mb-6">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Режим отображения
-          </label>
-          <select
-            value={localDisplayMode}
-            onChange={(e) => setLocalDisplayMode(e.target.value as 'performance' | 'with-patterns')}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          >
-            <option value="performance">Производительность</option>
-            <option value="with-patterns">С паттернами</option>
-          </select>
-          <p className="text-xs text-gray-500 mt-1">
-            {localDisplayMode === 'performance' 
-              ? 'Без паттернов и скруглений - максимальная производительность'
-              : 'С визуальными паттернами и скруглениями'}
-          </p>
+        <div className="space-y-6 py-4">
+          {/* Размеры сетки */}
+          <div className="space-y-4">
+            <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider">Размеры сетки</h3>
+            
+            <div className="grid gap-4">
+              <div className="flex flex-col gap-2">
+                <div className="flex justify-between">
+                  <Label htmlFor="weekPx">Ширина недели</Label>
+                  <span className="text-sm text-gray-500">{localWeekPx}px</span>
+                </div>
+                <input
+                  type="range"
+                  id="weekPx"
+                  min="48"
+                  max="220"
+                  step="4"
+                  value={localWeekPx}
+                  onChange={(e) => setLocalWeekPx(Number(e.target.value))}
+                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                />
+              </div>
+              
+              <div className="flex flex-col gap-2">
+                <div className="flex justify-between">
+                  <Label htmlFor="eventRowH">Высота строки</Label>
+                  <span className="text-sm text-gray-500">{localEventRowH}px</span>
+                </div>
+                <input
+                  type="range"
+                  id="eventRowH"
+                  min="48"
+                  max="144"
+                  step="4"
+                  value={localEventRowH}
+                  onChange={(e) => setLocalEventRowH(Number(e.target.value))}
+                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Внешний вид */}
+          <div className="space-y-4">
+            <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider">Внешний вид</h3>
+            
+            <div className="space-y-4">
+              <div className="flex items-center justify-between space-x-2">
+                <div className="flex flex-col gap-1">
+                  <Label htmlFor="showGaps" className="text-base">Отступы между проектами</Label>
+                  <span className="text-xs text-gray-500">Включить отступы и скругления углов</span>
+                </div>
+                <Switch
+                  id="showGaps"
+                  checked={localShowGaps}
+                  onCheckedChange={setLocalShowGaps}
+                />
+              </div>
+              
+              <div className="flex items-center justify-between space-x-2">
+                <div className="flex flex-col gap-1">
+                  <Label htmlFor="showPatterns" className="text-base">Паттерны проектов</Label>
+                  <span className="text-xs text-gray-500">Отображать текстурные фоны на событиях</span>
+                </div>
+                <Switch
+                  id="showPatterns"
+                  checked={localShowPatterns}
+                  onCheckedChange={setLocalShowPatterns}
+                />
+              </div>
+            </div>
+          </div>
         </div>
-        
-        {/* Футер с кнопками */}
-        <div className="flex gap-3">
-          <button
-            onClick={handleCancel}
-            className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-          >
+
+        <div className="flex justify-end gap-2 pt-2">
+          <Button variant="outline" onClick={onClose}>
             Отмена
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={!hasChanges}
-            className={`flex-1 px-4 py-2 rounded-lg transition-colors ${
-              hasChanges
-                ? 'bg-blue-600 text-white hover:bg-blue-700'
-                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-            }`}
-          >
+          </Button>
+          <Button onClick={handleSave} disabled={!hasChanges}>
             Сохранить
-          </button>
+          </Button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

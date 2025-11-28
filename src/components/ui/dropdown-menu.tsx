@@ -162,7 +162,7 @@ function DropdownMenuContent({
     <div
       ref={ref}
       className={cn(
-        "fixed z-[9999] min-w-[8rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md",
+        "fixed z-[9999] min-w-[8rem] overflow-hidden rounded-xl border bg-popover p-1 text-popover-foreground",
         "animate-in fade-in-0 zoom-in-95",
         className
       )}
@@ -196,7 +196,7 @@ function DropdownMenuItem({
   return (
     <div
       className={cn(
-        "relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors",
+        "relative flex cursor-pointer select-none items-center rounded-lg px-3 py-2 text-sm outline-none transition-colors",
         "hover:bg-accent hover:text-accent-foreground",
         "focus:bg-accent focus:text-accent-foreground",
         variant === "destructive" && "text-destructive hover:bg-destructive/10 focus:bg-destructive/10",
@@ -225,7 +225,7 @@ function DropdownMenuCheckboxItem({
   return (
     <div
       className={cn(
-        "relative flex cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none transition-colors",
+        "relative flex cursor-pointer select-none items-center rounded-lg py-2 pl-8 pr-2 text-sm outline-none transition-colors",
         "hover:bg-accent hover:text-accent-foreground",
         "focus:bg-accent focus:text-accent-foreground",
         className
@@ -248,7 +248,7 @@ function DropdownMenuRadioItem({
   return (
     <div
       className={cn(
-        "relative flex cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none transition-colors",
+        "relative flex cursor-pointer select-none items-center rounded-lg py-2 pl-8 pr-2 text-sm outline-none transition-colors",
         "hover:bg-accent hover:text-accent-foreground",
         "focus:bg-accent focus:text-accent-foreground",
         className
@@ -273,7 +273,7 @@ function DropdownMenuLabel({
   return (
     <div
       className={cn(
-        "px-2 py-1.5 text-sm font-semibold",
+        "px-3 py-2 text-sm font-semibold",
         inset && "pl-8",
         className
       )}
@@ -329,16 +329,13 @@ function DropdownMenuSubTrigger({
   return (
     <div
       className={cn(
-        "flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none",
+        "flex cursor-pointer select-none items-center rounded-lg px-2 py-1.5 text-sm outline-none",
         "hover:bg-accent",
         inset && "pl-8",
         className
       )}
       {...props}
-    >
-      {children}
-      <ChevronRightIcon className="ml-auto h-4 w-4" />
-    </div>
+    />
   );
 }
 
@@ -349,7 +346,7 @@ function DropdownMenuSubContent({
   return (
     <div
       className={cn(
-        "z-50 min-w-[8rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-lg",
+        "z-50 min-w-[8rem] overflow-hidden rounded-xl border bg-popover p-1 text-popover-foreground shadow-lg",
         className
       )}
       {...props}

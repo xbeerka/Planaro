@@ -1,7 +1,20 @@
 import { useState } from 'react';
-import { X, Calendar } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { Workspace } from '../../types/scheduler';
 import { updateWorkspace } from '../../services/api/workspaces';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../ui/dialog";
+import { Button } from "../ui/button";
+import { Input } from "../ui/input";
+import { Label } from "../ui/label";
+
+import { Alert, AlertDescription } from "../ui/alert";
 
 interface EditWorkspaceModalProps {
   workspace: Workspace;
@@ -13,7 +26,7 @@ export function EditWorkspaceModal({ workspace, onClose, onUpdate }: EditWorkspa
   const currentYear = new Date().getFullYear();
   
   const [name, setName] = useState(workspace.name);
-  const [year, setYear] = useState(workspace.timeline_year);
+  const [year, setYear] = useState(workspace.timeline_year.toString());
   const [isUpdating, setIsUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -25,7 +38,8 @@ export function EditWorkspaceModal({ workspace, onClose, onUpdate }: EditWorkspa
       return;
     }
     
-    if (!year || year < 2000 || year > 2100) {
+    const yearInt = parseInt(year);
+    if (!yearInt || yearInt < 2000 || yearInt > 2100) {
       setError('Введите корректный год (2000-2100)');
       return;
     }
@@ -36,10 +50,10 @@ export function EditWorkspaceModal({ workspace, onClose, onUpdate }: EditWorkspa
       
       await updateWorkspace(workspace.id, {
         name: name.trim(),
-        timeline_year: year
+        timeline_year: yearInt
       });
       
-      console.log('✅ Воркспейс обновлён:', { id: workspace.id, name: name.trim(), year });
+      console.log('✅ Воркспейс обновлён:', { id: workspace.id, name: name.trim(), year: yearInt });
       onUpdate();
     } catch (err: any) {
       console.error('❌ Ошибка обновления воркспейса:', err);
@@ -57,91 +71,78 @@ export function EditWorkspaceModal({ workspace, onClose, onUpdate }: EditWorkspa
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-200">
-          <div className="flex items-center gap-3 flex-1">
-            <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
-              <Calendar className="w-5 h-5 text-blue-600" />
-            </div>
-            <h2 className="text-xl">Редактировать рабочее пространство</h2>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center transition-colors"
-            disabled={isUpdating}
-          >
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
-        </div>
+    <Dialog open={true} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-[425px]">
+        <DialogHeader>
+          <DialogTitle>Редактировать пространство</DialogTitle>
+          <DialogDescription>
+            Измените настройки рабочего пространства.
+          </DialogDescription>
+        </DialogHeader>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-5">
+        <form onSubmit={handleSubmit} className="space-y-4 py-2">
           {/* Workspace Name */}
-          <div>
-            <label className="block text-sm mb-2">
-              Название пространства <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
+          <div className="space-y-2">
+            <Label htmlFor="name">
+              Название <span className="text-red-500">*</span>
+            </Label>
+            <Input
+              id="name"
               value={name}
               onChange={(e) => {
                 setName(e.target.value);
                 setError(null);
               }}
               placeholder="Например: Планирование 2025"
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               disabled={isUpdating}
               autoFocus
             />
           </div>
 
           {/* Year */}
-          <div>
-            <label className="block text-sm mb-2">
+          <div className="space-y-2">
+            <Label htmlFor="year">
               Год календаря <span className="text-red-500">*</span>
-            </label>
+            </Label>
             <select
+              id="year"
               value={year}
               onChange={(e) => {
-                setYear(parseInt(e.target.value));
+                setYear(e.target.value);
                 setError(null);
               }}
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               disabled={isUpdating}
+              className="flex h-12 w-full items-center justify-between rounded-xl border border-gray-200 bg-transparent px-4 py-2 text-base shadow-none focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm"
             >
               {generateYearOptions().map((y) => (
-                <option key={y} value={y}>
-                  {y} {y === currentYear ? '(текущий)' : ''}
+                <option key={y} value={y.toString()}>
+                  {y} {y === currentYear ? ' (текущий)' : ''}
                 </option>
               ))}
             </select>
-            <p className="text-xs text-gray-500 mt-1.5">
+            <p className="text-[0.8rem] text-muted-foreground">
               На основе года будут построены недели с датами
             </p>
           </div>
 
           {/* Error Message */}
           {error && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800">
-              {error}
-            </div>
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
           )}
 
-          {/* Actions */}
-          <div className="pt-2">
-            <button
-              type="submit"
-              className="w-full px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-center"
-              disabled={isUpdating}
-            >
+          <DialogFooter className="pt-4">
+            <Button type="button" variant="outline" onClick={onClose} disabled={isUpdating}>
+              Отмена
+            </Button>
+            <Button type="submit" disabled={isUpdating}>
+              {isUpdating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {isUpdating ? 'Сохранение...' : 'Сохранить'}
-            </button>
-          </div>
+            </Button>
+          </DialogFooter>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

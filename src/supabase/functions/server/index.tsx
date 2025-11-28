@@ -1988,7 +1988,7 @@ app.post("/make-server-73d66528/events/batch-create", async (c) => {
     
     const workspaceId = user.workspace_id;
     
-    // Преобразуем события для вставки
+    // Преобразуем события для вставк��
     const eventsToInsert = events.map((event: any) => {
       const userId = parseInt(event.resourceId.replace('r', ''));
       const projectId = parseInt(event.projectId.replace('p', ''));
@@ -3381,11 +3381,16 @@ app.get("/make-server-73d66528/workspaces/:id", async (c) => {
       .from('workspaces')
       .select('*')
       .eq('id', workspaceId)
-      .single();
+      .maybeSingle();
     
     if (error) {
       console.error('❌ Ошибка загрузки workspace:', error);
-      return c.json({ error: `Failed to fetch workspace: ${error.message}` }, 404);
+      return c.json({ error: `Failed to fetch workspace: ${error.message}` }, 500);
+    }
+    
+    if (!workspace) {
+      console.warn('⚠️ Workspace not found:', workspaceId);
+      return c.json({ error: 'Workspace not found' }, 404);
     }
     
     console.log(`✓ Workspace получен:`, workspace.name);
@@ -3711,7 +3716,7 @@ app.post("/make-server-73d66528/workspaces", async (c) => {
             console.log('   Company KODE ID:', kodeCompanyId || 'не найден');
 
             // 3. Определяем имя пользователя
-            // Используем имя из токена авторизации
+            // Используем им�� из токена авторизации
             const userName = user?.user_metadata?.name || 
                              user?.user_metadata?.display_name || 
                              user?.user_metadata?.full_name ||
