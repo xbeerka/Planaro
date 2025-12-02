@@ -6,10 +6,12 @@ interface SettingsContextType {
   eventRowH: number;
   showGaps: boolean;
   showPatterns: boolean;
+  showProjectWeight: boolean;
   setWeekPx: (value: number) => void;
   setEventRowH: (value: number) => void;
   setShowGaps: (value: boolean) => void;
   setShowPatterns: (value: boolean) => void;
+  setShowProjectWeight: (value: boolean) => void;
 }
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
@@ -19,6 +21,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const [eventRowH, setEventRowHState] = useState(144);
   const [showGaps, setShowGapsState] = useState(true);
   const [showPatterns, setShowPatternsState] = useState(true);
+  const [showProjectWeight, setShowProjectWeightState] = useState(true);
 
   // Load settings from IndexedDB on mount
   useEffect(() => {
@@ -29,6 +32,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       const savedDisplayMode = await getStorageItem('scheduler_displayMode');
       const savedShowGaps = await getStorageItem('scheduler_showGaps');
       const savedShowPatterns = await getStorageItem('scheduler_showPatterns');
+      const savedShowProjectWeight = await getStorageItem('scheduler_showProjectWeight');
       
       if (savedWeekPx) setWeekPxState(Number(savedWeekPx));
       if (savedEventRowH) setEventRowHState(Number(savedEventRowH));
@@ -49,6 +53,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       // Overwrite with new explicit settings if they exist
       if (savedShowGaps !== null) setShowGapsState(savedShowGaps === 'true');
       if (savedShowPatterns !== null) setShowPatternsState(savedShowPatterns === 'true');
+      if (savedShowProjectWeight !== null) setShowProjectWeightState(savedShowProjectWeight === 'true');
     };
     
     loadSettings();
@@ -74,6 +79,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setStorageItem('scheduler_showPatterns', String(showPatterns));
   }, [showPatterns]);
 
+  // Save showProjectWeight to IndexedDB when it changes
+  useEffect(() => {
+    setStorageItem('scheduler_showProjectWeight', String(showProjectWeight));
+  }, [showProjectWeight]);
+
   const setWeekPx = (value: number) => {
     setWeekPxState(value);
   };
@@ -90,6 +100,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setShowPatternsState(value);
   };
 
+  const setShowProjectWeight = (value: boolean) => {
+    setShowProjectWeightState(value);
+  };
+
   return (
     <SettingsContext.Provider
       value={{
@@ -97,10 +111,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         eventRowH,
         showGaps,
         showPatterns,
+        showProjectWeight,
         setWeekPx,
         setEventRowH,
         setShowGaps,
-        setShowPatterns
+        setShowPatterns,
+        setShowProjectWeight
       }}
     >
       {children}

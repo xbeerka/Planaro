@@ -6,7 +6,7 @@ import { CreateWorkspaceModal } from './CreateWorkspaceModal';
 import { EditWorkspaceModal } from './EditWorkspaceModal';
 import { getStorageJSON, setStorageJSON } from '../../utils/storage';
 import { decodeSupabaseJWT, getDisplayNameFromToken, getEmailFromToken } from '../../utils/jwt';
-import { toast } from '../../components/ui/use-toast';
+import { toast } from 'sonner@2.0.3';
 import { WorkspaceUsers } from './WorkspaceUsers';
 import { presenceApi } from '../../services/api/presence';
 import { ProfileModal } from '../auth/ProfileModal';
@@ -287,8 +287,7 @@ export function WorkspaceListScreen({ onSelectWorkspace, onSignOut, onTokenRefre
     try {
       await deleteWorkspace(workspaceId);
       console.log('✅ Воркспейс успешно удален из БД');
-      toast({
-        title: "Пространство удалено",
+      toast.success("Пространство удалено", {
         description: "Рабочее пространство успешно удалено",
       });
     } catch (error) {
@@ -300,10 +299,8 @@ export function WorkspaceListScreen({ onSelectWorkspace, onSignOut, onTokenRefre
         await setStorageJSON(cacheKey, restoredWorkspaces).catch(() => {});
       }
       
-      toast({
-        title: "Ошибка удаления",
+      toast.error("Ошибка удаления", {
         description: "Не удалось удалить рабочее пространство",
-        variant: "destructive"
       });
     }
   };
@@ -478,7 +475,7 @@ export function WorkspaceListScreen({ onSelectWorkspace, onSignOut, onTokenRefre
               <Card 
                 key={workspace.id}
                 // Removed shadow-md, hover:shadow-xl, hover:-translate-y-1. Added hover:bg-muted/10 and border-transparent -> border-border for interaction or similar
-                className="group overflow-hidden cursor-pointer border border-border bg-card hover:border-primary/20 transition-all duration-300"
+                className="group overflow-hidden cursor-pointer bg-card transition-all duration-300 border-0 shadow-none"
                 onClick={() => onSelectWorkspace(workspace)}
               >
                 {/* Preview Image */}
@@ -518,8 +515,8 @@ export function WorkspaceListScreen({ onSelectWorkspace, onSignOut, onTokenRefre
                 </div>
 
                 {/* Content */}
-                <CardContent className="p-6">
-                  <div className="flex items-start justify-between mb-6">
+                <div className="h-fit px-6 py-0 flex flex-col gap-6">
+                  <div className="flex items-start justify-between">
                     <div className="flex-1 min-w-0">
                       <h3 className="text-xl font-semibold truncate mb-1.5 tracking-tight text-foreground/90">{workspace.name}</h3>
                       <Badge variant="secondary" className="font-medium bg-secondary/60 hover:bg-secondary/80">
@@ -529,40 +526,42 @@ export function WorkspaceListScreen({ onSelectWorkspace, onSignOut, onTokenRefre
                   </div>
 
                   {/* Stats */}
-                  <div className="grid grid-cols-3 gap-2 py-4 bg-muted/30 rounded-2xl border border-border/30">
+                  <div className="grid grid-cols-3 gap-2 py-4 bg-muted/30 rounded-2xl">
                     <div className="text-center">
                       <div className="text-xl font-bold text-foreground/80 leading-none mb-1.5">
                         {workspace.summary?.project_count ?? (workspace.summary as any)?.projects_count ?? 0}
                       </div>
                       <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-medium">проектов</div>
                     </div>
-                    <div className="text-center border-l border-border/30">
+                    <div className="text-center">
                       <div className="text-xl font-bold text-foreground/80 leading-none mb-1.5">
                         {workspace.summary?.member_count ?? (workspace.summary as any)?.users_count ?? 0}
                       </div>
                       <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-medium">человек</div>
                     </div>
-                    <div className="text-center border-l border-border/30">
+                    <div className="text-center">
                       <div className="text-xl font-bold text-foreground/80 leading-none mb-1.5">
                         {workspace.summary?.department_count ?? 0}
                       </div>
                       <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-medium">отделов</div>
                     </div>
                   </div>
-                </CardContent>
+                </div>
                 
-                <CardFooter className="px-6 py-4 bg-muted/10 border-t border-border/30 flex justify-between items-center gap-3 text-xs text-muted-foreground">
-                  <span className="truncate font-medium opacity-80">
+                <div className="flex flex-row items-center justify-between bg-muted/10 px-6 h-10">
+                  <span className="text-xs font-medium text-muted-foreground/80">
                     {wasUpdated(workspace) 
                       ? `Изменено: ${formatRelativeDate(workspace.summary!.last_updated!)}`
                       : `Создано: ${formatRelativeDate(workspace.created_at)}`
                     }
                   </span>
-                  <WorkspaceUsers 
-                    users={users}
-                    currentUserEmail={currentUserEmail}
-                  />
-                </CardFooter>
+                  <div className="flex items-center">
+                    <WorkspaceUsers 
+                      users={users}
+                      currentUserEmail={currentUserEmail}
+                    />
+                  </div>
+                </div>
               </Card>
               );
             })}

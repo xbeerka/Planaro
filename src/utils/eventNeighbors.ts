@@ -1,4 +1,4 @@
-import { SchedulerEvent, Project } from '../types/scheduler';
+import { SchedulerEvent, Project } from "../types/scheduler";
 
 // ============================================
 // CONFIGURATION
@@ -6,642 +6,752 @@ import { SchedulerEvent, Project } from '../types/scheduler';
 const DEBUG = false; // Set to true for detailed logging
 
 // ============================================
+// CONSTANTS (BITMASKS)
+// ============================================
+export const MASK_ROUND_TL = 1 << 0; // 1
+export const MASK_ROUND_TR = 1 << 1; // 2
+export const MASK_ROUND_BL = 1 << 2; // 4
+export const MASK_ROUND_BR = 1 << 3; // 8
+
+export const MASK_FULL_LEFT    = 1 << 4; // 16
+export const MASK_PARTIAL_LEFT = 1 << 5; // 32
+export const MASK_BOTH_LEFT    = 1 << 6; // 64
+
+export const MASK_FULL_RIGHT    = 1 << 7; // 128
+export const MASK_PARTIAL_RIGHT = 1 << 8; // 256
+export const MASK_BOTH_RIGHT    = 1 << 9; // 512
+
+export const MASK_HIDE_NAME     = 1 << 10; // 1024
+
+// ============================================
 // TYPES
 // ============================================
 
-/**
- * Информация о соседях события для склейки
- */
 export interface EventNeighborsInfo {
-  // Типы соседей слева
-  hasFullLeftNeighbor: boolean;      // Сосед полностью покрывает высоту (одинаковая высота)
-  hasPartialLeftNeighbor: boolean;   // Частичное покрытие (1 внутренний угол)
-  hasBothLeftNeighbors: boolean;     // 2 соседа покрывают сверху и снизу (2 внутренних угла)
-  
-  // Типы соседей справа
-  hasFullRightNeighbor: boolean;     // Сосед полностью покрывает высоту (одинаковая высота)
-  hasPartialRightNeighbor: boolean;  // Частичное покрытие (1 внутренний угол)
-  hasBothRightNeighbors: boolean;    // 2 соседа покрывают сверху и снизу (2 внутренних угла)
-  
-  // Величина расширения (в единицах gap)
-  expandLeftMultiplier: number;  // 0, 1, 2, ...
-  expandRightMultiplier: number; // 0, 1, 2, ...
-  
-  // Какие углы скруглены (позитивная логика)
-  roundTopLeft: boolean;
-  roundTopRight: boolean;
-  roundBottomLeft: boolean;
-  roundBottomRight: boolean;
-  
-  // Цвета соседей для внутренних скруглений
-  innerTopLeftColor?: string;
-  innerBottomLeftColor?: string;
-  innerTopRightColor?: string;
-  innerBottomRightColor?: string;
-  
-  // Скрытие названия проекта для уменьшения визуального шума
-  hideProjectName?: boolean;
+  flags: number;
+  expandLeftMultiplier: number;
+  expandRightMultiplier: number;
+  innerTopLeftProjectId?: string;
+  innerBottomLeftProjectId?: string;
+  innerTopRightProjectId?: string;
+  innerBottomRightProjectId?: string;
 }
 
-/**
- * Индекс событий для быстрого поиска
- * Map<resourceId, Map<week, Event[]>>
- */
-type EventIndex = Map<string, Map<number, SchedulerEvent[]>>;
-
-/**
- * Проектный индекс для быстрого поиска цветов
- */
-type ProjectIndex = Map<string, Project>;
+// NEW: Grid-Based Index Structure
+interface GridSystem {
+  // Maps resourceId string -> integer index (0..N)
+  resourceMap: Map<string, number>;
+  // 2D Array: [resourceIndex][weekIndex] -> List of Events
+  grid: SchedulerEvent[][][];
+  // Max week index found (for bounds checking)
+  maxWeek: number;
+}
 
 // ============================================
-// UTILITY FUNCTIONS
+// STAGE 1: GEOMETRY (Facts Collection)
 // ============================================
 
-/**
- * Создаёт индекс событий для быстрого поиска O(1) вместо O(n)
- */
-function createEventIndex(events: SchedulerEvent[]): EventIndex {
-  const index: EventIndex = new Map();
+/** Geometry data for one side of an event */
+interface SideGeometry {
+  neighbors: SchedulerEvent[]; // Same-project neighbors
+  otherProjectNeighbors: SchedulerEvent[]; // Different-project neighbors
   
+  // Coverage facts
+  hasFull: boolean; // Neighbor covers event fully (same top & bottom)
+  hasPartial: boolean; // Neighbor covers part of event
+  hasBoth: boolean; // Multiple neighbors cover top & bottom
+  
+  hasTopCovered: boolean;
+  hasBottomCovered: boolean;
+  
+  alignedTop: boolean; // At least one neighbor has same top
+  alignedBottom: boolean; // At least one neighbor has same bottom
+  
+  innerTopProjectId?: string; // Project ID of neighbor creating inner top corner
+  innerBottomProjectId?: string; // Project ID of neighbor creating inner bottom corner
+  
+  hasInnerConnection: boolean; // ANY same-project neighbor overlaps vertically
+}
+
+/** Complete geometry data for an event */
+interface EventGeometry {
+  event: SchedulerEvent;
+  left: SideGeometry;
+  right: SideGeometry;
+}
+
+// ============================================
+// STAGE 2: TOPOLOGY (Pattern Recognition)
+// ============================================
+
+/** Vertical stack pattern (one event directly above another) */
+interface StackPattern {
+  topEvent: SchedulerEvent;
+  bottomEvent: SchedulerEvent;
+  side: "left" | "right";
+  
+  // Configuration (based on inner/outer corners)
+  topHasInnerBottom: boolean; // Top event has inner corner at bottom (форма Б)
+  topHasOuterBottom: boolean; // Top event has outer corner at bottom (форма В)
+  
+  bottomHasInnerTop: boolean; // Bottom event has inner corner at top (форма Г)
+  bottomHasOuterTop: boolean; // Bottom event has outer corner at top (форма А)
+}
+
+/** Topology classification result */
+interface EventTopology {
+  event: SchedulerEvent;
+  
+  // Horizontal gluing (same height, touching horizontally)
+  hasHorizontalGlue: boolean;
+  
+  // Vertical stacks (different projects, touching vertically)
+  stacksAbove: StackPattern[];
+  stacksBelow: StackPattern[];
+  
+  // Shape classification
+  hasInnerCorners: boolean; // Event has any inner corners (форма Б или Г)
+  hasOuterCorners: boolean; // Event has any outer corners (форма А или В)
+}
+
+// ============================================
+// STAGE 3: RULES (Expansion Logic)
+// ============================================
+
+/** Expansion decision for one event */
+interface ExpansionDecision {
+  event: SchedulerEvent;
+  expandLeft: number; // Multiplier (0, 1, 2, etc.)
+  expandRight: number; // Multiplier (0, 1, 2, etc.)
+  reason: string; // Debug reason
+}
+
+// ============================================
+// UTILITY FUNCTIONS (GRID OPTIMIZED)
+// ============================================
+
+export function buildGridSystem(events: SchedulerEvent[]): GridSystem {
+  const resourceMap = new Map<string, number>();
+  let resourceCounter = 0;
+  let maxWeek = 0;
+
+  // 1. Analyze dimensions & map resources
   for (const event of events) {
-    // Получаем или создаём Map для ресурса
-    let resourceMap = index.get(event.resourceId);
-    if (!resourceMap) {
-      resourceMap = new Map();
-      index.set(event.resourceId, resourceMap);
+    if (!resourceMap.has(event.resourceId)) {
+      resourceMap.set(event.resourceId, resourceCounter++);
     }
+    const endWeek = event.startWeek + event.weeksSpan;
+    if (endWeek > maxWeek) maxWeek = endWeek;
+  }
+
+  // 2. Initialize 2D Grid (Sparse-safe initialization)
+  // grid[resourceIndex] -> Array of Weeks
+  const grid: SchedulerEvent[][][] = new Array(resourceCounter);
+  for (let i = 0; i < resourceCounter; i++) {
+    // Create array for weeks. 
+    // Note: If maxWeek is huge (e.g. 1000), this is fine for JS engine.
+    grid[i] = new Array(maxWeek + 1); 
+  }
+
+  // 3. Populate Grid (Rasterization)
+  for (const event of events) {
+    const rIndex = resourceMap.get(event.resourceId)!;
+    const start = event.startWeek;
+    const end = start + event.weeksSpan;
     
-    // Добавляем событие на все недели которые оно покрывает
-    for (let w = event.startWeek; w < event.startWeek + event.weeksSpan; w++) {
-      let weekEvents = resourceMap.get(w);
-      if (!weekEvents) {
-        weekEvents = [];
-        resourceMap.set(w, weekEvents);
+    for (let w = start; w < end; w++) {
+      if (!grid[rIndex][w]) {
+        grid[rIndex][w] = [event];
+      } else {
+        grid[rIndex][w].push(event);
       }
-      weekEvents.push(event);
     }
   }
-  
-  return index;
+
+  return { resourceMap, grid, maxWeek };
 }
 
-/**
- * Создаёт индекс проектов для быстрого поиска цветов
- */
-function createProjectIndex(projects: Project[]): ProjectIndex {
-  const index = new Map<string, Project>();
-  for (const project of projects) {
-    index.set(project.id, project);
-  }
-  return index;
-}
-
-/**
- * Находит события на указанной неделе у указанного ресурса
- */
-function getEventsAt(
-  index: EventIndex,
-  resourceId: string,
+function getEventsFromGrid(
+  sys: GridSystem, 
+  resourceId: string, 
   week: number
 ): SchedulerEvent[] {
-  return index.get(resourceId)?.get(week) || [];
+  const rIndex = sys.resourceMap.get(resourceId);
+  if (rIndex === undefined) return []; // Resource not in grid
+  if (week < 0 || week > sys.maxWeek) return []; // Out of bounds
+
+  const events = sys.grid[rIndex][week];
+  return events || [];
 }
 
-/**
- * Проверяет пересечение двух событий по высоте (unitStart/unitsTall)
- */
+function getTop(event: SchedulerEvent): number {
+  return event.unitStart;
+}
+
+function getBottom(event: SchedulerEvent): number {
+  return event.unitStart + event.unitsTall - 1;
+}
+
 function checkVerticalOverlap(
-  event1Top: number,
-  event1Bottom: number,
-  event2Top: number,
-  event2Bottom: number
+  event1Top: number, event1Bottom: number,
+  event2Top: number, event2Bottom: number,
 ): boolean {
   return event1Top <= event2Bottom && event2Top <= event1Bottom;
 }
 
-/**
- * Находит соседей события на указанной стороне
- */
 function findNeighbors(
-  index: EventIndex,
+  sys: GridSystem,
   event: SchedulerEvent,
-  side: 'left' | 'right',
+  side: "left" | "right",
   filterOptions?: {
     sameProject?: boolean;
     differentProject?: boolean;
-    excludeEventId?: string;
-  }
+  },
 ): SchedulerEvent[] {
-  const eventTop = event.unitStart;
-  const eventBottom = event.unitStart + event.unitsTall - 1;
+  const eventTop = getTop(event);
+  const eventBottom = getBottom(event);
+  const targetWeek = side === "left" ? event.startWeek - 1 : event.startWeek + event.weeksSpan;
   
-  // Определяем неделю для поиска
-  const targetWeek = side === 'left' 
-    ? event.startWeek - 1 
-    : event.startWeek + event.weeksSpan;
+  // O(1) Access via Grid
+  const candidates = getEventsFromGrid(sys, event.resourceId, targetWeek);
   
-  // Получаем все события на этой неделе
-  const candidates = getEventsAt(index, event.resourceId, targetWeek);
-  
-  // Фильтруем соседей
-  return candidates.filter(neighbor => {
-    // Исключаем само событие
-    if (filterOptions?.excludeEventId && neighbor.id === filterOptions.excludeEventId) {
-      return false;
-    }
-    
-    // Фильтр по проекту
-    if (filterOptions?.sameProject && neighbor.projectId !== event.projectId) {
-      return false;
-    }
-    if (filterOptions?.differentProject && neighbor.projectId === event.projectId) {
-      return false;
-    }
-    
-    // Проверяем что сосед именно на нужной неделе (не просто покрывает её)
-    if (side === 'left') {
-      // Левый сосед должен ЗАКАНЧИВАТЬСЯ на этой неделе
-      if (neighbor.startWeek + neighbor.weeksSpan - 1 !== targetWeek) {
-        return false;
-      }
-    } else {
-      // Правый сосед должен НАЧИНАТЬСЯ на этой неделе
-      if (neighbor.startWeek !== targetWeek) {
-        return false;
-      }
-    }
-    
-    // Проверяем пересечение по высоте
-    const neighborTop = neighbor.unitStart;
-    const neighborBottom = neighbor.unitStart + neighbor.unitsTall - 1;
+  if (!candidates || candidates.length === 0) return [];
+
+  // Small N filter (usually 0-5 items)
+  return candidates.filter((neighbor) => {
+    if (neighbor.id === event.id) return false;
+    if (filterOptions?.sameProject && neighbor.projectId !== event.projectId) return false;
+    if (filterOptions?.differentProject && neighbor.projectId === event.projectId) return false;
+
+    // Note: Horizontal check is implicitly done by grid lookup (targetWeek)
+    // Just check vertical overlap
+    const neighborTop = getTop(neighbor);
+    const neighborBottom = getBottom(neighbor);
     return checkVerticalOverlap(eventTop, eventBottom, neighborTop, neighborBottom);
   });
 }
 
-/**
- * Анализирует соседей и возвращает информацию о покрытии углов
- */
-function analyzeNeighborCoverage(
-  neighbors: SchedulerEvent[],
+// ============================================
+// STAGE 1 IMPLEMENTATION: GEOMETRY
+// ============================================
+
+function analyzeSideGeometry(
   event: SchedulerEvent,
-  projectIndex: ProjectIndex
-): {
-  hasFull: boolean;
-  hasPartial: boolean;
-  hasBoth: boolean;
-  hasTopCovered: boolean;
-  hasBottomCovered: boolean;
-  innerTopColor?: string;
-  innerBottomColor?: string;
-  alignedTop: boolean;
-  alignedBottom: boolean;
-} {
-  const eventTop = event.unitStart;
-  const eventBottom = event.unitStart + event.unitsTall - 1;
-  
+  neighbors: SchedulerEvent[],
+): Omit<SideGeometry, "neighbors" | "otherProjectNeighbors"> {
+  const eventTop = getTop(event);
+  const eventBottom = getBottom(event);
+
   let hasFull = false;
   let hasTopCovered = false;
   let hasBottomCovered = false;
-  let innerTopColor: string | undefined;
-  let innerBottomColor: string | undefined;
+  let innerTopProjectId: string | undefined;
+  let innerBottomProjectId: string | undefined;
   let alignedTop = false;
   let alignedBottom = false;
-  
+
   for (const neighbor of neighbors) {
-    const nTop = neighbor.unitStart;
-    const nBottom = neighbor.unitStart + neighbor.unitsTall - 1;
-    
-    // Полное покрытие (одинаковая высота)
-    if (nTop === eventTop && nBottom === eventBottom) {
-      hasFull = true;
-    }
-    
-    // Покрытие верхнего угла
+    const nTop = getTop(neighbor);
+    const nBottom = getBottom(neighbor);
+
+    if (nTop === eventTop && nBottom === eventBottom) hasFull = true;
+
     if (nTop <= eventTop && eventTop <= nBottom) {
       hasTopCovered = true;
-      // Внутренний угол: сосед начинается ВЫШЕ
-      if (nTop < eventTop) {
-        const project = projectIndex.get(neighbor.projectId);
-        innerTopColor = project?.backgroundColor;
-      }
+      if (nTop < eventTop) innerTopProjectId = neighbor.projectId;
     }
-    
-    // Покрытие нижнего угла
+
     if (nTop <= eventBottom && eventBottom <= nBottom) {
       hasBottomCovered = true;
-      // Внутренний угол: сосед заканчивается НИЖЕ
-      if (nBottom > eventBottom) {
-        const project = projectIndex.get(neighbor.projectId);
-        innerBottomColor = project?.backgroundColor;
-      }
+      if (nBottom > eventBottom) innerBottomProjectId = neighbor.projectId;
     }
-    
-    // Выравнивание границ
+
     if (nTop === eventTop) alignedTop = true;
     if (nBottom === eventBottom) alignedBottom = true;
   }
-  
+
   const hasPartial = (hasTopCovered || hasBottomCovered) && !hasFull;
   const hasBoth = hasTopCovered && hasBottomCovered && !hasFull && neighbors.length >= 2;
-  
+  const hasInnerConnection = neighbors.length > 0; // Any neighbor = inner connection
+
   return {
-    hasFull,
-    hasPartial,
-    hasBoth,
-    hasTopCovered,
-    hasBottomCovered,
-    innerTopColor,
-    innerBottomColor,
-    alignedTop,
-    alignedBottom
+    hasFull, hasPartial, hasBoth,
+    hasTopCovered, hasBottomCovered,
+    innerTopProjectId, innerBottomProjectId,
+    alignedTop, alignedBottom,
+    hasInnerConnection,
   };
 }
 
-// ============================================
-// RULE-BASED LOGIC (PASS 3)
-// ============================================
+function collectGeometry(
+  events: SchedulerEvent[],
+  sys: GridSystem,
+): Map<string, EventGeometry> {
+  if (DEBUG) console.log("📐 STAGE 1: Collecting Geometry (Grid Optimized)...");
+  
+  const geometryMap = new Map<string, EventGeometry>();
 
-/**
- * Определение типа формы события относительно соседей для правил стекинга.
- * 
- * Типы форм:
- * - Type A (Outer Top): Событие выступает вверх относительно соседей.
- * - Type B (Inner Bottom): Событие короче снизу относительно соседей.
- * - Type C (Outer Bottom): Событие выступает вниз относительно соседей.
- * - Type D (Inner Top): Событие короче сверху относительно соседей.
- */
-function getGeometricalEventType(event: SchedulerEvent, lNeighbor: SchedulerEvent, rNeighbor: SchedulerEvent) {
-  // A (Outer Top): Соседи начинаются НИЖЕ (или я ВЫШЕ)
-  // Осторожно: unitStart меньше = выше визуально.
-  const isTypeA = event.unitStart < lNeighbor.unitStart && event.unitStart < rNeighbor.unitStart;
-  
-  // B (Inner Bottom): Соседи заканчиваются НИЖЕ (или я ВЫШЕ)
-  const isTypeB = (event.unitStart + event.unitsTall) < (lNeighbor.unitStart + lNeighbor.unitsTall) && 
-                 (event.unitStart + event.unitsTall) < (rNeighbor.unitStart + rNeighbor.unitsTall);
-                 
-  // C (Outer Bottom): Соседи заканчиваются ВЫШЕ (или я НИЖЕ)
-  const isTypeC = (event.unitStart + event.unitsTall) > (lNeighbor.unitStart + lNeighbor.unitsTall) &&
-                 (event.unitStart + event.unitsTall) > (rNeighbor.unitStart + rNeighbor.unitsTall);
-                 
-  // D (Inner Top): Соседи начинаются ВЫШЕ (или я НИЖЕ)
-  const isTypeD = event.unitStart > lNeighbor.unitStart && event.unitStart > rNeighbor.unitStart;
-  
-  return { isTypeA, isTypeB, isTypeC, isTypeD };
+  for (const event of events) {
+    const leftNeighbors = findNeighbors(sys, event, "left", { sameProject: true });
+    const rightNeighbors = findNeighbors(sys, event, "right", { sameProject: true });
+    
+    const leftOtherProject = findNeighbors(sys, event, "left", { differentProject: true });
+    const rightOtherProject = findNeighbors(sys, event, "right", { differentProject: true });
+
+    const leftGeometry = analyzeSideGeometry(event, leftNeighbors);
+    const rightGeometry = analyzeSideGeometry(event, rightNeighbors);
+
+    geometryMap.set(event.id, {
+      event,
+      left: { ...leftGeometry, neighbors: leftNeighbors, otherProjectNeighbors: leftOtherProject },
+      right: { ...rightGeometry, neighbors: rightNeighbors, otherProjectNeighbors: rightOtherProject },
+    });
+  }
+
+  if (DEBUG) console.log(`✅ STAGE 1 Complete: ${geometryMap.size} events analyzed`);
+  return geometryMap;
 }
 
-/**
- * Применяет правила стекинга (наложения) событий друг на друга.
- * 
- * Правила:
- * 1. Если сверху «Проекта А» (Outer Top) есть «Проект Б» (Inner Bottom):
- *    -> «Проект Б» расширяется (+1 gap по бокам).
- *    -> Соседи «Проекта Б» сбрасываются.
- * 
- * 2. Если снизу «Проекта В» (Outer Bottom) есть «Проект Г» (Inner Top):
- *    -> «Проект В» сбрасывается (дефолтная ширина).
- *    -> Соседи «Проекта В» расширяются (+1 gap по бокам).
- */
-function applyStackingRules(
-  events: SchedulerEvent[],
-  neighbors: Map<string, EventNeighborsInfo>,
-  eventIndex: EventIndex
-) {
-  for (const event of events) {
-    const neighborInfo = neighbors.get(event.id);
-    if (!neighborInfo) continue;
-    
-    const leftNeighbors = findNeighbors(eventIndex, event, 'left', { sameProject: true });
-    const rightNeighbors = findNeighbors(eventIndex, event, 'right', { sameProject: true });
-    
-    // Работаем только с "сэндвичами" (соседи с обеих сторон)
-    if (leftNeighbors.length > 0 && rightNeighbors.length > 0) {
-      const lNeighbor = leftNeighbors[0];
-      const rNeighbor = rightNeighbors[0];
-      const types = getGeometricalEventType(event, lNeighbor, rNeighbor);
-      
-      // События другого проекта в той же ячейке
-      const stackedEvents = getEventsAt(eventIndex, event.resourceId, event.startWeek)
-        .filter(e => e.projectId !== event.projectId && e.id !== event.id);
-      
-      // СЦЕНАРИЙ 1: Если Я - Проект А (Outer Top), и надо мной есть Б
-      if (types.isTypeA) {
-        const projB = stackedEvents.find(e => {
-          const lNs = findNeighbors(eventIndex, e, 'left', { sameProject: true });
-          const rNs = findNeighbors(eventIndex, e, 'right', { sameProject: true });
-          if (lNs.length === 0 || rNs.length === 0) return false;
-          
-          // Проверяем, что это Б (Inner Bottom) и он НАД А
-          const bTypes = getGeometricalEventType(e, lNs[0], rNs[0]);
-          // НАД: e.end <= event.start
-          return bTypes.isTypeB && (e.unitStart + e.unitsTall) <= event.unitStart; 
-        });
-        
-        if (projB) {
-          const bInfo = neighbors.get(projB.id);
-          if (bInfo) {
-            // Б расширяется (+1 gap)
-            bInfo.expandLeftMultiplier += 1;
-            bInfo.expandRightMultiplier += 1;
-            if (DEBUG) console.log(`📐 RULE 1: Проект Б ${projB.id} (над А) расширяется`);
-            
-            // Соседи Б сбрасываются в дефолт (0)
-            const bLeft = findNeighbors(eventIndex, projB, 'left', { sameProject: true });
-            const bRight = findNeighbors(eventIndex, projB, 'right', { sameProject: true });
-            bLeft.forEach(n => { const ni = neighbors.get(n.id); if(ni) ni.expandRightMultiplier = 0; });
-            bRight.forEach(n => { const ni = neighbors.get(n.id); if(ni) ni.expandLeftMultiplier = 0; });
-          }
-        }
-      }
-      
-      // СЦЕНАРИЙ 2: Если Я - Проект В (Outer Bottom), и подо мной есть Г
-      if (types.isTypeC) {
-        const projD = stackedEvents.find(e => {
-          const lNs = findNeighbors(eventIndex, e, 'left', { sameProject: true });
-          const rNs = findNeighbors(eventIndex, e, 'right', { sameProject: true });
-          if (lNs.length === 0 || rNs.length === 0) return false;
-          
-          // Проверяем, что это Г (Inner Top) и он ПОД В
-          const dTypes = getGeometricalEventType(e, lNs[0], rNs[0]);
-          // ПОД: e.start >= event.end
-          return dTypes.isTypeD && e.unitStart >= (event.unitStart + event.unitsTall);
-        });
-        
-        if (projD) {
-           // В сбрасывается в дефолт
-           neighborInfo.expandLeftMultiplier = 0;
-           neighborInfo.expandRightMultiplier = 0;
-           if (DEBUG) console.log(`📐 RULE 2: Проект В ${event.id} (над Г) сброшен`);
-           
-           // Соседи В расширяются (+1 gap)
-           const cLeft = findNeighbors(eventIndex, event, 'left', { sameProject: true });
-           const cRight = findNeighbors(eventIndex, event, 'right', { sameProject: true });
-           
-           cLeft.forEach(n => { 
-             const ni = neighbors.get(n.id); 
-             if(ni) {
-               ni.expandRightMultiplier += 1; 
-               if (DEBUG) console.log(`   -> Сосед В (слева) +1 gap`);
-             }
-           });
-           cRight.forEach(n => { 
-             const ni = neighbors.get(n.id); 
-             if(ni) {
-               ni.expandLeftMultiplier += 1;
-               if (DEBUG) console.log(`   -> Сосед В (справа) +1 gap`);
-             }
-           });
-        }
+// ============================================
+// STAGE 2 IMPLEMENTATION: TOPOLOGY
+// ============================================
+
+function findVerticalStacks(
+  event: SchedulerEvent,
+  sys: GridSystem,
+  geometryMap: Map<string, EventGeometry>,
+  direction: "above" | "below",
+  side: "left" | "right",
+): StackPattern[] {
+  const stacks: StackPattern[] = [];
+  
+  // Find all different-project events that touch us vertically on same weeks
+  const candidateSet = new Set<SchedulerEvent>();
+  const endWeek = event.startWeek + event.weeksSpan;
+  
+  for (let w = event.startWeek; w < endWeek; w++) {
+    const eventsOnWeek = getEventsFromGrid(sys, event.resourceId, w);
+    for (const e of eventsOnWeek) {
+      if (e.id !== event.id && e.projectId !== event.projectId) {
+        candidateSet.add(e);
       }
     }
   }
+  
+  const stackedEvents = Array.from(candidateSet);
+  
+  for (const otherEvent of stackedEvents) {
+    const touching = direction === "above"
+      ? getBottom(otherEvent) === getTop(event) - 1
+      : getTop(otherEvent) === getBottom(event) + 1;
+    
+    if (!touching) continue;
+    
+    const [topEvent, bottomEvent] = direction === "above" 
+      ? [otherEvent, event] 
+      : [event, otherEvent];
+    
+    const topGeometry = geometryMap.get(topEvent.id);
+    const bottomGeometry = geometryMap.get(bottomEvent.id);
+    
+    if (!topGeometry || !bottomGeometry) continue;
+    
+    const topSide = side === "left" ? topGeometry.left : topGeometry.right;
+    const bottomSide = side === "left" ? bottomGeometry.left : bottomGeometry.right;
+    
+    // Determine configuration
+    const topHasInnerBottom = topSide.innerBottomProjectId !== undefined;
+    const topHasOuterBottom = topSide.neighbors.some(n => getBottom(n) <= getBottom(topEvent));
+    
+    const bottomHasInnerTop = bottomSide.innerTopProjectId !== undefined;
+    const bottomHasOuterTop = bottomSide.neighbors.some(n => getTop(n) >= getTop(bottomEvent));
+    
+    stacks.push({
+      topEvent,
+      bottomEvent,
+      side,
+      topHasInnerBottom,
+      topHasOuterBottom,
+      bottomHasInnerTop,
+      bottomHasOuterTop,
+    });
+  }
+  
+  return stacks;
+}
+
+function classifyTopology(
+  events: SchedulerEvent[],
+  sys: GridSystem,
+  geometryMap: Map<string, EventGeometry>,
+): Map<string, EventTopology> {
+  if (DEBUG) console.log("🔍 STAGE 2: Classifying Topology...");
+  
+  const topologyMap = new Map<string, EventTopology>();
+
+  for (const event of events) {
+    const geometry = geometryMap.get(event.id);
+    if (!geometry) continue;
+
+    const hasHorizontalGlue = geometry.left.hasInnerConnection || geometry.right.hasInnerConnection;
+    
+    const stacksAboveLeft = findVerticalStacks(event, sys, geometryMap, "above", "left");
+    const stacksAboveRight = findVerticalStacks(event, sys, geometryMap, "above", "right");
+    const stacksBelowLeft = findVerticalStacks(event, sys, geometryMap, "below", "left");
+    const stacksBelowRight = findVerticalStacks(event, sys, geometryMap, "below", "right");
+    
+    const stacksAbove = [...stacksAboveLeft, ...stacksAboveRight];
+    const stacksBelow = [...stacksBelowLeft, ...stacksBelowRight];
+    
+    const hasInnerCorners = !!(
+      geometry.left.innerTopProjectId ||
+      geometry.left.innerBottomProjectId ||
+      geometry.right.innerTopProjectId ||
+      geometry.right.innerBottomProjectId
+    );
+    
+    const hasOuterCorners = !hasInnerCorners && hasHorizontalGlue;
+
+    topologyMap.set(event.id, {
+      event,
+      hasHorizontalGlue,
+      stacksAbove,
+      stacksBelow,
+      hasInnerCorners,
+      hasOuterCorners,
+    });
+  }
+
+  if (DEBUG) console.log(`✅ STAGE 2 Complete: ${topologyMap.size} events classified`);
+  return topologyMap;
+}
+
+// ============================================
+// STAGE 3: RULES (Expansion Logic)
+// ============================================
+
+function applyExpansionRules(
+  events: SchedulerEvent[],
+  geometryMap: Map<string, EventGeometry>,
+  topologyMap: Map<string, EventTopology>,
+): Map<string, ExpansionDecision> {
+  if (DEBUG) console.log("⚙️ STAGE 3: Applying Expansion Rules...");
+  
+  const decisions = new Map<string, ExpansionDecision>();
+  
+  // Initialize all with 0 expansion
+  for (const event of events) {
+    decisions.set(event.id, {
+      event,
+      expandLeft: 0,
+      expandRight: 0,
+      reason: "default",
+    });
+  }
+  
+  // RULE 1: Base horizontal glue expansion
+  for (const event of events) {
+    const geometry = geometryMap.get(event.id);
+    if (!geometry) continue;
+    
+    const decision = decisions.get(event.id)!;
+    
+    if (geometry.left.hasInnerConnection) {
+      decision.expandLeft = 1;
+      decision.reason = "horizontal-glue-left";
+    }
+    
+    if (geometry.right.hasInnerConnection) {
+      decision.expandRight = 1;
+      decision.reason = "horizontal-glue-right";
+    }
+  }
+  
+  // RULE 2: Vertical stacking rules (А/Б/В/Г)
+  for (const event of events) {
+    const topology = topologyMap.get(event.id);
+    if (!topology) continue;
+    
+    // Check if we are the BOTTOM event in a stack (форма А or Г)
+    for (const stack of topology.stacksAbove) {
+      if (stack.bottomEvent.id !== event.id) continue;
+      
+      const topDecision = decisions.get(stack.topEvent.id)!;
+      const bottomDecision = decisions.get(event.id)!;
+      
+      // Configuration: Б over А
+      if (stack.topHasInnerBottom && stack.bottomHasOuterTop) {
+        // Fix: If bottom event is glued (wall), do not apply roof rule.
+        if (topology.hasHorizontalGlue) continue;
+
+        if (stack.side === "left") {
+          topDecision.expandLeft = Math.max(topDecision.expandLeft, 1);
+          topDecision.reason = "stack-rule-B-over-A-left";
+          
+          // Reset neighbors of top event
+          const topGeometry = geometryMap.get(stack.topEvent.id);
+          if (topGeometry) {
+            for (const neighbor of topGeometry.left.neighbors) {
+              const neighborDecision = decisions.get(neighbor.id);
+              if (neighborDecision) {
+                neighborDecision.expandRight = 0;
+                neighborDecision.reason = "stack-rule-B-neighbor-reset";
+              }
+            }
+          }
+        } else {
+          topDecision.expandRight = Math.max(topDecision.expandRight, 1);
+          topDecision.reason = "stack-rule-B-over-A-right";
+          
+          // Reset neighbors of top event
+          const topGeometry = geometryMap.get(stack.topEvent.id);
+          if (topGeometry) {
+            for (const neighbor of topGeometry.right.neighbors) {
+              const neighborDecision = decisions.get(neighbor.id);
+              if (neighborDecision) {
+                neighborDecision.expandLeft = 0;
+                neighborDecision.reason = "stack-rule-B-neighbor-reset";
+              }
+            }
+          }
+        }
+        
+        if (DEBUG) console.log(`📐 RULE: Б ${stack.topEvent.id} over А ${event.id} (${stack.side})`);
+      }
+      
+      // Configuration: В over Г
+      if (stack.topHasOuterBottom && stack.bottomHasInnerTop) {
+        if (stack.side === "left") {
+          topDecision.expandLeft = 0;
+          topDecision.reason = "stack-rule-V-over-G-left";
+          
+          // Boost neighbors of top event
+          const topGeometry = geometryMap.get(stack.topEvent.id);
+          if (topGeometry) {
+            for (const neighbor of topGeometry.left.neighbors) {
+              const neighborDecision = decisions.get(neighbor.id);
+              if (neighborDecision) {
+                neighborDecision.expandRight += 1;
+                neighborDecision.reason = "stack-rule-V-neighbor-boost";
+              }
+            }
+          }
+        } else {
+          topDecision.expandRight = 0;
+          topDecision.reason = "stack-rule-V-over-G-right";
+          
+          // Boost neighbors of top event
+          const topGeometry = geometryMap.get(stack.topEvent.id);
+          if (topGeometry) {
+            for (const neighbor of topGeometry.right.neighbors) {
+              const neighborDecision = decisions.get(neighbor.id);
+              if (neighborDecision) {
+                neighborDecision.expandLeft += 1;
+                neighborDecision.reason = "stack-rule-V-neighbor-boost";
+              }
+            }
+          }
+        }
+        
+        if (DEBUG) console.log(`📐 RULE: В ${stack.topEvent.id} over Г ${event.id} (${stack.side})`);
+      }
+    }
+  }
+  
+  // RULE 3: Biting (pressure from other projects)
+  for (const event of events) {
+    const geometry = geometryMap.get(event.id);
+    if (!geometry) continue;
+    
+    const decision = decisions.get(event.id)!;
+    
+    // LEFT: Check pressure from other projects
+    if (geometry.left.neighbors.length === 0) { // No same-project neighbor
+      let totalPressure = 0;
+      
+      for (const otherEvent of geometry.left.otherProjectNeighbors) {
+        const otherDecision = decisions.get(otherEvent.id);
+        if (otherDecision) {
+          // Fix: Only count actual expansion as pressure.
+          totalPressure += otherDecision.expandRight;
+        }
+      }
+      
+      if (totalPressure >= 2) {
+        decision.expandLeft -= 1;
+        decision.reason = "biting-left";
+        if (DEBUG) console.log(`🔪 BITING: ${event.id} left (pressure=${totalPressure})`);
+      }
+    }
+    
+    // RIGHT: Check pressure from other projects
+    if (geometry.right.neighbors.length === 0) { // No same-project neighbor
+      let totalPressure = 0;
+      
+      for (const otherEvent of geometry.right.otherProjectNeighbors) {
+        const otherDecision = decisions.get(otherEvent.id);
+        if (otherDecision) {
+          // Fix: Only count actual expansion as pressure.
+          totalPressure += otherDecision.expandLeft;
+        }
+      }
+      
+      if (totalPressure >= 2) {
+        decision.expandRight -= 1;
+        decision.reason = "biting-right";
+        if (DEBUG) console.log(`🔪 BITING: ${event.id} right (pressure=${totalPressure})`);
+      }
+    }
+  }
+  
+  if (DEBUG) console.log(`✅ STAGE 3 Complete: ${decisions.size} expansion decisions made`);
+  return decisions;
+}
+
+// ============================================
+// STAGE 4: CORNER ROUNDING & FLAGS
+// ============================================
+
+function determineCornerRounding(
+  event: SchedulerEvent,
+  geometry: EventGeometry,
+): number {
+  let flags = MASK_ROUND_TL | MASK_ROUND_TR | MASK_ROUND_BL | MASK_ROUND_BR;
+  
+  // Left side
+  const leftCoverage = geometry.left;
+  if (leftCoverage.hasFull || leftCoverage.innerTopProjectId || leftCoverage.alignedTop) {
+    flags &= ~MASK_ROUND_TL;
+  }
+  if (leftCoverage.hasFull || leftCoverage.innerBottomProjectId || leftCoverage.alignedBottom) {
+    flags &= ~MASK_ROUND_BL;
+  }
+  
+  // Right side
+  const rightCoverage = geometry.right;
+  if (rightCoverage.hasFull || rightCoverage.innerTopProjectId || rightCoverage.alignedTop) {
+    flags &= ~MASK_ROUND_TR;
+  }
+  if (rightCoverage.hasFull || rightCoverage.innerBottomProjectId || rightCoverage.alignedBottom) {
+    flags &= ~MASK_ROUND_BR;
+  }
+  
+  // Coverage flags
+  if (leftCoverage.hasFull) flags |= MASK_FULL_LEFT;
+  if (leftCoverage.hasPartial) flags |= MASK_PARTIAL_LEFT;
+  if (leftCoverage.hasBoth) flags |= MASK_BOTH_LEFT;
+  
+  if (rightCoverage.hasFull) flags |= MASK_FULL_RIGHT;
+  if (rightCoverage.hasPartial) flags |= MASK_PARTIAL_RIGHT;
+  if (rightCoverage.hasBoth) flags |= MASK_BOTH_RIGHT;
+  
+  return flags;
+}
+
+// ============================================
+// STAGE 5: NAME HIDING
+// ============================================
+
+function determineNameHiding(
+  events: SchedulerEvent[],
+  geometryMap: Map<string, EventGeometry>,
+  finalInfo: Map<string, EventNeighborsInfo>,
+): void {
+  if (DEBUG) console.log("👁️ STAGE 5: Determining Name Hiding...");
+  
+  // Sort events by time (resource + week) to process left-to-right
+  const sortedEvents = [...events].sort((a, b) => {
+    if (a.resourceId !== b.resourceId) return a.resourceId.localeCompare(b.resourceId);
+    return a.startWeek - b.startWeek;
+  });
+  
+  for (const event of sortedEvents) {
+    const info = finalInfo.get(event.id);
+    if (!info) continue;
+    
+    // Logic: If short event (<= 2 weeks) has a visible left neighbor, hide name
+    if (event.weeksSpan <= 2) {
+      const geometry = geometryMap.get(event.id);
+      if (!geometry) continue;
+      
+      const leftNeighbors = geometry.left.neighbors;
+      
+      if (leftNeighbors.length > 0) {
+        const leftNeighbor = leftNeighbors[0];
+        const leftNeighborInfo = finalInfo.get(leftNeighbor.id);
+        
+        const leftVisible = leftNeighborInfo && !(leftNeighborInfo.flags & MASK_HIDE_NAME);
+        
+        if (leftVisible) {
+          info.flags |= MASK_HIDE_NAME; // Hide
+        } else {
+          info.flags &= ~MASK_HIDE_NAME; // Show
+        }
+      } else {
+        info.flags &= ~MASK_HIDE_NAME; // Show
+      }
+    } else {
+      info.flags &= ~MASK_HIDE_NAME; // Show
+    }
+  }
+  
+  if (DEBUG) console.log("✅ STAGE 5 Complete: Name hiding determined");
 }
 
 // ============================================
 // MAIN ALGORITHM
 // ============================================
 
-/**
- * ОПТИМИЗИРОВАННЫЙ АЛГОРИТМ СКЛЕЙКИ v6.0
- * 
- * Улучшения:
- * - Индексация событий O(1) вместо O(n) для поиска соседей
- * - Утилитарные функции для переиспользования кода
- * - Меньше проходов (4 вместо 5)
- * - Опциональные логи (DEBUG mode)
- * - Чистый и читаемый код
- * 
- * Правила:
- * 1. События с внутренними углами расширяются на 1 gap в эту сторону
- * 2. Соседи расширяются навстречу на 1 gap
- * 3. При полной склейке (одинаковая высота) расширения нет (padding убран)
- * 4. Если другой проект в той же ячейке имеет соседа с пересечением → блокируем расширение
- * 5. Поджатие событий с внешними углами если есть внутренние углы в ячейке
- * 6. Компенсация для соседей поджатых событий
- * 7. Откусывание при вклинивании между событиями с ДВОЙНЫМ gap
- */
 export function calculateEventNeighbors(
-  events: SchedulerEvent[],
-  projects: Project[]
+  inputEvents: SchedulerEvent[],
+  projects: Project[], // Kept for signature compatibility
+  precomputedIndex?: any // Deprecated: Grid is built internally
 ): Map<string, EventNeighborsInfo> {
-  if (DEBUG) {
-    console.log('🔄 calculateEventNeighbors v6.0 OPTIMIZED! События:', events.length, 'Проекты:', projects.length);
-  }
-  
-  const neighbors = new Map<string, EventNeighborsInfo>();
-  
-  // ========================================
-  // STEP 0: Создаём индексы для быстрого поиска
-  // ========================================
-  const eventIndex = createEventIndex(events);
-  const projectIndex = createProjectIndex(projects);
-  
-  if (DEBUG) {
-    console.log('📇 Индексы созданы:', {
-      resources: eventIndex.size,
-      projects: projectIndex.size
-    });
-  }
-  
-  // ========================================
-  // PASS 1: Базовое расширение + вычисление углов
-  // ========================================
-  // Объединили два прохода в один для оптимизации!
-  for (const event of events) {
-    // Находим соседей
-    const leftNeighbors = findNeighbors(eventIndex, event, 'left', { sameProject: true });
-    const rightNeighbors = findNeighbors(eventIndex, event, 'right', { sameProject: true });
-    
-    // Анализируем покрытие
-    const leftCoverage = analyzeNeighborCoverage(leftNeighbors, event, projectIndex);
-    const rightCoverage = analyzeNeighborCoverage(rightNeighbors, event, projectIndex);
-    
-    // Базовое расширение: события с внутренними углами расширяются на 1 gap
-    // При полной склейке расширения НЕТ
-    // v6.1 FIX: Добавляем геометрическую проверку (hasTopCovered && hasBottomCovered)
-    // Это защищает от случаев, когда innerColor не определён (например, ошибка projectIndex)
-    const geometricInnerLeft = leftCoverage.hasTopCovered && leftCoverage.hasBottomCovered;
-    const geometricInnerRight = rightCoverage.hasTopCovered && rightCoverage.hasBottomCovered;
-    
-    const hasInnerLeft = !!leftCoverage.innerTopColor || !!leftCoverage.innerBottomColor || geometricInnerLeft;
-    const hasInnerRight = !!rightCoverage.innerTopColor || !!rightCoverage.innerBottomColor || geometricInnerRight;
-    
-    const expandLeft = (hasInnerLeft && !leftCoverage.hasFull) ? 1 : 0;
-    const expandRight = (hasInnerRight && !rightCoverage.hasFull) ? 1 : 0;
-    
-    // Вычисляем какие углы скруглены
-    // Угол НЕ скруглён если: полная склейка ИЛИ внутренний угол ИЛИ границы выровнены
-    const roundTopLeft = !(leftCoverage.hasFull || !!leftCoverage.innerTopColor || leftCoverage.alignedTop);
-    const roundBottomLeft = !(leftCoverage.hasFull || !!leftCoverage.innerBottomColor || leftCoverage.alignedBottom);
-    const roundTopRight = !(rightCoverage.hasFull || !!rightCoverage.innerTopColor || rightCoverage.alignedTop);
-    const roundBottomRight = !(rightCoverage.hasFull || !!rightCoverage.innerBottomColor || rightCoverage.alignedBottom);
-    
-    // Сохраняем результат
-    neighbors.set(event.id, {
-      hasFullLeftNeighbor: leftCoverage.hasFull,
-      hasPartialLeftNeighbor: leftCoverage.hasPartial,
-      hasBothLeftNeighbors: leftCoverage.hasBoth,
-      hasFullRightNeighbor: rightCoverage.hasFull,
-      hasPartialRightNeighbor: rightCoverage.hasPartial,
-      hasBothRightNeighbors: rightCoverage.hasBoth,
-      expandLeftMultiplier: expandLeft,
-      expandRightMultiplier: expandRight,
-      innerTopLeftColor: leftCoverage.innerTopColor,
-      innerBottomLeftColor: leftCoverage.innerBottomColor,
-      innerTopRightColor: rightCoverage.innerTopColor,
-      innerBottomRightColor: rightCoverage.innerBottomColor,
-      roundTopLeft,
-      roundTopRight,
-      roundBottomLeft,
-      roundBottomRight,
-    });
-  }
-  
-  // ========================================
-  // PASS 2: Расширение навстречу (Expand Towards)
-  // ========================================
-  // v6.18 FIX: Убрали блокировку конфликтов.
-  
-  for (const event of events) {
-    const neighborInfo = neighbors.get(event.id);
-    if (!neighborInfo) continue;
-    
-    const eventTop = event.unitStart;
-    const eventBottom = event.unitStart + event.unitsTall - 1;
-    
-    // Проверяем правых соседей
-    const rightNeighbors = findNeighbors(eventIndex, event, 'right', { sameProject: true });
-    const shouldExpandRight = rightNeighbors.some(neighbor => {
-      const nInfo = neighbors.get(neighbor.id);
-      return nInfo && (nInfo.innerTopLeftColor || nInfo.innerBottomLeftColor);
-    });
-    
-    if (shouldExpandRight && neighborInfo.expandRightMultiplier === 0) {
-      neighborInfo.expandRightMultiplier = 1;
-    }
-    
-    // Проверяем левых соседей
-    const leftNeighbors = findNeighbors(eventIndex, event, 'left', { sameProject: true });
-    const shouldExpandLeft = leftNeighbors.some(neighbor => {
-      const nInfo = neighbors.get(neighbor.id);
-      return nInfo && (nInfo.innerTopRightColor || nInfo.innerBottomRightColor);
-    });
-    
-    if (shouldExpandLeft && neighborInfo.expandLeftMultiplier === 0) {
-      neighborInfo.expandLeftMultiplier = 1;
-    }
-  }
+  if (DEBUG) console.log("🚀 calculateEventNeighbors v9.0 (Grid Optimized)");
 
-  // ========================================
-  // PASS 3: Обработка краевых сценариев (Edge Case Logic)
-  // ========================================
-  // Логика основана на геометрии событий и их вертикальном расположении.
-  // Правила вынесены в отдельную функцию applyStackingRules для чистоты кода.
-  applyStackingRules(events, neighbors, eventIndex);
-  
-  // ========================================
-  // PASS 4: Откусывание при вклинивании (ДВОЙНОЙ gap!)
-  // ========================================
-  for (const event of events) {
-    const neighborInfo = neighbors.get(event.id);
-    if (!neighborInfo) continue;
-    
-    const eventTop = event.unitStart;
-    const eventBottom = event.unitStart + event.unitsTall - 1;
-    
-    // Проверяем LEFT: если нет левого соседа своего проекта
-    const hasLeftNeighbor = findNeighbors(eventIndex, event, 'left', { sameProject: true }).length > 0;
-    
-    if (!hasLeftNeighbor) {
-      // Ищем события ДРУГОГО проекта слева с expandRight >= 2
-      const otherProjectsLeft = findNeighbors(eventIndex, event, 'left', { differentProject: true });
-      
-      for (const otherEvent of otherProjectsLeft) {
-        const otherInfo = neighbors.get(otherEvent.id);
-        if (otherInfo && otherInfo.expandRightMultiplier >= 2) {
-          neighborInfo.expandLeftMultiplier -= 1;
-          if (DEBUG) {
-            console.log(`🪓 ОТКУСЫВАНИЕ LEFT: Событие ${event.id} вклинилось в ДВОЙНОЙ gap (expandRight=${otherInfo.expandRightMultiplier})`);
-          }
-          break;
-        }
-      }
-    }
-    
-    // Проверяем RIGHT: если нет правого соседа своего проекта
-    const hasRightNeighbor = findNeighbors(eventIndex, event, 'right', { sameProject: true }).length > 0;
-    
-    if (!hasRightNeighbor) {
-      // Ищем события ДРУГОГО проекта справа с expandLeft >= 2
-      const otherProjectsRight = findNeighbors(eventIndex, event, 'right', { differentProject: true });
-      
-      for (const otherEvent of otherProjectsRight) {
-        const otherInfo = neighbors.get(otherEvent.id);
-        if (otherInfo && otherInfo.expandLeftMultiplier >= 2) {
-          neighborInfo.expandRightMultiplier -= 1;
-          if (DEBUG) {
-            console.log(`🪓 ОТКУСЫВАНИЕ RIGHT: Событие ${event.id} вклинилось в ДВОЙНОЙ gap (expandLeft=${otherInfo.expandLeftMultiplier})`);
-          }
-          break;
-        }
-      }
-    }
-  }
-  
-  // ========================================
-  // PASS 5: Скрытие названий проектов для уменьшения визуального шума
-  // ========================================
-  // ВАЖНО: Сортируем события по времени, чтобы цепочка скрытия (A->B->C) обрабатывалась слева направо.
-  // Иначе, если B обработается раньше A, он не узнает, что A скрыт, и тоже скроется (некорректно).
-  // Это критично при Undo/Redo, когда порядок событий в массиве может меняться (из-за Z-order).
-  const timeSortedEvents = [...events].sort((a, b) => {
+  const events = [...inputEvents].sort((a, b) => {
     if (a.resourceId !== b.resourceId) return a.resourceId.localeCompare(b.resourceId);
     return a.startWeek - b.startWeek;
   });
 
-  // Умное чередование: короткое событие скрывает название ТОЛЬКО ЕСЛИ левый сосед САМ показывает название
-  // Это создаст автоматическое чередование: показано → скрыто → показано → скрыто...
-  for (const event of timeSortedEvents) {
-    const neighborInfo = neighbors.get(event.id);
-    if (!neighborInfo) continue;
+  // STAGE 0: Build Grid System (O(N) Rasterization)
+  const gridSystem = buildGridSystem(events);
+  
+  // STAGE 1: Collect geometric facts (O(1) lookup per side)
+  const geometryMap = collectGeometry(events, gridSystem);
+  
+  // STAGE 2: Classify topology patterns
+  const topologyMap = classifyTopology(events, gridSystem, geometryMap);
+  
+  // STAGE 3: Apply expansion rules
+  const expansionDecisions = applyExpansionRules(events, geometryMap, topologyMap);
+  
+  // STAGE 4: Build final result with corner rounding
+  const finalInfo = new Map<string, EventNeighborsInfo>();
+  
+  for (const event of events) {
+    const geometry = geometryMap.get(event.id);
+    const decision = expansionDecisions.get(event.id);
     
-    // Событие короткое (≤ 2 недель)?
-    const isShort = event.weeksSpan <= 2;
+    if (!geometry || !decision) continue;
     
-    if (isShort) {
-      // Ищем левого соседа того же проекта
-      const leftNeighbors = findNeighbors(eventIndex, event, 'left', { sameProject: true });
-      
-      if (leftNeighbors.length > 0) {
-        // Берем первого левого соседа (ближайший)
-        const leftNeighbor = leftNeighbors[0];
-        const leftNeighborInfo = neighbors.get(leftNeighbor.id);
-        
-        // Скрываем название ТОЛЬКО ЕСЛИ левый сосед САМ показывает название (не скрыт)
-        // Благодаря сортировке timeSortedEvents, leftNeighborInfo уже обработан и имеет корректный hideProjectName
-        if (leftNeighborInfo && !leftNeighborInfo.hideProjectName) {
-          neighborInfo.hideProjectName = true;
-          
-          if (DEBUG) {
-            console.log(`🙈 СКРЫТИЕ: Событие ${event.id} (${event.weeksSpan} нед.) скрывает название (левый ${leftNeighbor.id} показывает)`);
-          }
-        } else {
-          // Левый сосед скрыт → показываем это событие (чередование)
-          neighborInfo.hideProjectName = false;
-        }
-      } else {
-        // Нет левого соседа → показываем (первое в цепочке)
-        neighborInfo.hideProjectName = false;
-      }
-    } else {
-      // Длинные события всегда показывают название
-      neighborInfo.hideProjectName = false;
-    }
+    const flags = determineCornerRounding(event, geometry);
+    
+    finalInfo.set(event.id, {
+      flags,
+      expandLeftMultiplier: decision.expandLeft,
+      expandRightMultiplier: decision.expandRight,
+      innerTopLeftProjectId: geometry.left.innerTopProjectId,
+      innerBottomLeftProjectId: geometry.left.innerBottomProjectId,
+      innerTopRightProjectId: geometry.right.innerTopProjectId,
+      innerBottomRightProjectId: geometry.right.innerBottomProjectId,
+    });
   }
   
-  if (DEBUG) {
-    console.log('✅ calculateEventNeighbors v6.0 завершён! Результатов:', neighbors.size);
-  }
-  
-  return neighbors;
+  // STAGE 5: Determine name hiding
+  determineNameHiding(events, geometryMap, finalInfo);
+
+  if (DEBUG) console.log("✅ v9.0 Finished! Results:", finalInfo.size);
+
+  return finalInfo;
 }

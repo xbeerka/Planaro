@@ -35,6 +35,8 @@ interface PointerState {
   currentTop?: number;
   currentWidth?: number;
   currentHeight?: number;
+  startX?: number; // ✅ Added for click detection
+  startY?: number; // ✅ Added for click detection
   [key: string]: any;
 }
 
@@ -192,6 +194,8 @@ export function useEventInteractions({
       lastValidModel: initialModel,
       startLeft,
       startTop,
+      startX: e.clientX, // ✅ Сохраняем начальные координаты курсора
+      startY: e.clientY, // ✅ Сохраняем начальные координаты курсора
       currentLeft: startLeft,
       currentTop: startTop,
       realPaddingLeft,
@@ -312,6 +316,13 @@ export function useEventInteractions({
     const onUp = async (ev: PointerEvent) => {
       if (!pointerStateRef.current || pointerStateRef.current.pointerId !== ev.pointerId) return;
 
+      // ✅ Проверяем, был ли это реальный drag или просто клик
+      const dist = Math.hypot(
+        ev.clientX - (pointerStateRef.current.startX || 0),
+        ev.clientY - (pointerStateRef.current.startY || 0)
+      );
+      const isClick = dist < 3; // Порог 3px
+
       el.releasePointerCapture(ev.pointerId);
       document.body.classList.remove('dragging-mode');
       el.classList.remove('dragging');
@@ -319,6 +330,18 @@ export function useEventInteractions({
 
       // 🚫 ВКЛЮЧАЕМ polling обратно
       setIsUserInteracting(false);
+
+      if (isClick) {
+        console.log('🚫 Drag отменён (распознан как клик)');
+        // Восстанавливаем исходные координаты на случай микро-сдвигов
+        el.style.left = `${pointerStateRef.current.startLeft}px`;
+        el.style.top = `${pointerStateRef.current.startTop}px`;
+        
+        pointerStateRef.current = null;
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        return;
+      }
 
       // ✅ v3.3.5: БЛОКИРУЕМ Delta Sync на 5 секунд после drag
       // Это предотвращает перезапись локальных изменений данными с сервера
@@ -381,10 +404,16 @@ export function useEventInteractions({
           
           // 🔧 Восстанавливаем исходные DOM стили напрямую
           // КРИТИЧНО: используем realPaddingLeft/Right (учитывают склейку), а НЕ config.cellPaddingLeft/Right!
-          // КРИТИЧНО: учитываем expandLeftAmount (событие смещается влево при рендере)!
-          const correctWidth = savedState.evData.weeksSpan * config.weekPx - savedState.realPaddingLeft - savedState.realPaddingRight;
+          // КРИТИЧНО: учитываем expandLeftAmount/RightAmount (расширение на gap)!
+          const correctWidth = savedState.evData.weeksSpan * config.weekPx 
+            - savedState.realPaddingLeft 
+            - savedState.realPaddingRight
+            + (savedState.expandLeftAmount || 0)
+            + (savedState.expandRightAmount || 0);
+
           let correctLeft = config.resourceW + savedState.evData.startWeek * config.weekPx + savedState.realPaddingLeft;
-          correctLeft -= savedState.expandLeftAmount; // ⚠️ Вычитаем расширение влево!
+          correctLeft -= (savedState.expandLeftAmount || 0); // ⚠️ Вычитаем расширение влево!
+          
           const correctTop = topFor(savedState.evData.resourceId, savedState.evData.unitStart, resources, visibleDepartments, config);
           const correctHeight = heightFor(savedState.evData.unitsTall, config);
           
@@ -630,7 +659,15 @@ export function useEventInteractions({
       // Snap to grid
       if (pointerStateRef.current.edges.left || pointerStateRef.current.edges.right) {
         if (pointerStateRef.current.edges.left) {
-          const deltaWeeks = Math.round(dx / config.weekPx);
+          let deltaWeeks = Math.round(dx / config.weekPx);
+
+          // 🔒 Запрещаем уменьшать ширину меньше 1 недели при ресайзе слева
+          // Если мы тянем левый край вправо (dx > 0), deltaWeeks положительный
+          // originalWeeksSpan - deltaWeeks >= 1  =>  deltaWeeks <= originalWeeksSpan - 1
+          if (deltaWeeks > pointerStateRef.current.originalWeeksSpan - 1) {
+            deltaWeeks = pointerStateRef.current.originalWeeksSpan - 1;
+          }
+
           let newStartWeek = clamp(pointerStateRef.current.originalStartWeek + deltaWeeks, 0, WEEKS - 1);
           let newWeeksSpan = clamp(pointerStateRef.current.originalWeeksSpan - deltaWeeks, 1, WEEKS - newStartWeek);
           if (newStartWeek + newWeeksSpan > WEEKS) newWeeksSpan = WEEKS - newStartWeek;
@@ -650,17 +687,54 @@ export function useEventInteractions({
         }
       }
 
+      let currentUnitsTall = pointerStateRef.current.originalUnitsTall;
+
       if (pointerStateRef.current.edges.top || pointerStateRef.current.edges.bottom) {
         if (pointerStateRef.current.edges.top) {
-          const deltaUnits = Math.round(dy / config.unitStride);
+          let deltaUnits = Math.round(dy / config.unitStride);
+          
+          // 🔒 Запрещаем уменьшать высоту меньше 1 юнита при ресайзе сверху
+          // originalUnitsTall - deltaUnits >= 1 => deltaUnits <= originalUnitsTall - 1
+          if (deltaUnits > pointerStateRef.current.originalUnitsTall - 1) {
+            deltaUnits = pointerStateRef.current.originalUnitsTall - 1;
+          }
+
           const newUnitStart = clamp(pointerStateRef.current.originalUnitStart + deltaUnits, 0, UNITS - 1);
           const newUnitsTall = clamp(pointerStateRef.current.originalUnitsTall - deltaUnits, 1, UNITS - newUnitStart);
           newHeight = heightFor(newUnitsTall, config);
           newTop = topFor(pointerStateRef.current.evData.resourceId, newUnitStart, resources, visibleDepartments, config);
+          currentUnitsTall = newUnitsTall;
         } else {
           const newUnitsTall = clamp(pointerStateRef.current.originalUnitsTall + Math.round(dy / config.unitStride), 1, UNITS - pointerStateRef.current.originalUnitStart);
           newHeight = heightFor(newUnitsTall, config);
+          currentUnitsTall = newUnitsTall;
         }
+      }
+
+      // ⚡️ МГНОВЕННОЕ ОБНОВЛЕНИЕ UI ВНУТРИ СОБЫТИЯ
+      // 1. Обновляем padding в зависимости от высоты (логика из SchedulerEvent)
+      let newPadding = '8px 12px';
+      if (newHeight <= 12) newPadding = '1px 12px';
+      else if (newHeight <= 20) newPadding = '2px 12px';
+      else if (newHeight <= 40) newPadding = '4px 12px';
+      
+      pointerStateRef.current.el.style.padding = newPadding;
+
+      // 2. Обновляем выравнивание (items-start если > 1 юнита)
+      if (currentUnitsTall > 1) {
+        if (!pointerStateRef.current.el.classList.contains('items-start')) {
+          pointerStateRef.current.el.classList.add('items-start');
+        }
+      } else {
+        if (pointerStateRef.current.el.classList.contains('items-start')) {
+          pointerStateRef.current.el.classList.remove('items-start');
+        }
+      }
+
+      // 3. Обновляем текст веса проекта (если есть)
+      const weightEl = pointerStateRef.current.el.querySelector('.ev-weight');
+      if (weightEl) {
+         weightEl.textContent = `${currentUnitsTall * 25}%`;
       }
 
       // ✅ Обновляем текущие координаты в ref
@@ -775,7 +849,7 @@ export function useEventInteractions({
       onEventsUpdate(prev => prev.map(e => e.id === updatedEvent.id ? updatedEvent : e));
       
       // ✅ Используем snapshot для сохранения истории
-      // Это гарантирует строгую последовательность изменений без пропусков
+      // Это гарантирует строгую последова��ельность изменений без пропусков
       onSaveHistory(
         currentEvents.map(e => e.id === updatedEvent.id ? updatedEvent : e),
         currentZOrder,

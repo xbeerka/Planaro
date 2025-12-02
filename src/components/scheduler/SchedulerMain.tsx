@@ -13,21 +13,15 @@ import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import { usePanning } from "../../hooks/usePanning";
 import { useEventInteractions } from "../../hooks/useEventInteractions";
 import { useGapInteractions } from "../../hooks/useGapInteractions"; // ✨ Gap handles
+import { useSchedulerUI } from "../../hooks/useSchedulerUI"; // ✨ UI State Hook
 import { useToast } from "../ui/ToastContext";
 import { SchedulerEvent as SchedulerEventComponent } from "./SchedulerEvent";
-import { SimpleEventModal } from "./SimpleEventModal";
-import { CommentModal } from "./CommentModal";
-import { ContextMenu } from "./ContextMenu";
-import { EmptyCellContextMenu } from "./EmptyCellContextMenu";
 import { Toolbar } from "./Toolbar";
 import { FilterToolbar } from "./FilterToolbar";
 import { OnlineUsers } from "./OnlineUsers";
 import { RealtimeCursors } from "./RealtimeCursors";
-import { UsersManagementModal } from "./UsersManagementModal";
-import { ProjectsManagementModal } from "./ProjectsManagementModal";
-import { DepartmentsManagementModal } from "./DepartmentsManagementModal";
-import { KeyboardShortcutsModal } from "./KeyboardShortcutsModal";
-import { SettingsModal } from "./SettingsModal";
+import { SchedulerModals } from "./SchedulerModals";
+import { SchedulerContextMenus } from "./SchedulerContextMenus";
 import { SchedulerGrid } from "./SchedulerGrid";
 import { EventGapHandles } from "./EventGapHandles"; // ✨ Gap handles компонент
 import {
@@ -44,7 +38,6 @@ import {
   projectId,
   publicAnonKey,
 } from "../../utils/supabase/info";
-import { ProfileModal } from "../auth/ProfileModal";
 import { MessageSquarePlus } from "lucide-react";
 import {
   generateMonths,
@@ -55,7 +48,15 @@ import {
   sortEvents,
   getLastWeeksOfMonths,
 } from "../../utils/scheduler";
-import { calculateEventNeighbors } from "../../utils/eventNeighbors";
+import {
+  calculateEventNeighbors,
+  EventNeighborsInfo,
+  MASK_ROUND_TL,
+  MASK_ROUND_TR,
+  MASK_ROUND_BL,
+  MASK_ROUND_BR,
+  MASK_HIDE_NAME,
+} from "../../utils/eventNeighbors";
 import { findEventGaps } from "../../utils/eventGaps"; // ✨ Gap поиск
 import {
   createLayoutConfig,
@@ -85,6 +86,7 @@ export function SchedulerMain({
     eventRowH,
     showGaps,
     showPatterns,
+    showProjectWeight,
     setWeekPx,
     setEventRowH,
     setShowGaps,
@@ -143,84 +145,64 @@ export function SchedulerMain({
     setEnabledProjects,
   } = useFilters();
 
+  // ✨ UI State Hook - manage all UI states here
+  const {
+    scissorsMode,
+    commentMode,
+    handleToggleScissors,
+    handleToggleComment,
+    setScissorsMode,
+    setCommentMode,
+
+    pendingEventIds,
+    setPendingEventIds,
+
+    copiedEvent,
+    setCopiedEvent,
+
+    modalOpen,
+    setModalOpen,
+    modalMode,
+    setModalMode,
+    modalInitialData,
+    setModalInitialData,
+    pendingEvent,
+    setPendingEvent,
+
+    commentModalOpen,
+    setCommentModalOpen,
+    pendingComment,
+    setPendingComment,
+
+    usersModalOpen,
+    setUsersModalOpen,
+    projectsModalOpen,
+    setProjectsModalOpen,
+    departmentsModalOpen,
+    setDepartmentsModalOpen,
+    shortcutsModalOpen,
+    setShortcutsModalOpen,
+    profileModalOpen,
+    setProfileModalOpen,
+    settingsModalOpen,
+    setSettingsModalOpen,
+
+    contextMenu,
+    setContextMenu,
+    emptyCellContextMenu,
+    setEmptyCellContextMenu,
+
+    hoverHighlight,
+    setHoverHighlight,
+    ghost,
+    setGhost,
+
+    closeAllModals, // Replaces handleEscape logic
+  } = useSchedulerUI();
+
   const [eventZOrder, setEventZOrder] = useState<
     Map<string, number>
   >(new Map());
-  const [scissorsMode, setScissorsMode] = useState(false);
-  const [commentMode, setCommentMode] = useState(false);
-  const [pendingEventIds, setPendingEventIds] = useState<
-    Set<string>
-  >(new Set());
-
-  // Clipboard for copy/paste events
-  const [copiedEvent, setCopiedEvent] = useState<SchedulerEvent | null>(null);
-
-  // Modal state
-  const [modalOpen, setModalOpen] = useState(false);
-  const [modalMode, setModalMode] = useState<"create" | "edit">(
-    "create",
-  );
-  const [modalInitialData, setModalInitialData] = useState<any>(
-    {},
-  );
-  const [pendingEvent, setPendingEvent] = useState<any>(null);
-
-  // Comment modal state
-  const [commentModalOpen, setCommentModalOpen] =
-    useState(false);
-  const [pendingComment, setPendingComment] = useState<{
-    resourceId: string;
-    week: number;
-  } | null>(null);
-
-  // Management modals state
-  const [usersModalOpen, setUsersModalOpen] = useState(false);
-  const [projectsModalOpen, setProjectsModalOpen] =
-    useState(false);
-  const [departmentsModalOpen, setDepartmentsModalOpen] =
-    useState(false);
-  const [shortcutsModalOpen, setShortcutsModalOpen] =
-    useState(false);
-  const [profileModalOpen, setProfileModalOpen] =
-    useState(false);
-  const [settingsModalOpen, setSettingsModalOpen] =
-    useState(false);
-
-  // Context menu state
-  const [contextMenu, setContextMenu] = useState<{
-    isVisible: boolean;
-    x: number;
-    y: number;
-    event: SchedulerEvent | null;
-  }>({ isVisible: false, x: 0, y: 0, event: null });
-
-  // Empty cell context menu state
-  const [emptyCellContextMenu, setEmptyCellContextMenu] = useState<{
-    isVisible: boolean;
-    x: number;
-    y: number;
-    resourceId: string | null;
-    week: number | null;
-    unitIndex: number | null;
-  }>({ isVisible: false, x: 0, y: 0, resourceId: null, week: null, unitIndex: null });
-
-  // Hover state
-  const [hoverHighlight, setHoverHighlight] = useState<{
-    visible: boolean;
-    left: number;
-    top: number;
-    width: number;
-    height: number;
-  }>({ visible: false, left: 0, top: 0, width: 0, height: 0 });
-
-  // Ghost for drag/resize
-  const [ghost, setGhost] = useState<{
-    visible: boolean;
-    left: number;
-    top: number;
-    width: number;
-    height: number;
-  }>({ visible: false, left: 0, top: 0, width: 0, height: 0 });
 
   const schedulerRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -439,7 +421,7 @@ export function SchedulerMain({
   const handleUndo = useCallback(() => {
     const state = historyUndo();
     if (!state) {
-      console.log('🔄 UNDO: История пуста');
+      console.log('🔄 UNDO: ��стория пуста');
       return;
     }
 
@@ -537,55 +519,11 @@ export function SchedulerMain({
     await deleteProject(id);
   }, [deleteProject]);
 
-  const handleEscape = useCallback(() => {
-    // Сначала проверяем, есть ли открытые модалки или режимы
-    const hasOpenModal = modalOpen || usersModalOpen || projectsModalOpen || 
-                         departmentsModalOpen || shortcutsModalOpen || 
-                         contextMenu.isVisible || emptyCellContextMenu.isVisible;
-    const hasActiveMode = scissorsMode || commentMode;
-    
-    // Если есть открытые модалки - зкрываем их
-    if (hasOpenModal) {
-      setModalOpen(false);
-      setUsersModalOpen(false);
-      setProjectsModalOpen(false);
-      setDepartmentsModalOpen(false);
-      setShortcutsModalOpen(false);
-      setContextMenu({
-        isVisible: false,
-        x: 0,
-        y: 0,
-        event: null,
-      });
-      setEmptyCellContextMenu({
-        isVisible: false,
-        x: 0,
-        y: 0,
-        resourceId: null,
-        week: null,
-        unitIndex: null,
-      });
-      // Убираем hover при закрытии через Escape
-      setHoverHighlight((prev) => ({
-        ...prev,
-        visible: false,
-        }));
-    }
-    
-    // Всегда отключаем режимы (даже если модалки не открыты)
-    if (hasActiveMode) {
-      setScissorsMode(false);
-      setCommentMode(false);
-    }
-  }, [modalOpen, usersModalOpen, projectsModalOpen, departmentsModalOpen, 
-      shortcutsModalOpen, contextMenu.isVisible, emptyCellContextMenu.isVisible, 
-      scissorsMode, commentMode]);
-
   const { isSpacePressed, isCtrlPressed } =
     useKeyboardShortcuts({
       onUndo: handleUndo,
       onRedo: handleRedo,
-      onEscape: handleEscape,
+      onEscape: closeAllModals, // ✅ Use closeAllModals from hook
       onShowShortcuts: () => setShortcutsModalOpen(true),
       schedulerRef,
     });
@@ -596,20 +534,7 @@ export function SchedulerMain({
   useEffect(() => {
     setScissorsMode(false);
     setCommentMode(false);
-  }, [workspace.id]);
-
-  // Handlers for toggling modes with mutual exclusion
-  const handleToggleScissors = useCallback(() => {
-    setScissorsMode((prev) => !prev);
-    // Если включаем ножницы, отключаем комментирование
-    setCommentMode(false);
-  }, []);
-
-  const handleToggleComment = useCallback(() => {
-    setCommentMode((prev) => !prev);
-    // Если включаем комментирование, отключаем ножницы
-    setScissorsMode(false);
-  }, []);
+  }, [workspace.id, setScissorsMode, setCommentMode]);
 
   // Кэшируем отфильтрованные события для оптимизации
   const sortedEventsWithZOrder = useMemo(() => {
@@ -639,9 +564,15 @@ export function SchedulerMain({
   }, [visibleEvents, filteredResources, eventZOrder]);
 
   // Вычисляем соседей для каждо��о события (для соединения одинаковых проектов)
-  const eventNeighbors = useMemo(() => {
-    console.log('🔄 eventNeighbors пересчитывается! sortedEventsWithZOrder:', sortedEventsWithZOrder.length, 'projects:', projects.length);
-    return calculateEventNeighbors(sortedEventsWithZOrder, projects);
+
+  // ✅ Step 4: UI + State separate (useState + useEffect)
+  // This ensures calculation happens after render, preventing UI blocking
+  const [eventNeighbors, setEventNeighbors] = useState<Map<string, EventNeighborsInfo>>(new Map());
+
+  useEffect(() => {
+    // Only recalculate if data really changed
+    const result = calculateEventNeighbors(sortedEventsWithZOrder, projects);
+    setEventNeighbors(result);
   }, [sortedEventsWithZOrder, projects]);
 
   // Event interactions
@@ -1504,7 +1435,7 @@ export function SchedulerMain({
         // DEBUG: логирование для событий 10-11 недель
         if (event.startWeek === 10 || event.startWeek === 11) {
           console.log(`📏 [expandRight] Event ${event.id} (week ${event.startWeek}): +${expandAmount}px`);
-          console.log(`📏 [ПРИМЕНЕНИЕ] Event ${event.id} (week ${event.startWeek}):`, {
+          console.log(`���� [ПРИМЕНЕНИЕ] Event ${event.id} (week ${event.startWeek}):`, {
             'ширина ДО': widthBeforeExpand,
             paddingLeft,
             paddingRight,
@@ -1559,23 +1490,22 @@ export function SchedulerMain({
         // Получаем информацию о соседях для корректировки padding (новая логика v3.0)
         const neighborInfo = eventNeighbors.get(event.id);
         const neighbors = neighborInfo || {
-          hasFullLeftNeighbor: false,
-          hasPartialLeftNeighbor: false,
-          hasBothLeftNeighbors: false,
-          hasFullRightNeighbor: false,
-          hasPartialRightNeighbor: false,
-          hasBothRightNeighbors: false,
+          flags: MASK_ROUND_TL | MASK_ROUND_TR | MASK_ROUND_BL | MASK_ROUND_BR,
           expandLeftMultiplier: 0,
           expandRightMultiplier: 0,
-          roundTopLeft: true,
-          roundTopRight: true,
-          roundBottomLeft: true,
-          roundBottomRight: true,
-          innerTopLeftColor: 'transparent',
-          innerBottomLeftColor: 'transparent',
-          innerTopRightColor: 'transparent',
-          innerBottomRightColor: 'transparent',
-          hideProjectName: false,
+        };
+
+        // Helper to resolve inner corner color with dimming support
+        const getInnerColor = (projectId?: string) => {
+          if (!projectId) return 'transparent';
+          
+          // Check dimming (if filter is active and project is not selected)
+          if (enabledProjects.size > 0 && !enabledProjects.has(projectId)) {
+             return '#AAA'; // Matches dimmed event background color
+          }
+          
+          const project = projects.find(p => p.id === projectId);
+          return project?.backgroundColor || 'transparent';
         };
         
         // Получаем мемоизированные позиции (вычисляются только при изменении eventNeighbors)
@@ -1607,7 +1537,7 @@ export function SchedulerMain({
 
         return (
           <SchedulerEventComponent
-            key={event.id}
+            key={`${event.id}-${showProjectWeight}`}
             event={event}
             config={config}
             projects={projects}
@@ -1620,19 +1550,20 @@ export function SchedulerMain({
             dimmed={isDimmed}
             showGaps={showGaps}
             showPatterns={showPatterns}
+            showProjectWeight={showProjectWeight}
             isContextMenuOpen={isContextMenuOpen}
             // Упрощённая логика v3.1: round* флаги (позитивная логика)
-            roundTopLeft={neighbors.roundTopLeft}
-            roundTopRight={neighbors.roundTopRight}
-            roundBottomLeft={neighbors.roundBottomLeft}
-            roundBottomRight={neighbors.roundBottomRight}
+            roundTopLeft={!!(neighbors.flags & MASK_ROUND_TL)}
+            roundTopRight={!!(neighbors.flags & MASK_ROUND_TR)}
+            roundBottomLeft={!!(neighbors.flags & MASK_ROUND_BL)}
+            roundBottomRight={!!(neighbors.flags & MASK_ROUND_BR)}
             // Цвета соседей для внутренних скруглений ::before/::after
-            innerTopLeftColor={neighbors.innerTopLeftColor}
-            innerBottomLeftColor={neighbors.innerBottomLeftColor}
-            innerTopRightColor={neighbors.innerTopRightColor}
-            innerBottomRightColor={neighbors.innerBottomRightColor}
+            innerTopLeftColor={getInnerColor(neighbors.innerTopLeftProjectId)}
+            innerBottomLeftColor={getInnerColor(neighbors.innerBottomLeftProjectId)}
+            innerTopRightColor={getInnerColor(neighbors.innerTopRightProjectId)}
+            innerBottomRightColor={getInnerColor(neighbors.innerBottomRightProjectId)}
             // Скрытие названия проекта для уменьшения визуального шума
-            hideProjectName={neighbors.hideProjectName}
+            hideProjectName={!!(neighbors.flags & MASK_HIDE_NAME)}
             onContextMenu={handleEventContextMenu}
             onPointerDown={(e, ev) => {
               // ✅ БЛОКИРОВКА v3.3.9: заблокированные и pending события нельзя перетаскивать
@@ -1683,6 +1614,7 @@ export function SchedulerMain({
     eventRowH,
     showGaps,
     showPatterns,
+    showProjectWeight,
     handleEventContextMenu,
     startDrag,
     startResize,
@@ -1854,10 +1786,9 @@ export function SchedulerMain({
 
       {/* Toolbar with filters */}
       <FilterToolbar
-        scissorsMode={scissorsMode}
-        onToggleScissors={handleToggleScissors}
-        commentMode={commentMode}
-        onToggleComment={handleToggleComment}
+        companies={companies}
+        departments={sortedDepartments}
+        projects={projects}
       />
       
       {/* Online users indicator */}
@@ -1917,132 +1848,99 @@ export function SchedulerMain({
       </div>
 
       {/* Modals */}
-      <SimpleEventModal
-        isOpen={modalOpen}
-        mode={modalMode}
-        initialData={modalInitialData}
-        onClose={() => {
-          setModalOpen(false);
-          setPendingEvent(null);
-        }}
-        onSave={handleModalSave}
+      <SchedulerModals
+        // Event Modal
+        modalOpen={modalOpen}
+        setModalOpen={setModalOpen}
+        modalMode={modalMode}
+        modalInitialData={modalInitialData}
+        pendingEvent={pendingEvent}
+        setPendingEvent={setPendingEvent}
+        handleModalSave={handleModalSave}
         projects={projects}
         resources={resources}
-        pendingResource={
-          pendingEvent
-            ? resources.find((r) => r.id === pendingEvent.resourceId)
-            : undefined
-        }
-      />
 
-      <CommentModal
-        isOpen={commentModalOpen}
-        onClose={() => {
-          setCommentModalOpen(false);
-          setPendingComment(null);
-        }}
-        onSave={handleCommentSave}
-      />
+        // Comment Modal
+        commentModalOpen={commentModalOpen}
+        setCommentModalOpen={setCommentModalOpen}
+        setPendingComment={setPendingComment}
+        handleCommentSave={handleCommentSave}
 
-      <UsersManagementModal
-        isOpen={usersModalOpen}
-        onClose={() => setUsersModalOpen(false)}
-        resources={resources}
+        // Users Modal
+        usersModalOpen={usersModalOpen}
+        setUsersModalOpen={setUsersModalOpen}
         departments={departments}
         companies={companies}
         grades={grades}
-        onCreateResource={createResource}
-        onUpdateResource={updateResource}
-        onDeleteResource={deleteResource}
+        createResource={createResource}
+        updateResource={updateResource}
+        deleteResource={deleteResource}
         getGradeName={useScheduler().getGradeName}
-      />
 
-      <ProjectsManagementModal
-        isOpen={projectsModalOpen}
-        onClose={() => setProjectsModalOpen(false)}
-        projects={projects}
+        // Projects Modal
+        projectsModalOpen={projectsModalOpen}
+        setProjectsModalOpen={setProjectsModalOpen}
         eventPatterns={eventPatterns}
-        onCreateProject={createProject}
-        onUpdateProject={updateProject}
-        onDeleteProject={handleDeleteProject} // ✅ Используем обёртку
-      />
+        createProject={createProject}
+        updateProject={updateProject}
+        handleDeleteProject={handleDeleteProject}
 
-      <DepartmentsManagementModal
-        isOpen={departmentsModalOpen}
-        onClose={() => setDepartmentsModalOpen(false)}
-        departments={departments}
-        onCreateDepartment={createDepartment}
-        onDeleteDepartment={deleteDepartment}
-        onGetDepartmentUsersCount={getDepartmentUsersCount}
-        onRenameDepartment={renameDepartment}
-        onReorderDepartments={reorderDepartments}
-        onToggleDepartmentVisibility={toggleDepartmentVisibility}
-      />
+        // Departments Modal
+        departmentsModalOpen={departmentsModalOpen}
+        setDepartmentsModalOpen={setDepartmentsModalOpen}
+        createDepartment={createDepartment}
+        deleteDepartment={deleteDepartment}
+        getDepartmentUsersCount={getDepartmentUsersCount}
+        renameDepartment={renameDepartment}
+        reorderDepartments={reorderDepartments}
+        toggleDepartmentVisibility={toggleDepartmentVisibility}
 
-      <KeyboardShortcutsModal
-        isOpen={shortcutsModalOpen}
-        onClose={() => setShortcutsModalOpen(false)}
-      />
+        // Shortcuts Modal
+        shortcutsModalOpen={shortcutsModalOpen}
+        setShortcutsModalOpen={setShortcutsModalOpen}
 
-      <ProfileModal
-        isOpen={profileModalOpen}
-        onClose={() => setProfileModalOpen(false)}
-        currentEmail={currentUserEmail}
-        currentDisplayName={currentUserDisplayName}
-        currentAvatarUrl={currentUserAvatarUrl}
+        // Profile Modal
+        profileModalOpen={profileModalOpen}
+        setProfileModalOpen={setProfileModalOpen}
+        currentUserEmail={currentUserEmail}
+        currentUserDisplayName={currentUserDisplayName}
+        currentUserAvatarUrl={currentUserAvatarUrl}
         accessToken={accessToken}
         onTokenRefresh={onTokenRefresh}
-        onProfileUpdated={() => {
-          // Profile updated
-          console.log('Profile updated');
-        }}
-      />
 
-      <SettingsModal
-        isOpen={settingsModalOpen}
-        onClose={() => setSettingsModalOpen(false)}
+        // Settings Modal
+        settingsModalOpen={settingsModalOpen}
+        setSettingsModalOpen={setSettingsModalOpen}
       />
 
       {/* Context Menus */}
-      {contextMenu.isVisible && contextMenu.event && (
-        <ContextMenu
-          isVisible={true}
-          event={contextMenu.event}
-          x={contextMenu.x}
-          y={contextMenu.y}
-          onEdit={handleContextEdit}
-          onDelete={handleContextDelete}
-          onCopy={handleContextCopy}
-          onClose={() =>
-            setContextMenu({
-              isVisible: false,
-              x: 0,
-              y: 0,
-              event: null,
-            })
-          }
-        />
-      )}
-
-      {emptyCellContextMenu.isVisible && (
-        <EmptyCellContextMenu
-          isVisible={true}
-          x={emptyCellContextMenu.x}
-          y={emptyCellContextMenu.y}
-          onPaste={handlePaste}
-          hasCopiedEvent={!!copiedEvent}
-          onClose={() =>
-            setEmptyCellContextMenu({
-              isVisible: false,
-              x: 0,
-              y: 0,
-              resourceId: null,
-              week: null,
-              unitIndex: null,
-            })
-          }
-        />
-      )}
+      <SchedulerContextMenus
+        contextMenu={contextMenu}
+        onContextMenuClose={() =>
+          setContextMenu({
+            isVisible: false,
+            x: 0,
+            y: 0,
+            event: null,
+          })
+        }
+        onEdit={handleContextEdit}
+        onDelete={handleContextDelete}
+        onCopy={handleContextCopy}
+        emptyCellContextMenu={emptyCellContextMenu}
+        onEmptyCellMenuClose={() =>
+          setEmptyCellContextMenu({
+            isVisible: false,
+            x: 0,
+            y: 0,
+            resourceId: null,
+            week: null,
+            unitIndex: null,
+          })
+        }
+        onPaste={handlePaste}
+        hasCopiedEvent={!!copiedEvent}
+      />
     </div>
   );
 }

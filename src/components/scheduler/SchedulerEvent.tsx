@@ -15,6 +15,7 @@ interface SchedulerEventProps {
   dimmed?: boolean;
   showGaps?: boolean;
   showPatterns?: boolean;
+  showProjectWeight?: boolean;
   isContextMenuOpen?: boolean;
   // УПРОЩЁННАЯ ЛОГИКА v3.1: Позитивные флаги - какие углы скруглены
   roundTopLeft?: boolean;
@@ -53,6 +54,7 @@ function SchedulerEventComponent({
   dimmed = false,
   showGaps = true,
   showPatterns = true,
+  showProjectWeight = true,
   isContextMenuOpen = false,
   roundTopLeft = true,
   roundTopRight = true,
@@ -307,7 +309,8 @@ function SchedulerEventComponent({
                 left: 'var(--sticky-name-left)',
                 zIndex: 2,
                 background: 'inherit',
-                paddingRight: '4px'
+                paddingRight: '4px',
+                transition: 'none'
               }}
             >
               {project.name}
@@ -327,9 +330,11 @@ function SchedulerEventComponent({
             />
           )}
         </div>
-        <div className="ev-weight pointer-events-auto text-right" style={{ fontSize: `${fontSize}px`, opacity: 0.6, position: 'relative', zIndex: 2 }}>
-          {event.unitsTall * 25}%
-        </div>
+        {showProjectWeight && (
+          <div className="ev-weight pointer-events-auto text-right" style={{ fontSize: `${fontSize}px`, opacity: 0.6, position: 'relative', zIndex: 2, transition: 'none' }}>
+            {event.unitsTall * 25}%
+          </div>
+        )}
       </div>
 
       {/* Scissor guides - absolutely positioned to not affect flex layout */}
