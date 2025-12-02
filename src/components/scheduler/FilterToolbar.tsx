@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, forwardRef, useImperativeHandle } from 'react';
 import { useFilters } from '../../contexts/FilterContext';
 import { Company, Department, Project } from '../../types/scheduler';
 
@@ -10,7 +10,17 @@ interface FilterToolbarProps {
 
 type FilterType = 'companies' | 'departments' | 'projects';
 
-export function FilterToolbar({ companies, departments, projects }: FilterToolbarProps) {
+export interface FilterToolbarRef {
+  openCompanyFilter: () => void;
+  openDepartmentFilter: () => void;
+  openProjectFilter: () => void;
+}
+
+export const FilterToolbar = forwardRef<FilterToolbarRef, FilterToolbarProps>(({
+  companies,
+  departments,
+  projects
+}, ref) => {
   const {
     enabledCompanies,
     toggleCompany,
@@ -29,6 +39,13 @@ export function FilterToolbar({ companies, departments, projects }: FilterToolba
   const toggleFilter = (filter: FilterType) => {
     setOpenFilter(openFilter === filter ? null : filter);
   };
+
+  // Expose methods to parent via ref
+  useImperativeHandle(ref, () => ({
+    openCompanyFilter: () => setOpenFilter('companies'),
+    openDepartmentFilter: () => setOpenFilter('departments'),
+    openProjectFilter: () => setOpenFilter('projects')
+  }));
 
   const hasActiveFilters = enabledCompanies.size > 0 || enabledDepartments.size > 0 || enabledProjects.size > 0;
 
@@ -167,7 +184,9 @@ export function FilterToolbar({ companies, departments, projects }: FilterToolba
         {/* Companies button */}
         <button
           className="relative w-10 h-10 rounded-[10px] flex items-center justify-center bg-white hover:bg-gray-100 transition-all outline-none focus:outline-none cursor-pointer"
-          onClick={() => toggleFilter('companies')}
+          onClick={() => {
+            toggleFilter('companies');
+          }}
           title="Фильтр по компаниям"
           style={{ 
             background: openFilter === 'companies' ? 'rgba(59, 130, 246, 0.15)' : 
@@ -208,7 +227,9 @@ export function FilterToolbar({ companies, departments, projects }: FilterToolba
         {/* Departments button */}
         <button
           className="relative w-10 h-10 rounded-[10px] flex items-center justify-center bg-white hover:bg-gray-100 transition-all outline-none focus:outline-none cursor-pointer"
-          onClick={() => toggleFilter('departments')}
+          onClick={() => {
+            toggleFilter('departments');
+          }}
           title="Фильтр по департаментам"
           style={{ 
             background: openFilter === 'departments' ? 'rgba(59, 130, 246, 0.15)' : 
@@ -248,7 +269,9 @@ export function FilterToolbar({ companies, departments, projects }: FilterToolba
         {/* Projects button */}
         <button
           className="relative w-10 h-10 rounded-[10px] flex items-center justify-center bg-white hover:bg-gray-100 transition-all outline-none focus:outline-none cursor-pointer"
-          onClick={() => toggleFilter('projects')}
+          onClick={() => {
+            toggleFilter('projects');
+          }}
           title="Фильтр по проектам"
           style={{ 
             background: openFilter === 'projects' ? 'rgba(59, 130, 246, 0.15)' : 
@@ -313,4 +336,4 @@ export function FilterToolbar({ companies, departments, projects }: FilterToolba
       </div>
     </div>
   );
-}
+});

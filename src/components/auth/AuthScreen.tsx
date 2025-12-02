@@ -415,7 +415,7 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
                   placeholder="Код из письма (6 цифр)"
                   required
                   maxLength={6}
-                  className="text-center text-2xl tracking-[0.5em] font-mono h-16"
+                  className="text-center text-2xl tracking-[0.5em] h-16"
                 />
                 <div className="flex justify-between text-xs text-muted-foreground px-1">
                   <span>Отправлено на {email}</span>

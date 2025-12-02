@@ -1,6 +1,10 @@
+@import url('https://fonts.googleapis.com/css2?family=Onest:wght@100..900&display=swap');
+
 @custom-variant dark (&:is(.dark *));
 
 :root {
+  --font-sans: 'Onest', sans-serif;
+
   --font-size: 16px;
   --background: #ffffff;
   --foreground: oklch(0.145 0 0);
@@ -126,6 +130,7 @@
 
   body {
     @apply bg-background text-foreground;
+    font-family: 'Onest', sans-serif;
   }
 }
 
@@ -201,7 +206,8 @@ html {
   --row-padding-top: 4px;
   --row-padding-bottom: 4px;
   --event-radius: 8px;
-  --sticky-name-left: calc(var(--resource-width) + var(--cell-padding-left) + 8px);
+  /* Sticky project name: 16px offset from the left edge of the right panel (events container) */
+  --sticky-name-left: 16px;
 }
 
 /* Project colors */
@@ -622,4 +628,24 @@ body.comment-mode .handle-container {
 .custom-slider::-moz-range-thumb:hover {
   transform: scale(1.1);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+/* Hide scrollbar for left panel sync */
+.hide-scrollbar {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none; /* Chrome/Safari/Opera */
+}
+
+/* Highlight matched text (search results) */
+mark {
+  background-color: rgba(254, 240, 138, 0.6); /* yellow-200 with 60% opacity */
+  color: inherit;
+  border-radius: 2px;
+  padding: 0;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
 }

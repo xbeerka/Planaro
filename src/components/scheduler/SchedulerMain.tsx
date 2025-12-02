@@ -17,8 +17,6 @@ import { useSchedulerUI } from "../../hooks/useSchedulerUI"; // ✨ UI State Hoo
 import { useToast } from "../ui/ToastContext";
 import { SchedulerEvent as SchedulerEventComponent } from "./SchedulerEvent";
 import { Toolbar } from "./Toolbar";
-import { FilterToolbar } from "./FilterToolbar";
-import { OnlineUsers } from "./OnlineUsers";
 import { RealtimeCursors } from "./RealtimeCursors";
 import { SchedulerModals } from "./SchedulerModals";
 import { SchedulerContextMenus } from "./SchedulerContextMenus";
@@ -65,6 +63,7 @@ import {
   getAvailableFreeSpace,
   getBorderRadiusForRowHeight,
 } from "../../utils/schedulerLayout";
+import { smartSearch } from "../../utils/search"; // ✨ Import smart search logic
 
 interface SchedulerMainProps {
   accessToken: string | null;
@@ -212,6 +211,9 @@ export function SchedulerMain({
   const [scrollTop, setScrollTop] = useState(0);
   const [scrollLeft, setScrollLeft] = useState(0);
 
+  // Search query for filtering resources (moved from SchedulerGrid to sync with events)
+  const [searchQuery, setSearchQuery] = useState("");
+
   const months = useMemo(
     () => generateMonths(workspace.timeline_year),
     [workspace.timeline_year],
@@ -276,6 +278,18 @@ export function SchedulerMain({
       );
     }
 
+    // Filter by search query
+    if (searchQuery) {
+      filtered = filtered.filter((r) => {
+        const targetText = [
+          r.fullName,
+          r.position
+        ].filter(Boolean).join(" "); // Join all searchable fields
+        
+        return smartSearch(searchQuery, targetText);
+      });
+    }
+
     return filtered;
   }, [
     resources,
@@ -283,6 +297,7 @@ export function SchedulerMain({
     enabledDepartments,
     enabledProjects,
     events,
+    searchQuery,
   ]);
 
   // Filter departments to show only those with visible resources
@@ -528,7 +543,8 @@ export function SchedulerMain({
       schedulerRef,
     });
 
-  usePanning(schedulerRef, isSpacePressed);
+  // Use gridRef which points to the scrollable right panel
+  usePanning(gridRef, isSpacePressed);
 
   // Reset scissors mode when component mounts (new workspace opened)
   useEffect(() => {
@@ -1211,7 +1227,7 @@ export function SchedulerMain({
           });
         });
       } catch (error) {
-        console.error("❌ Ошибка создания события:", error);
+        console.error("��� Ошибка создания события:", error);
       }
     } else if (modalMode === "edit" && pendingEvent) {
       // Вычисляем максимум недель для события
@@ -1764,7 +1780,7 @@ export function SchedulerMain({
   ), [eventGaps, config, filteredResources, filteredDepartments, isCtrlPressed, startGapDrag]);
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden bg-slate-50 text-slate-900">
+    <div className="flex flex-col h-screen overflow-hidden bg-white text-slate-900">
       {/* Header with settings */}
       <Toolbar
         canUndo={canUndo}
@@ -1783,17 +1799,7 @@ export function SchedulerMain({
         onOpenProjectsModal={() => setProjectsModalOpen(true)}
         onOpenDepartmentsModal={() => setDepartmentsModalOpen(true)}
       />
-
-      {/* Toolbar with filters */}
-      <FilterToolbar
-        companies={companies}
-        departments={sortedDepartments}
-        projects={projects}
-      />
       
-      {/* Online users indicator */}
-      <OnlineUsers workspaceId={String(workspace.id)} />
-
       {/* Realtime Cursors - Collaborative presence */}
       <RealtimeCursors 
         workspaceId={String(workspace.id)}
@@ -1815,6 +1821,7 @@ export function SchedulerMain({
         <SchedulerGrid
           ref={gridRef}
           config={config}
+          accessToken={accessToken}
           months={months}
           resources={filteredResources}
           departments={sortedDepartments} // Pass all departments to preserve order
@@ -1832,6 +1839,14 @@ export function SchedulerMain({
           eventsContainerRef={eventsContainerRef}
           grades={grades} // Pass grades
           companies={companies} // Pass companies
+          // Search props
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          // Mode props
+          scissorsMode={scissorsMode}
+          commentMode={commentMode}
+          onToggleScissors={handleToggleScissors}
+          onToggleComment={handleToggleComment}
           // Header props
           workspace={workspace}
           onBackToWorkspaces={onBackToWorkspaces}

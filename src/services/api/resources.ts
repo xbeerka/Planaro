@@ -8,6 +8,7 @@ export interface CreateResourceData {
   workspace_id?: string;
   grade?: string;
   companyId?: string;
+  avatarUrl?: string;
 }
 
 export interface UpdateResourceData {
@@ -16,6 +17,7 @@ export interface UpdateResourceData {
   departmentId?: string;
   grade?: string;
   companyId?: string;
+  avatarUrl?: string;
 }
 
 export const resourcesApi = {

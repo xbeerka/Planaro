@@ -6,6 +6,8 @@ import { SimpleLabel } from '../ui/simple-label';
 import { SimpleInput } from '../ui/simple-input';
 import { WEEKS } from '../../utils/scheduler';
 import { getSortedProjectsByUsage, trackProjectUsage } from '../../utils/projectUsageTracking';
+import { smartSearch, getMatchScore } from '../../utils/search';
+import { highlightMatch } from '../../utils/highlightMatch';
 
 interface EventModalProps {
   isOpen: boolean;
@@ -27,7 +29,7 @@ export function SimpleEventModal({ isOpen, onClose, onSave, projects, mode, init
   // ✨ Локальный state для принудительного обновления сортировки
   const [sortTrigger, setSortTrigger] = useState(0);
   
-  // ✨ Сортируем проекты по последнему использованию
+  // ✨ Сортиру��м проекты по последнему использованию
   const sortedProjects = useMemo(() => {
     if (!initialData?.workspaceId) return projects;
     return getSortedProjectsByUsage(initialData.workspaceId, projects);
@@ -103,9 +105,29 @@ export function SimpleEventModal({ isOpen, onClose, onSave, projects, mode, init
     };
   }, [showDropdown]);
 
-  const filteredProjects = sortedProjects.filter(project =>
-    project.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // ✨ Фильтруем и сортируем проекты по релевантности
+  const filteredProjects = useMemo(() => {
+    if (!searchQuery.trim()) {
+      // Если поиск пустой, показываем все проекты с сортировкой по использованию
+      return sortedProjects;
+    }
+    
+    // Фильтруем проекты по умному поиску
+    // ОПТИМИЗАЦИЯ: Вычисляем score один раз
+    const matches = sortedProjects
+      .map(project => ({
+        project,
+        score: getMatchScore(searchQuery, project.name)
+      }))
+      .filter(item => item.score < 100); // 100 - порог отсечения (из search.ts)
+    
+    // Сортируем по score (чем меньше, тем лучше)
+    // При равенстве score сохраняется порядок от sortedProjects (по использованию)
+    matches.sort((a, b) => a.score - b.score);
+    
+    // Возвращаем только проекты (без score)
+    return matches.map(m => m.project);
+  }, [sortedProjects, searchQuery]);
 
   const handleSave = async () => {
     if (isSaving) return; // Предотвращаем двойной клик
@@ -247,7 +269,7 @@ export function SimpleEventModal({ isOpen, onClose, onSave, projects, mode, init
                         d="M5 13l4 4L19 7"
                       />
                     </svg>
-                    <span>{project.name}</span>
+                    <span>{highlightMatch(project.name, searchQuery)}</span>
                   </div>
                 ))}
               </div>

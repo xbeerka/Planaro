@@ -29,6 +29,13 @@ export async function getStorageItem(key: string): Promise<string | null> {
   try {
     const db = await openDB();
     return new Promise((resolve, reject) => {
+      // Check if object store exists before creating transaction
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        console.warn(`❌ Object store "${STORE_NAME}" not found`);
+        resolve(null);
+        return;
+      }
+      
       const transaction = db.transaction(STORE_NAME, 'readonly');
       const store = transaction.objectStore(STORE_NAME);
       const request = store.get(key);
@@ -49,6 +56,13 @@ export async function setStorageItem(key: string, value: string): Promise<void> 
   try {
     const db = await openDB();
     return new Promise((resolve, reject) => {
+      // Check if object store exists before creating transaction
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        console.warn(`❌ Object store "${STORE_NAME}" not found`);
+        reject(new Error('Object store not found'));
+        return;
+      }
+      
       const transaction = db.transaction(STORE_NAME, 'readwrite');
       const store = transaction.objectStore(STORE_NAME);
       const request = store.put(value, key);
@@ -67,6 +81,13 @@ export async function removeStorageItem(key: string): Promise<void> {
   try {
     const db = await openDB();
     return new Promise((resolve, reject) => {
+      // Check if object store exists before creating transaction
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        console.warn(`❌ Object store "${STORE_NAME}" not found`);
+        resolve(); // Silently succeed if store doesn't exist
+        return;
+      }
+      
       const transaction = db.transaction(STORE_NAME, 'readwrite');
       const store = transaction.objectStore(STORE_NAME);
       const request = store.delete(key);
@@ -87,7 +108,8 @@ export async function setStorageJSON<T>(key: string, value: T): Promise<void> {
     await setStorageItem(key, json);
   } catch (error) {
     console.error('IndexedDB setStorageJSON error:', error);
-    throw error;
+    // Don't throw - silently fail to avoid breaking the app
+    // The app can function without cache
   }
 }
 

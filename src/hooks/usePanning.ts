@@ -1,7 +1,26 @@
 import { useRef, useEffect } from 'react';
 
+/**
+ * usePanning - Hook for middle-mouse and space+drag panning
+ * 
+ * Works with the scrollable panel ref (rightRef from SchedulerGrid).
+ * Handles both middle mouse button (button 1) and space+left mouse button.
+ * 
+ * ARCHITECTURE NOTE:
+ * SchedulerGrid has two panels:
+ * - Left panel (resources): Fixed width 284px, z-index 300, overflowX: hidden
+ * - Right panel (timeline): Scrollable in both directions, z-index lower
+ * 
+ * When user clicks middle button on LEFT panel, the events are captured by left panel
+ * (due to higher z-index), but we want to scroll the RIGHT panel (which has overflow).
+ * 
+ * Solution: Listen to mousedown on document (capture phase), and always scroll the right panel.
+ * 
+ * @param scrollableRef - Reference to the scrollable container (right panel)
+ * @param isSpacePressed - Whether space key is currently pressed
+ */
 export function usePanning(
-  schedulerRef: React.RefObject<HTMLDivElement>,
+  scrollableRef: React.RefObject<HTMLDivElement>,
   isSpacePressed: boolean
 ) {
   const isPanningRef = useRef(false);
@@ -12,13 +31,13 @@ export function usePanning(
   useEffect(() => {
     isSpacePressedRef.current = isSpacePressed;
     
-    // Update cursor when space is first pressed
-    if (schedulerRef.current && isSpacePressed && !isPanningRef.current) {
-      schedulerRef.current.style.cursor = 'grab';
-    } else if (schedulerRef.current && !isSpacePressed && !isPanningRef.current) {
-      schedulerRef.current.style.cursor = 'default';
+    // Update cursor globally when space is pressed (but not panning yet)
+    if (isSpacePressed && !isPanningRef.current) {
+      document.body.style.cursor = 'grab';
+    } else if (!isSpacePressed && !isPanningRef.current) {
+      document.body.style.cursor = '';
     }
-  }, [isSpacePressed, schedulerRef]);
+  }, [isSpacePressed]);
 
   // Panning with middle mouse button or space+left click
   useEffect(() => {
@@ -29,52 +48,86 @@ export function usePanning(
       
       if (!isMiddle && !isSpaceWithLeft) return;
       
-      // Check if we're clicking on interactive elements
+      // Check if we're clicking on interactive elements (modals, inputs, buttons)
       const target = e.target as HTMLElement;
       const isInteractive = 
         target.closest('button') ||
         target.closest('input') ||
         target.closest('textarea') ||
+        target.closest('select') ||
         target.closest('[role="menu"]') ||
-        target.closest('.toolbar-panel');
+        target.closest('[role="dialog"]') ||
+        target.closest('.modal') ||
+        target.closest('.dropdown-menu');
       
       if (isInteractive) return;
       
-      // For space+left, also skip if clicking on event handles
+      // For space+left, also skip if clicking on event handles or draggable events
       if (isSpaceWithLeft) {
-        const isHandle = target.closest('.handle-container');
-        if (isHandle) return;
+        const isHandle = target.closest('.handle-container') || target.closest('.gap-handle');
+        const isEvent = target.closest('.scheduler-event');
+        if (isHandle || isEvent) return;
+      }
+      
+      // Get the scrollable container
+      const scrollable = scrollableRef.current;
+      if (!scrollable) {
+        console.warn('⚠️ usePanning: scrollableRef.current is null');
+        return;
       }
       
       // Prevent default behavior (especially browser autoscroll for middle button)
       e.preventDefault();
       e.stopPropagation();
       
-      const scheduler = schedulerRef.current;
-      if (!scheduler) return;
-      
       isPanningRef.current = true;
       panStartRef.current = {
         x: e.clientX,
         y: e.clientY,
-        scrollLeft: scheduler.scrollLeft,
-        scrollTop: scheduler.scrollTop
+        scrollLeft: scrollable.scrollLeft,
+        scrollTop: scrollable.scrollTop
       };
-      scheduler.style.cursor = 'grabbing';
+      
+      // Set cursor to grabbing globally
+      document.body.style.cursor = 'grabbing';
+      
+      console.log('🖱️ Panning started:', {
+        button: e.button,
+        buttonName: isMiddle ? 'middle' : 'space+left',
+        startX: e.clientX,
+        startY: e.clientY,
+        scrollLeft: scrollable.scrollLeft,
+        scrollTop: scrollable.scrollTop,
+        targetElement: target.tagName,
+        targetClass: target.className
+      });
     };
 
     const handleMouseMove = (e: MouseEvent) => {
       if (!isPanningRef.current) return;
       
-      const scheduler = schedulerRef.current;
-      if (!scheduler) return;
+      const scrollable = scrollableRef.current;
+      if (!scrollable) return;
       
       e.preventDefault();
+      e.stopPropagation();
       
       const dx = e.clientX - panStartRef.current.x;
       const dy = e.clientY - panStartRef.current.y;
-      scheduler.scrollLeft = panStartRef.current.scrollLeft - dx;
-      scheduler.scrollTop = panStartRef.current.scrollTop - dy;
+      
+      // Apply scroll delta (inverted for natural panning feel)
+      scrollable.scrollLeft = panStartRef.current.scrollLeft - dx;
+      scrollable.scrollTop = panStartRef.current.scrollTop - dy;
+      
+      // Debug log every 100ms
+      if (Math.abs(dx) % 50 < 5 || Math.abs(dy) % 50 < 5) {
+        console.log('🖱️ Panning move:', {
+          dx,
+          dy,
+          newScrollLeft: scrollable.scrollLeft,
+          newScrollTop: scrollable.scrollTop
+        });
+      }
     };
 
     const handleMouseUp = (e: MouseEvent) => {
@@ -83,12 +136,18 @@ export function usePanning(
       // Accept any button release when panning is active
       if (e.button === 1 || e.button === 0) {
         e.preventDefault();
+        e.stopPropagation();
         
         isPanningRef.current = false;
-        const scheduler = schedulerRef.current;
-        if (scheduler) {
-          scheduler.style.cursor = isSpacePressedRef.current ? 'grab' : 'default';
+        
+        // Restore cursor
+        if (isSpacePressedRef.current) {
+          document.body.style.cursor = 'grab';
+        } else {
+          document.body.style.cursor = '';
         }
+        
+        console.log('🖱️ Panning ended');
       }
     };
     
@@ -96,22 +155,27 @@ export function usePanning(
     const handleContextMenu = (e: MouseEvent) => {
       if (isPanningRef.current || e.button === 1) {
         e.preventDefault();
+        e.stopPropagation();
       }
     };
 
-    // Attach to document to catch all events
-    document.addEventListener('mousedown', handleMouseDown);
-    document.addEventListener('contextmenu', handleContextMenu);
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
+    // Attach to document in CAPTURE PHASE to intercept events before they reach children
+    // This is critical for catching events on the left panel (which has higher z-index)
+    document.addEventListener('mousedown', handleMouseDown, true); // ✅ Capture phase!
+    document.addEventListener('contextmenu', handleContextMenu, true); // ✅ Capture phase!
+    window.addEventListener('mousemove', handleMouseMove, true); // ✅ Capture phase!
+    window.addEventListener('mouseup', handleMouseUp, true); // ✅ Capture phase!
 
     return () => {
-      document.removeEventListener('mousedown', handleMouseDown);
-      document.removeEventListener('contextmenu', handleContextMenu);
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('mousedown', handleMouseDown, true);
+      document.removeEventListener('contextmenu', handleContextMenu, true);
+      window.removeEventListener('mousemove', handleMouseMove, true);
+      window.removeEventListener('mouseup', handleMouseUp, true);
+      
+      // Cleanup cursor on unmount
+      document.body.style.cursor = '';
     };
-  }, [schedulerRef]);
+  }, [scrollableRef]);
 
   return { isPanningRef };
 }

@@ -159,10 +159,9 @@ export const SchedulerModals = React.memo<SchedulerModalsProps>(({
         departments={departments}
         companies={companies}
         grades={grades}
-        onCreateResource={createResource}
-        onUpdateResource={updateResource}
-        onDeleteResource={deleteResource}
-        getGradeName={getGradeName}
+        onCreateUser={createResource}
+        onUpdateUser={updateResource}
+        onDeleteUser={deleteResource}
       />
 
       <ProjectsManagementModal

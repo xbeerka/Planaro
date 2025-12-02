@@ -1,14 +1,16 @@
 /**
- * Клиентское сжатие изображений до 200px по меньшей стороне
+ * Клиентское сжатие изображений до заданного размера
  * Использует Canvas API - работает во всех современных браузерах
  */
 
 /**
- * Сжимает изображение до 200px по меньшей стороне, сохраняя пропорции
+ * Сжимает изображение до указанного размера, сохраняя пропорции
  * @param file - исходный файл изображения
+ * @param maxWidth - максимальная ширина (по умолчанию 160px)
+ * @param maxHeight - максимальная высота (по умолчанию 160px)
  * @returns Promise с новым сжатым File объектом
  */
-export async function resizeImageOnClient(file: File): Promise<File> {
+export async function resizeImageOnClient(file: File, maxWidth: number = 160, maxHeight: number = 160): Promise<File> {
   return new Promise((resolve, reject) => {
     // Проверяем что это изображение
     if (!file.type.startsWith('image/')) {
@@ -19,7 +21,8 @@ export async function resizeImageOnClient(file: File): Promise<File> {
     console.log('🖼️ Начало клиентского сжатия:', {
       name: file.name,
       size: `${Math.round(file.size / 1024)}KB`,
-      type: file.type
+      type: file.type,
+      targetSize: `${maxWidth}x${maxHeight}px`
     });
 
     const reader = new FileReader();
@@ -44,20 +47,21 @@ export async function resizeImageOnClient(file: File): Promise<File> {
           
           // Определяем меньшую сторону
           const minDimension = Math.min(originalWidth, originalHeight);
+          const targetSize = Math.min(maxWidth, maxHeight);
           
-          // Если изображение уже меньше или равно 200px - возвращаем оригинал
-          if (minDimension <= 200) {
+          // Если изображение уже меньше или равно целевому размеру - возвращаем оригинал
+          if (minDimension <= targetSize) {
             console.log('✓ Изображение уже оптимального размера, пропускаем сжатие');
             resolve(file);
             return;
           }
           
           // Вычисляем новые размеры с сохранением пропорций
-          const scale = 200 / minDimension;
+          const scale = targetSize / minDimension;
           const newWidth = Math.round(originalWidth * scale);
           const newHeight = Math.round(originalHeight * scale);
           
-          console.log(`🔄 Сжатие до: ${newWidth}x${newHeight}px (меньшая сторона = 200px)`);
+          console.log(`🔄 Сжатие до: ${newWidth}x${newHeight}px (меньшая сторона = ${targetSize}px)`);
           
           // Создаём canvas для ресайза
           const canvas = document.createElement('canvas');
@@ -119,31 +123,6 @@ export async function resizeImageOnClient(file: File): Promise<File> {
     };
     
     // Читаем файл как Data URL
-    reader.readAsDataURL(file);
-  });
-}
-
-/**
- * Быстрая проверка размеров изображения без полной загрузки
- * Полезно для показа информации пользователю
- */
-export async function getImageDimensions(file: File): Promise<{ width: number; height: number }> {
-  return new Promise((resolve, reject) => {
-    if (!file.type.startsWith('image/')) {
-      reject(new Error('Файл не является изображением'));
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error('Ошибка чтения файла'));
-    
-    reader.onload = (e) => {
-      const img = new Image();
-      img.onerror = () => reject(new Error('Ошибка загрузки изображения'));
-      img.onload = () => resolve({ width: img.width, height: img.height });
-      img.src = e.target?.result as string;
-    };
-    
     reader.readAsDataURL(file);
   });
 }

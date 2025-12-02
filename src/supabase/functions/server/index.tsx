@@ -1343,7 +1343,8 @@ app.get("/make-server-73d66528/resources", async (c) => {
           position: user.position || "Employee",
           departmentId: `d${user.department_id}`,
           grade: user.grade_id ? String(user.grade_id) : (user.grade ? String(user.grade) : undefined),
-          companyId: user.company_id ? String(user.company_id) : undefined
+          companyId: user.company_id ? String(user.company_id) : undefined,
+          avatarUrl: user.avatar_url
         };
       });
       
@@ -1394,7 +1395,8 @@ app.get("/make-server-73d66528/resources", async (c) => {
           position: user.position || "Employee",
           departmentId: `d${user.department_id}`,
           grade: user.grade_id ? String(user.grade_id) : (user.grade ? String(user.grade) : undefined),
-          companyId: user.company_id ? String(user.company_id) : undefined
+          companyId: user.company_id ? String(user.company_id) : undefined,
+          avatarUrl: user.avatar_url
         };
       });
       
@@ -1462,7 +1464,8 @@ app.get("/make-server-73d66528/resources", async (c) => {
         position: user.position || "Employee",
         departmentId: `d${deptId}`,
         grade: user.grade_id ? String(user.grade_id) : (user.grade ? String(user.grade) : undefined),
-        companyId: user.company_id ? String(user.company_id) : undefined
+        companyId: user.company_id ? String(user.company_id) : undefined,
+        avatarUrl: user.avatar_url
       };
     });
     
@@ -2851,6 +2854,12 @@ app.post("/make-server-73d66528/resources", async (c) => {
       userData.company_id = 1; // Default to company 1
     }
     
+    // Add avatar_url if provided
+    if (body.avatarUrl) {
+      userData.avatar_url = body.avatarUrl;
+      console.log('📸 Аватар URL:', body.avatarUrl);
+    }
+    
     // Determine which column names to use based on existing data
     if (sampleUsers && sampleUsers.length > 0) {
       const allKeys = Object.keys(sampleUsers[0]);
@@ -2918,7 +2927,8 @@ app.post("/make-server-73d66528/resources", async (c) => {
       position: data.position,
       departmentId: `d${data.department_id}`,
       grade: data.grade_id ? String(data.grade_id) : (data.grade ? String(data.grade) : undefined),
-      companyId: data.company_id ? String(data.company_id) : undefined
+      companyId: data.company_id ? String(data.company_id) : undefined,
+      avatarUrl: data.avatar_url
     };
     
     return c.json(transformedUser);
@@ -2981,6 +2991,12 @@ app.put("/make-server-73d66528/resources/:id", async (c) => {
         const companyNum = parseInt(body.companyId);
         userData.company_id = isNaN(companyNum) ? 1 : companyNum;
       }
+    }
+    
+    // Add avatar_url if provided (including empty string to allow clearing)
+    if (body.avatarUrl !== undefined) {
+      userData.avatar_url = body.avatarUrl || null;
+      console.log('📸 Обновление аватара:', body.avatarUrl ? body.avatarUrl : 'удаление');
     }
     
     // Try to update name field only if we know which column to use
@@ -3048,7 +3064,8 @@ app.put("/make-server-73d66528/resources/:id", async (c) => {
       position: data.position,
       departmentId: `d${data.department_id}`,
       grade: data.grade_id ? String(data.grade_id) : (data.grade ? String(data.grade) : undefined),
-      companyId: data.company_id ? String(data.company_id) : undefined
+      companyId: data.company_id ? String(data.company_id) : undefined,
+      avatarUrl: data.avatar_url
     };
     
     return c.json(transformedUser);
@@ -4118,6 +4135,101 @@ app.post("/make-server-73d66528/profile/update", async (c) => {
   } catch (error: any) {
     console.error('❌ Ошибка обновления профиля:', error);
     return c.json({ error: error.message || 'Ошибка обновления профиля' }, 500);
+  }
+});
+
+// ==================== USER AVATAR ENDPOINTS ====================
+
+// Upload user avatar (for UsersManagementModal)
+app.post("/make-server-73d66528/users/upload-avatar", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    
+    // Verify user
+    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(accessToken);
+    if (authError || !user) {
+      console.error('❌ Ошибка авторизации при загрузке аватара пользователя:', authError);
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    // Parse multipart form data
+    const formData = await c.req.formData();
+    const avatarFile = formData.get('avatar') as File;
+    const userId = formData.get('userId') as string;
+
+    if (!avatarFile) {
+      return c.json({ error: 'Файл не найден' }, 400);
+    }
+
+    if (!userId) {
+      return c.json({ error: 'userId обязателен' }, 400);
+    }
+
+    console.log(`📤 Загрузка аватара для пользователя ${userId}`);
+
+    // Validate file type
+    if (!avatarFile.type.startsWith('image/')) {
+      return c.json({ error: 'Можно загружать только изображения' }, 400);
+    }
+
+    // Validate file size (max 5MB)
+    if (avatarFile.size > 5 * 1024 * 1024) {
+      return c.json({ error: 'Размер файла не должен превышать 5MB' }, 400);
+    }
+
+    // Create bucket if not exists
+    const bucketName = 'make-73d66528-avatars';
+    const { data: buckets } = await supabase.storage.listBuckets();
+    const bucketExists = buckets?.some(bucket => bucket.name === bucketName);
+    
+    if (!bucketExists) {
+      console.log(`📦 Создание bucket ${bucketName}...`);
+      const { error: createError } = await supabase.storage.createBucket(bucketName, {
+        public: true // Аватары публичные
+      });
+      if (createError) {
+        console.error('❌ Ошибка создания bucket:', createError);
+        return c.json({ error: 'Ошибка создания хранилища' }, 500);
+      }
+    }
+
+    // Generate unique filename
+    const fileExt = avatarFile.name.split('.').pop() || 'jpg';
+    const fileName = `user_${userId}_${Date.now()}.${fileExt}`;
+    const filePath = `users/${fileName}`;
+
+    // Convert File to ArrayBuffer
+    const arrayBuffer = await avatarFile.arrayBuffer();
+    const uint8Array = new Uint8Array(arrayBuffer);
+
+    // Upload to Supabase Storage
+    console.log(`💾 Загрузка файла ${filePath} в Supabase Storage...`);
+    const { error: uploadError } = await supabase.storage
+      .from(bucketName)
+      .upload(filePath, uint8Array, {
+        contentType: avatarFile.type,
+        upsert: true
+      });
+
+    if (uploadError) {
+      console.error('❌ Ошибка загрузки в Storage:', uploadError);
+      return c.json({ error: 'Ошибка загрузки файла' }, 500);
+    }
+
+    // Get public URL
+    const { data: { publicUrl } } = supabase.storage
+      .from(bucketName)
+      .getPublicUrl(filePath);
+
+    // Add cache-busting parameter to prevent browser caching
+    const cacheBustedUrl = `${publicUrl}?t=${Date.now()}`;
+
+    console.log(`✅ Аватар пользователя загружен: ${cacheBustedUrl}`);
+
+    return c.json({ avatarUrl: cacheBustedUrl });
+  } catch (error: any) {
+    console.error('❌ Ошибка загрузки аватара пользователя:', error);
+    return c.json({ error: error.message || 'Ошибка загрузки аватара' }, 500);
   }
 });
 

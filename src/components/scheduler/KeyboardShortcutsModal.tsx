@@ -73,7 +73,7 @@ export function KeyboardShortcutsModal({ isOpen, onClose }: KeyboardShortcutsMod
                       {shortcut.keys.map((key, kIdx) => (
                         <span key={kIdx} className="flex items-center gap-1">
                           {kIdx > 0 && <span className="text-gray-400 text-xs mx-1">+</span>}
-                          <kbd className="px-2 py-1 bg-gray-100 border border-gray-300 rounded text-sm font-mono shadow-sm">
+                          <kbd className="px-2 py-1 bg-gray-100 border border-gray-300 rounded text-sm shadow-sm">
                             {key}
                           </kbd>
                         </span>
@@ -88,7 +88,7 @@ export function KeyboardShortcutsModal({ isOpen, onClose }: KeyboardShortcutsMod
 
         <div className="mt-6 pt-4 border-t border-gray-200 text-center">
           <p className="text-sm text-gray-500">
-            Нажмите <kbd className="px-2 py-1 bg-gray-100 border border-gray-300 rounded text-xs font-mono">Esc</kbd> или кликните вне окна для закрытия
+            Нажмите <kbd className="px-2 py-1 bg-gray-100 border border-gray-300 rounded text-xs">Esc</kbd> или кликните вне окна для закрытия
           </p>
         </div>
       </div>

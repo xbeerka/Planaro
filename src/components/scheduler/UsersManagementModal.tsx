@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Resource, Department, Grade, Company } from '../../types/scheduler';
 import { ManagementModalHeader } from './ManagementModalHeader';
+import { usersApi } from '../../services/api/users';
+import { resizeImageOnClient } from '../../utils/imageResize';
 
 interface UsersManagementModalProps {
   isOpen: boolean;
@@ -9,8 +11,8 @@ interface UsersManagementModalProps {
   departments: Department[];
   grades: Grade[];
   companies: Company[];
-  onCreateUser: (userData: { fullName: string; position: string; departmentId: string; grade?: string; companyId?: string }) => Promise<void>;
-  onUpdateUser: (userId: string, userData: { fullName: string; position: string; departmentId: string; grade?: string; companyId?: string }) => Promise<void>;
+  onCreateUser: (userData: { fullName: string; position: string; departmentId: string; grade?: string; companyId?: string; avatarUrl?: string }) => Promise<void>;
+  onUpdateUser: (userId: string, userData: { fullName: string; position: string; departmentId: string; grade?: string; companyId?: string; avatarUrl?: string }) => Promise<void>;
   onDeleteUser: (userId: string) => Promise<void>;
   onResetHistory?: () => void; // Сброс истории после изменений
 }
@@ -22,6 +24,7 @@ interface LocalNewUser {
   departmentId: string;
   grade: string;
   companyId: string;
+  avatarUrl?: string;
 }
 
 export function UsersManagementModal({
@@ -36,29 +39,33 @@ export function UsersManagementModal({
   onDeleteUser,
   onResetHistory
 }: UsersManagementModalProps) {
-  const [editingUsers, setEditingUsers] = useState<Record<string, { fullName: string; position: string; departmentId: string; grade?: string; companyId?: string }>>({});
+  const [editingUsers, setEditingUsers] = useState<Record<string, { fullName: string; position: string; departmentId: string; grade?: string; companyId?: string; avatarUrl?: string }>>({});
   const [localNewUsers, setLocalNewUsers] = useState<LocalNewUser[]>([]);
   const [deletedUserIds, setDeletedUserIds] = useState<string[]>([]);
   const [hasChanges, setHasChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [uploadingAvatars, setUploadingAvatars] = useState<Record<string, boolean>>({});
+  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   useEffect(() => {
     if (isOpen) {
       // Initialize editing state with current resources
-      const initialState: Record<string, { fullName: string; position: string; departmentId: string; grade?: string; companyId?: string }> = {};
+      const initialState: Record<string, { fullName: string; position: string; departmentId: string; grade?: string; companyId?: string; avatarUrl?: string }> = {};
       resources.forEach(r => {
         initialState[r.id] = {
           fullName: r.fullName,
           position: r.position,
           departmentId: r.departmentId,
           grade: r.grade || '',
-          companyId: r.companyId || '1'
+          companyId: r.companyId || '1',
+          avatarUrl: r.avatarUrl
         };
       });
       setEditingUsers(initialState);
       setLocalNewUsers([]);
       setDeletedUserIds([]);
       setHasChanges(false);
+      setUploadingAvatars({});
     }
   }, [isOpen, resources, departments]);
 
@@ -83,7 +90,8 @@ export function UsersManagementModal({
         editedData.position !== originalData.position ||
         editedData.departmentId !== originalData.departmentId ||
         editedData.grade !== (originalData.grade || '') ||
-        editedData.companyId !== (originalData.companyId || '1')
+        editedData.companyId !== (originalData.companyId || '1') ||
+        editedData.avatarUrl !== originalData.avatarUrl
       )) {
         hasExistingChanges = true;
         break;
@@ -103,7 +111,8 @@ export function UsersManagementModal({
       position: '',
       departmentId: departments[0]?.id || '',
       grade: '',
-      companyId: '1'
+      companyId: '1',
+      avatarUrl: undefined
     }]);
   };
 
@@ -140,7 +149,8 @@ export function UsersManagementModal({
               position: u.position,
               departmentId: u.departmentId,
               grade: u.grade || undefined,
-              companyId: u.companyId || '1'
+              companyId: u.companyId || '1',
+              avatarUrl: u.avatarUrl // Added avatar URL support
             })
           )
         );
@@ -167,7 +177,8 @@ export function UsersManagementModal({
           editedData.position !== originalData.position ||
           editedData.departmentId !== originalData.departmentId ||
           editedData.grade !== (originalData.grade || '') ||
-          editedData.companyId !== (originalData.companyId || '1')
+          editedData.companyId !== (originalData.companyId || '1') ||
+          editedData.avatarUrl !== originalData.avatarUrl
         )) {
           updatePromises.push(onUpdateUser(userId, dataToSave));
         }
@@ -222,6 +233,66 @@ export function UsersManagementModal({
     }));
   };
 
+  const handleAvatarUpload = async (userId: string, file: File) => {
+    if (!file.type.startsWith('image/')) {
+      alert('Пожалуйста, выберите изображение');
+      return;
+    }
+
+    setUploadingAvatars(prev => ({ ...prev, [userId]: true }));
+    try {
+      const resizedFile = await resizeImageOnClient(file);
+      const avatarUrl = await usersApi.uploadAvatar(userId, resizedFile);
+      handleChange(userId, 'avatarUrl', avatarUrl);
+      console.log('✅ Аватар загружен:', avatarUrl);
+    } catch (error: any) {
+      console.error('❌ Ошибка загрузки аватара:', error);
+      const message = error?.message || 'Неизвестная ошибка';
+      alert(`Ошибка при загрузке аватара: ${message}`);
+    } finally {
+      setUploadingAvatars(prev => ({ ...prev, [userId]: false }));
+    }
+  };
+
+  const handleAvatarRemove = (userId: string) => {
+    handleChange(userId, 'avatarUrl', '');
+  };
+
+  const handleNewUserAvatarUpload = async (tempId: string, file: File) => {
+    if (!file.type.startsWith('image/')) {
+      alert('Пожалуйста, выберите изображение');
+      return;
+    }
+
+    setUploadingAvatars(prev => ({ ...prev, [tempId]: true }));
+    try {
+      const resizedFile = await resizeImageOnClient(file);
+      // Upload to temp location using tempId as userId
+      const avatarUrl = await usersApi.uploadAvatar(tempId, resizedFile);
+      handleNewUserChange(tempId, 'avatarUrl', avatarUrl);
+      console.log('✅ Аватар загружен:', avatarUrl);
+    } catch (error: any) {
+      console.error('❌ Ошибка загрузки аватара:', error);
+      const message = error?.message || 'Неизвестная ошибка';
+      alert(`Ошибка при загрузке аватара: ${message}`);
+    } finally {
+      setUploadingAvatars(prev => ({ ...prev, [tempId]: false }));
+    }
+  };
+
+  const handleNewUserAvatarRemove = (tempId: string) => {
+    handleNewUserChange(tempId, 'avatarUrl', '');
+  };
+
+  const getUserInitials = (fullName: string) => {
+    if (!fullName) return '??';
+    const parts = fullName.trim().split(' ');
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return fullName.substring(0, 2).toUpperCase();
+  };
+
   const handleCancel = () => {
     if (hasChanges) {
       const confirmed = window.confirm('У вас есть несохраненные изменения. Вы уверены, что хотите закрыть?');
@@ -256,7 +327,54 @@ export function UsersManagementModal({
             {/* New users */}
             {localNewUsers.map(newUser => (
               <div key={newUser.tempId} className="gap-3 p-3 bg-gray-50 rounded-lg">
-                <div className="grid grid-cols-[0.7fr_2fr_1.5fr_1.3fr_1.3fr_auto] gap-3 items-center">
+                <div className="grid grid-cols-[48px_0.7fr_2fr_1.5fr_1.3fr_1.3fr_auto] gap-3 items-center">
+                  {/* Avatar Upload */}
+                  <div>
+                    <input
+                      ref={el => fileInputRefs.current[newUser.tempId] = el}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={e => {
+                        const file = e.target.files?.[0];
+                        if (file) handleNewUserAvatarUpload(newUser.tempId, file);
+                      }}
+                    />
+                    <div
+                      onClick={() => fileInputRefs.current[newUser.tempId]?.click()}
+                      className="relative w-[36px] h-[36px] rounded-[12px] cursor-pointer hover:opacity-80 transition-opacity"
+                    >
+                      {uploadingAvatars[newUser.tempId] ? (
+                        <div className="w-full h-full bg-[#f6f6f6] rounded-[12px] flex items-center justify-center">
+                          <div className="animate-spin w-4 h-4 border-2 border-gray-300 border-t-blue-500 rounded-full" />
+                        </div>
+                      ) : newUser.avatarUrl ? (
+                        <>
+                          <img
+                            src={newUser.avatarUrl}
+                            alt=""
+                            className="w-full h-full object-cover rounded-[12px]"
+                          />
+                          <button
+                            onClick={e => {
+                              e.stopPropagation();
+                              handleNewUserAvatarRemove(newUser.tempId);
+                            }}
+                            className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors text-xs"
+                            title="Удалить фото"
+                          >
+                            ×
+                          </button>
+                        </>
+                      ) : (
+                        <div className="w-full h-full bg-[#f6f6f6] rounded-[12px] flex items-center justify-center">
+                          <p className="text-sm text-[#868789]">
+                            {getUserInitials(newUser.fullName)}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                   <div>
                     
                     <select
@@ -370,7 +488,54 @@ export function UsersManagementModal({
 
               return (
                 <div key={resource.id} className="">
-                  <div className="grid grid-cols-[0.7fr_2fr_1.5fr_1.3fr_1.3fr_auto] gap-3 items-center">
+                  <div className="grid grid-cols-[48px_0.7fr_2fr_1.5fr_1.3fr_1.3fr_auto] gap-3 items-center">
+                    {/* Avatar Upload */}
+                    <div>
+                      <input
+                        ref={el => fileInputRefs.current[resource.id] = el}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={e => {
+                          const file = e.target.files?.[0];
+                          if (file) handleAvatarUpload(resource.id, file);
+                        }}
+                      />
+                      <div
+                        onClick={() => fileInputRefs.current[resource.id]?.click()}
+                        className="relative w-[36px] h-[36px] rounded-[12px] cursor-pointer hover:opacity-80 transition-opacity"
+                      >
+                        {uploadingAvatars[resource.id] ? (
+                          <div className="w-full h-full bg-[#f6f6f6] rounded-[12px] flex items-center justify-center">
+                            <div className="animate-spin w-4 h-4 border-2 border-gray-300 border-t-blue-500 rounded-full" />
+                          </div>
+                        ) : userData.avatarUrl ? (
+                          <>
+                            <img
+                              src={userData.avatarUrl}
+                              alt=""
+                              className="w-full h-full object-cover rounded-[12px]"
+                            />
+                            <button
+                              onClick={e => {
+                                e.stopPropagation();
+                                handleAvatarRemove(resource.id);
+                              }}
+                              className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors text-xs"
+                              title="Удалить фото"
+                            >
+                              ×
+                            </button>
+                          </>
+                        ) : (
+                          <div className="w-full h-full bg-[#f6f6f6] rounded-[12px] flex items-center justify-center">
+                            <p className="text-sm text-[#868789]">
+                              {getUserInitials(userData.fullName)}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
                     <div>
                       <select
                         value={userData.grade || ''}

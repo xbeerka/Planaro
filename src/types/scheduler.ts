@@ -14,6 +14,7 @@ export interface Resource {
   departmentId: string;
   grade?: string;
   companyId?: string;
+  avatarUrl?: string; // Avatar URL from Supabase Storage
 }
 
 export interface Project {
