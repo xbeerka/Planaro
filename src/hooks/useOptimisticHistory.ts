@@ -41,8 +41,6 @@ export function useOptimisticHistory(initialEvents: SchedulerEvent[], initialPro
     projects: Project[],
     eventZOrder: Map<string, number> = new Map() // ✅ Добавляем параметр с default
   ) => {
-    console.log(`📝 resetHistory: ${events.length} событий, ${projects.length} проектов, ${eventZOrder.size} z-order`);
-    
     historyRef.current = {
       past: [],
       present: { 

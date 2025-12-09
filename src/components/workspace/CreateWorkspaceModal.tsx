@@ -13,7 +13,6 @@ import {
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
-
 import { Alert, AlertDescription } from "../ui/alert";
 
 interface CreateWorkspaceModalProps {
@@ -105,22 +104,30 @@ export function CreateWorkspaceModal({ existingWorkspaces, onClose, onCreate }: 
             <Label htmlFor="year">
               Год календаря <span className="text-red-500">*</span>
             </Label>
-            <select
-              id="year"
-              value={year}
-              onChange={(e) => {
-                setYear(e.target.value);
-                setError(null);
-              }}
-              disabled={isCreating}
-              className="flex h-12 w-full items-center justify-between rounded-xl border border-gray-200 bg-transparent px-4 py-2 text-base shadow-none focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm"
-            >
-              {generateYearOptions().map((y) => (
-                <option key={y} value={y.toString()}>
-                  {y} {y === currentYear ? ' (текущий)' : ''}
-                </option>
-              ))}
-            </select>
+            <div className="select-wrapper">
+              <select
+                id="year"
+                value={year}
+                onChange={(e) => {
+                  setYear(e.target.value);
+                  setError(null);
+                }}
+                disabled={isCreating}
+                className="flex h-12 w-full items-center justify-between rounded-xl border border-gray-200 bg-white px-4 py-2 text-base shadow-none focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm"
+                style={{
+                  appearance: 'none',
+                  WebkitAppearance: 'none',
+                  MozAppearance: 'none',
+                  paddingRight: '40px'
+                }}
+              >
+                {generateYearOptions().map((y) => (
+                  <option key={y} value={y.toString()}>
+                    {y} {y === currentYear ? ' (текущий)' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
             <p className="text-[0.8rem] text-muted-foreground">
               На основе года будут построены недели с датами
             </p>
@@ -131,20 +138,28 @@ export function CreateWorkspaceModal({ existingWorkspaces, onClose, onCreate }: 
             <Label htmlFor="baseWorkspace">
               Создать на основе
             </Label>
-            <select
-              id="baseWorkspace"
-              value={baseWorkspaceId}
-              onChange={(e) => setBaseWorkspaceId(e.target.value)}
-              disabled={isCreating}
-              className="flex h-12 w-full items-center justify-between rounded-xl border border-gray-200 bg-transparent px-4 py-2 text-base shadow-none focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm"
-            >
-              <option value="new">Новое пространство</option>
-              {existingWorkspaces.map((ws) => (
-                <option key={ws.id} value={ws.id}>
-                  {ws.name} ({ws.timeline_year})
-                </option>
-              ))}
-            </select>
+            <div className="select-wrapper">
+              <select
+                id="baseWorkspace"
+                value={baseWorkspaceId}
+                onChange={(e) => setBaseWorkspaceId(e.target.value)}
+                disabled={isCreating}
+                className="flex h-12 w-full items-center justify-between rounded-xl border border-gray-200 bg-white px-4 py-2 text-base shadow-none focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm"
+                style={{
+                  appearance: 'none',
+                  WebkitAppearance: 'none',
+                  MozAppearance: 'none',
+                  paddingRight: '40px'
+                }}
+              >
+                <option value="new">Новое пространство</option>
+                {existingWorkspaces.map((ws) => (
+                  <option key={ws.id} value={ws.id}>
+                    {ws.name} ({ws.timeline_year})
+                  </option>
+                ))}
+              </select>
+            </div>
 
             {baseWorkspaceId !== 'new' ? (
               <div className="mt-3 rounded-2xl bg-gray-50 p-4">

@@ -115,7 +115,8 @@ export function topFor(
 ): number {
   return getResourceGlobalTop(resourceId, resources, departments, config) +
     unitStart * config.unitStride +
-    config.rowPaddingTop;
+    config.rowPaddingTop +
+    88; // ✅ Компенсация для Unified Grid: 80px (новые заголовки 152px - старые 72px) + 8px отступ = 88px
 }
 
 export function heightFor(unitsTall: number, config: LayoutConfig): number {
@@ -198,7 +199,7 @@ export function modelFromGeometry(
   unitStart: number;
   unitsTall: number;
 } | null {
-  const leftRel = leftAbs - config.resourceW - config.cellPaddingLeft;
+  const leftRel = leftAbs - config.cellPaddingLeft;
   const startWeek = Math.max(0, Math.min(WEEKS - 1, Math.round(leftRel / config.weekPx)));
 
   // findClosestResource now returns null if cursor is not inside any resource row

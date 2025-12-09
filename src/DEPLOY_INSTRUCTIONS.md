@@ -1,172 +1,91 @@
-# Инструкция по деплою обновлений
+# 🚀 Инструкции по развертыванию Edge Function
 
-## 📋 Что было изменено (v1.8.8)
+## Проблема
+```
+⚠️ Edge Function: таймаут (5 сек) - возможно функция не развернута
+⚠️ Сервер недоступен - приложение не будет работать корректно
+```
 
-### Серверная часть (критично!)
-- `/supabase/functions/server/index.tsx`:
-  - **Новый endpoint**: `DELETE /make-server-73d66528/presence/leave/:workspaceId` - явный уход из воркспейса
-  - **TTL presence уменьшен**: с 120 до 60 секунд (строки 3170, 3234, 3295)
-  - Исправление "призраков" в онлайн статусе
+## Решение
 
-### Клиентская часть (критично!)
-- `/components/scheduler/OnlineUsers.tsx`:
-  - Новая функция `sendLeave()` - отправка DELETE запроса при размонтировании
-  - useEffect cleanup вызывает `sendLeave()` при закрытии календаря
+### 1️⃣ Разверните Edge Function
 
-- `/App.tsx`:
-  - **Мгновенная очистка кэша** в `handleBackToWorkspaces()`
-  - Удаляет текущего пользователя из `cache_online_users_batch` перед возвратом
-  - Устраняет "мигание" аватарки при переходе из календаря → список воркспейсов
-
-## 🚀 Шаги для деплоя
-
-### 1. Деплой Edge Function (ОБЯЗАТЕЛЬНО!)
+Откройте терминал и выполните команду:
 
 ```bash
-# Убедитесь что находитесь в корневой директории проекта
-cd /path/to/resource-scheduler
-
-# Деплой Edge Function
 supabase functions deploy make-server-73d66528
 ```
 
-**Ожидаемый вывод:**
-```
-Deploying make-server-73d66528 (project ref: ...)
-Bundled make-server-73d66528 size: XXX KB
-Deployed function make-server-73d66528
-```
+### 2️⃣ Проверьте статус развертывания
 
-### 2. Проверка деплоя
+После деплоя проверьте что функция работает:
 
 ```bash
-# Проверить health endpoint
-curl https://YOUR_PROJECT_ID.supabase.co/functions/v1/make-server-73d66528/health
-
-# Ожидаемый ответ:
-# {"status":"ok","timestamp":"2025-10-20T..."}
+curl https://zhukuvbdjyneoloarlqy.supabase.co/functions/v1/make-server-73d66528/health
 ```
 
-### 3. Функциональное тестирование
-
-**Быстрая проверка (5 минут)**:
-См. подробную инструкцию: `/docs/QUICK_TEST_v1.8.8.md`
-
-**Основные сценарии**:
-1. Откройте календарь → нажмите "Назад" → НЕ должно быть "мигания" вашей аватарки
-2. В двух браузерах: один открывает календарь, другой видит онлайн → закрытие календаря → аватарка исчезает за 0-15 сек
-3. Закрытие вкладки браузера → аватарка исчезает максимум через 60 сек (fallback)
-
-### 4. Проверка логов
-
-1. Открыть Supabase Dashboard
-2. Edge Functions → make-server-73d66528 → Logs
-3. Должны появиться новые логи при запуске:
-   ```
-   🔧 Инициализация Supabase клиента...
-   URL: ✓ установлен
-   SERVICE KEY: ✓ установлен
-   ANON KEY: ✓ установлен
-   ```
-
-### 4. Тест автоматического обновления токенов
-
-#### Способ 1: Быстрый тест (рекомендуется)
-
-1. Войти в приложение
-2. Открыть DevTools → Console
-3. Выполнить в консоли:
-```javascript
-// Проверить текущую сессию
-const sessionId = await (await indexedDB.databases())[0].name;
-const db = await new Promise(r => {
-  const req = indexedDB.open('check_auth_db');
-  req.onsuccess = () => r(req.result);
-});
-const tx = db.transaction('storage', 'readonly');
-const store = tx.objectStore('storage');
-const req = store.get('auth_session_id');
-req.onsuccess = () => console.log('Session ID:', req.result);
+Ожидаемый ответ:
+```json
+{"status":"ok","timestamp":"2025-12-05T..."}
 ```
 
-4. Проверить Supabase KV store:
-   - Database → Tables → kv_store_73d66528
-   - Найти ключ `session:<uuid>`
-   - Убедиться что value содержит `refresh_token`
+### 3️⃣ Проверьте переменные окружения
 
-#### Способ 2: Полный тест (см. TEST_REFRESH_TOKEN.md)
+Убедитесь что все переменные окружения установлены в Supabase Dashboard:
 
-Следовать инструкциям в файле `TEST_REFRESH_TOKEN.md`
+1. Откройте: https://supabase.com/dashboard/project/zhukuvbdjyneoloarlqy/settings/functions
+2. Проверьте наличие:
+   - `SUPABASE_URL`
+   - `SUPABASE_ANON_KEY`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+   - `SUPABASE_DB_URL`
 
-## ⚠️ Важно!
+### 4️⃣ Посмотрите логи функции
 
-### ДО деплоя
-- ❌ Не изменять схему базы данных
-- ❌ Не удалять существующие сессии из KV store
-- ✅ Убедиться что все переменные окружения установлены
+Если функция все еще не работает, проверьте логи:
 
-### ПОСЛЕ деплоя
-- ✅ Проверить логи Edge Function
-- ✅ Проверить что health endpoint отвечает
-- ✅ Проверить что новые сессии сохраняют refresh_token
-- ✅ Уведомить существующих пользователей о необходимости повторного входа (опционально)
+1. Откройте: https://supabase.com/dashboard/project/zhukuvbdjyneoloarlqy/logs/edge-functions
+2. Найдите функцию `make-server-73d66528`
+3. Проверьте ошибки при запуске
 
-## 🔍 Проверка корректности деплоя
+## Частые проблемы
 
-### Контрольный список
+### Проблема: "Function not found"
+**Решение:** Функция не развернута. Выполните `supabase functions deploy make-server-73d66528`
 
-- [ ] Edge Function деплоинута без ошибок
-- [ ] Health endpoint отвечает `{"status":"ok"}`
-- [ ] Логи Edge Function показывают инициализацию
-- [ ] Новый вход создает сессию с refresh_token в KV store
-- [ ] Проверка сессии через 1+ час не требует повторного входа
-- [ ] Периодическая проверка сессии работает каждые 10 минут
+### Проблема: "Timeout after 5 seconds"
+**Решение:** 
+1. Функция может запускаться слишком долго (холодный старт)
+2. Проверьте что нет бесконечных циклов в коде
+3. Проверьте что база данных доступна
 
-## 🐛 Troubleshooting
+### Проблема: "Застрявший запрос events-delta-sync"
+**Решение:**
+1. Это может быть вызвано недоступностью базы данных
+2. Проверьте что Supabase проект активен и не в режиме паузы
+3. Перезагрузите приложение (F5)
 
-### "Function not found"
+## Быстрая диагностика
+
+Выполните эти команды по порядку:
+
 ```bash
-# Проверить список функций
-supabase functions list
+# 1. Проверка здоровья функции
+curl https://zhukuvbdjyneoloarlqy.supabase.co/functions/v1/make-server-73d66528/health
 
-# Если нет make-server-73d66528, задеплоить снова
+# 2. Если не работает - деплой
 supabase functions deploy make-server-73d66528
+
+# 3. Повторная проверка
+curl https://zhukuvbdjyneoloarlqy.supabase.co/functions/v1/make-server-73d66528/health
 ```
 
-### "Internal Server Error"
-1. Проверить логи в Dashboard
-2. Искать ошибки в консоли
-3. Проверить переменные окружения:
-   ```bash
-   supabase secrets list
-   ```
+## Если ничего не помогло
 
-### "Session expires after 1 hour"
-1. Проверить логи сервера на наличие `🔄 Access token истек`
-2. Проверить KV store на наличие `refresh_token`
-3. Проверить что деплой прошел успешно (время последнего деплоя)
+1. **Проверьте статус Supabase**: https://status.supabase.com/
+2. **Проверьте что проект активен**: https://supabase.com/dashboard/projects
+3. **Свяжитесь с поддержкой Supabase** если проблема не решается
 
-## 📊 Мониторинг
+---
 
-### После деплоя следить за:
-
-1. **Логи Edge Function** (первые 24 часа)
-   - Количество вызовов `/auth/session`
-   - Количество обновлений токенов
-   - Ошибки обновления
-
-2. **KV Store размер** (первая неделя)
-   - Количество активных сессий
-   - Размер sessionData
-
-3. **Feedback пользователей**
-   - Жалобы на частые выходы из системы должны исчезнуть
-   - Уведомления об улучшенной стабильности
-
-## ✅ Готово!
-
-После успешного деплоя:
-- Access token автоматически обновляется каждый час
-- Сессии живут 30 дней
-- Пользователи не замечают обновления токенов
-- Выход требуется только через 30 дней или вручную
+**После развертывания** перезагрузите приложение в браузере (F5) чтобы убедиться что все работает корректно.

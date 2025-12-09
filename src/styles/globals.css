@@ -470,9 +470,7 @@ body.comment-mode .handle-container {
   opacity: 0.001;
 }
 
-/* Month borders */
-.cell.month.last-in-month,
-.month,
+/* Month borders - только для ячеек событий (не для заголовков месяцев) */
 .cell.last-in-month {
   border-right: 1px solid #c1cbd5 !important;
 }

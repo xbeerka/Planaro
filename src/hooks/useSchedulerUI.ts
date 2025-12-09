@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { SchedulerEvent } from "../types/scheduler";
+import { TabType } from "../components/scheduler/UnifiedManagementModal";
 
 export interface UseSchedulerUIReturn {
   // Modes
@@ -33,12 +34,12 @@ export interface UseSchedulerUIReturn {
   pendingComment: { resourceId: string; week: number } | null;
   setPendingComment: (comment: { resourceId: string; week: number } | null) => void;
 
-  usersModalOpen: boolean;
-  setUsersModalOpen: (open: boolean) => void;
-  projectsModalOpen: boolean;
-  setProjectsModalOpen: (open: boolean) => void;
-  departmentsModalOpen: boolean;
-  setDepartmentsModalOpen: (open: boolean) => void;
+  // Unified Management Modal (replaces 3 separate modals)
+  managementModalOpen: boolean;
+  setManagementModalOpen: (open: boolean) => void;
+  managementModalTab: TabType;
+  setManagementModalTab: (tab: TabType) => void;
+  
   shortcutsModalOpen: boolean;
   setShortcutsModalOpen: (open: boolean) => void;
   profileModalOpen: boolean;
@@ -146,9 +147,10 @@ export function useSchedulerUI(): UseSchedulerUIReturn {
     week: number;
   } | null>(null);
 
-  const [usersModalOpen, setUsersModalOpen] = useState(false);
-  const [projectsModalOpen, setProjectsModalOpen] = useState(false);
-  const [departmentsModalOpen, setDepartmentsModalOpen] = useState(false);
+  // Unified Management Modal (replaces 3 separate modals)
+  const [managementModalOpen, setManagementModalOpen] = useState(false);
+  const [managementModalTab, setManagementModalTab] = useState<TabType>("users");
+
   const [shortcutsModalOpen, setShortcutsModalOpen] = useState(false);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
@@ -191,9 +193,7 @@ export function useSchedulerUI(): UseSchedulerUIReturn {
   const closeAllModals = useCallback(() => {
     const hasOpenModal =
       modalOpen ||
-      usersModalOpen ||
-      projectsModalOpen ||
-      departmentsModalOpen ||
+      managementModalOpen ||
       shortcutsModalOpen ||
       contextMenu.isVisible ||
       emptyCellContextMenu.isVisible;
@@ -201,9 +201,7 @@ export function useSchedulerUI(): UseSchedulerUIReturn {
 
     if (hasOpenModal) {
       setModalOpen(false);
-      setUsersModalOpen(false);
-      setProjectsModalOpen(false);
-      setDepartmentsModalOpen(false);
+      setManagementModalOpen(false);
       setShortcutsModalOpen(false);
       setContextMenu((prev) => ({ ...prev, isVisible: false, event: null }));
       setEmptyCellContextMenu((prev) => ({
@@ -222,9 +220,7 @@ export function useSchedulerUI(): UseSchedulerUIReturn {
     }
   }, [
     modalOpen,
-    usersModalOpen,
-    projectsModalOpen,
-    departmentsModalOpen,
+    managementModalOpen,
     shortcutsModalOpen,
     contextMenu.isVisible,
     emptyCellContextMenu.isVisible,
@@ -260,12 +256,12 @@ export function useSchedulerUI(): UseSchedulerUIReturn {
     pendingComment,
     setPendingComment,
 
-    usersModalOpen,
-    setUsersModalOpen,
-    projectsModalOpen,
-    setProjectsModalOpen,
-    departmentsModalOpen,
-    setDepartmentsModalOpen,
+    // Unified Management Modal (replaces 3 separate modals)
+    managementModalOpen,
+    setManagementModalOpen,
+    managementModalTab,
+    setManagementModalTab,
+    
     shortcutsModalOpen,
     setShortcutsModalOpen,
     profileModalOpen,

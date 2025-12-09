@@ -1,9 +1,7 @@
 import React from "react";
 import { SimpleEventModal } from "./SimpleEventModal";
 import { CommentModal } from "./CommentModal";
-import { UsersManagementModal } from "./UsersManagementModal";
-import { ProjectsManagementModal } from "./ProjectsManagementModal";
-import { DepartmentsManagementModal } from "./DepartmentsManagementModal";
+import { UnifiedManagementModal, TabType } from "./UnifiedManagementModal";
 import { KeyboardShortcutsModal } from "./KeyboardShortcutsModal";
 import { SettingsModal } from "./SettingsModal";
 import { ProfileModal } from "../auth/ProfileModal";
@@ -20,6 +18,7 @@ interface SchedulerModalsProps {
   handleModalSave: (data: Partial<SchedulerEvent>) => Promise<void>;
   projects: Project[];
   resources: SchedulerResource[];
+  events: SchedulerEvent[]; // Added for projects modal
   
   // Comment Modal
   commentModalOpen: boolean;
@@ -27,35 +26,36 @@ interface SchedulerModalsProps {
   setPendingComment: (comment: any) => void;
   handleCommentSave: (text: string) => Promise<void>;
 
-  // Users Modal
-  usersModalOpen: boolean;
-  setUsersModalOpen: (open: boolean) => void;
+  // Unified Management Modal (replaces 3 separate modals)
+  managementModalOpen: boolean;
+  setManagementModalOpen: (open: boolean) => void;
+  managementModalTab?: TabType; // Optional: which tab to open by default
+  
+  // Users props
   departments: Department[];
   companies: Company[];
   grades: Grade[];
   createResource: (resource: Omit<SchedulerResource, "id">) => Promise<SchedulerResource>;
   updateResource: (id: string, data: Partial<SchedulerResource>) => Promise<void>;
   deleteResource: (id: string) => Promise<void>;
-  getGradeName: (id: string) => string;
+  uploadUserAvatar: (userId: string, file: File) => Promise<string>;
+  highlightUserId?: string;
 
-  // Projects Modal
-  projectsModalOpen: boolean;
-  setProjectsModalOpen: (open: boolean) => void;
+  // Projects props
   eventPatterns: EventPattern[];
   createProject: (project: Omit<Project, "id">) => Promise<Project>;
   updateProject: (id: string, data: Partial<Project>) => Promise<void>;
   handleDeleteProject: (id: string) => Promise<void>;
+  resetHistory?: () => void;
 
-  // Departments Modal
-  departmentsModalOpen: boolean;
-  setDepartmentsModalOpen: (open: boolean) => void;
+  // Departments props
   createDepartment: (department: Omit<Department, "id">) => Promise<Department>;
   deleteDepartment: (id: string) => Promise<void>;
   getDepartmentUsersCount: (departmentId: string) => number;
   renameDepartment: (id: string, name: string) => Promise<void>;
-  reorderDepartments: (dragIndex: number, hoverIndex: number) => void;
+  reorderDepartments: (newOrder: Department[]) => Promise<void>;
   toggleDepartmentVisibility: (id: string) => void;
-
+  
   // Shortcuts Modal
   shortcutsModalOpen: boolean;
   setShortcutsModalOpen: (open: boolean) => void;
@@ -74,55 +74,67 @@ interface SchedulerModalsProps {
   setSettingsModalOpen: (open: boolean) => void;
 }
 
-export const SchedulerModals = React.memo<SchedulerModalsProps>(({
-  modalOpen,
-  setModalOpen,
-  modalMode,
-  modalInitialData,
-  pendingEvent,
-  setPendingEvent,
-  handleModalSave,
-  projects,
-  resources,
-  commentModalOpen,
-  setCommentModalOpen,
-  setPendingComment,
-  handleCommentSave,
-  usersModalOpen,
-  setUsersModalOpen,
-  departments,
-  companies,
-  grades,
-  createResource,
-  updateResource,
-  deleteResource,
-  getGradeName,
-  projectsModalOpen,
-  setProjectsModalOpen,
-  eventPatterns,
-  createProject,
-  updateProject,
-  handleDeleteProject,
-  departmentsModalOpen,
-  setDepartmentsModalOpen,
-  createDepartment,
-  deleteDepartment,
-  getDepartmentUsersCount,
-  renameDepartment,
-  reorderDepartments,
-  toggleDepartmentVisibility,
-  shortcutsModalOpen,
-  setShortcutsModalOpen,
-  profileModalOpen,
-  setProfileModalOpen,
-  currentUserEmail,
-  currentUserDisplayName,
-  currentUserAvatarUrl,
-  accessToken,
-  onTokenRefresh,
-  settingsModalOpen,
-  setSettingsModalOpen,
-}) => {
+export const SchedulerModals = React.memo<SchedulerModalsProps>((props) => {
+  const {
+    modalOpen,
+    setModalOpen,
+    modalMode,
+    modalInitialData,
+    pendingEvent,
+    setPendingEvent,
+    handleModalSave,
+    projects,
+    resources,
+    events,
+    commentModalOpen,
+    setCommentModalOpen,
+    setPendingComment,
+    handleCommentSave,
+    
+    // Unified Management Modal
+    managementModalOpen,
+    setManagementModalOpen,
+    managementModalTab = 'users',
+    
+    // Users
+    departments,
+    companies,
+    grades,
+    createResource,
+    updateResource,
+    deleteResource,
+    uploadUserAvatar,
+    highlightUserId,
+    
+    // Projects
+    eventPatterns,
+    createProject,
+    updateProject,
+    handleDeleteProject,
+    resetHistory,
+    
+    // Departments
+    createDepartment,
+    deleteDepartment,
+    getDepartmentUsersCount,
+    renameDepartment,
+    reorderDepartments,
+    toggleDepartmentVisibility,
+    
+    // Other modals
+    shortcutsModalOpen,
+    setShortcutsModalOpen,
+    profileModalOpen,
+    setProfileModalOpen,
+    currentUserEmail,
+    currentUserDisplayName,
+    currentUserAvatarUrl,
+    accessToken,
+    onTokenRefresh,
+    settingsModalOpen,
+    setSettingsModalOpen,
+  } = props;
+
   return (
     <>
       <SimpleEventModal
@@ -152,38 +164,38 @@ export const SchedulerModals = React.memo<SchedulerModalsProps>(({
         onSave={handleCommentSave}
       />
 
-      <UsersManagementModal
-        isOpen={usersModalOpen}
-        onClose={() => setUsersModalOpen(false)}
+      <UnifiedManagementModal
+        isOpen={managementModalOpen}
+        onClose={() => setManagementModalOpen(false)}
+        defaultTab={managementModalTab}
+        
+        // Users props
         resources={resources}
         departments={departments}
-        companies={companies}
         grades={grades}
-        onCreateUser={createResource}
+        companies={companies}
         onUpdateUser={updateResource}
+        onCreateUser={createResource}
         onDeleteUser={deleteResource}
-      />
-
-      <ProjectsManagementModal
-        isOpen={projectsModalOpen}
-        onClose={() => setProjectsModalOpen(false)}
+        onUploadUserAvatar={uploadUserAvatar}
+        highlightedUserId={highlightUserId}
+        
+        // Departments props
+        onRenameDepartment={renameDepartment}
+        onReorderDepartments={reorderDepartments}
+        onToggleDepartmentVisibility={toggleDepartmentVisibility}
+        onCreateDepartment={createDepartment}
+        onDeleteDepartment={deleteDepartment}
+        onGetDepartmentUsersCount={async (deptId) => getDepartmentUsersCount(deptId)}
+        
+        // Projects props
         projects={projects}
+        events={events}
         eventPatterns={eventPatterns}
         onCreateProject={createProject}
         onUpdateProject={updateProject}
         onDeleteProject={handleDeleteProject}
-      />
-
-      <DepartmentsManagementModal
-        isOpen={departmentsModalOpen}
-        onClose={() => setDepartmentsModalOpen(false)}
-        departments={departments}
-        onCreateDepartment={createDepartment}
-        onDeleteDepartment={deleteDepartment}
-        onGetDepartmentUsersCount={getDepartmentUsersCount}
-        onRenameDepartment={renameDepartment}
-        onReorderDepartments={reorderDepartments}
-        onToggleDepartmentVisibility={toggleDepartmentVisibility}
+        onResetHistory={resetHistory}
       />
 
       <KeyboardShortcutsModal

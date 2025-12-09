@@ -17,6 +17,7 @@ interface SchedulerEventProps {
   showPatterns?: boolean;
   showProjectWeight?: boolean;
   isContextMenuOpen?: boolean;
+  currentWeekIndex?: number; // ✅ Индекс текущей недели для визуального эффекта прошедших частей
   // УПРОЩЁННАЯ ЛОГИКА v3.1: Позитивные флаги - какие углы скруглены
   roundTopLeft?: boolean;
   roundTopRight?: boolean;
@@ -56,6 +57,7 @@ function SchedulerEventComponent({
   showPatterns = true,
   showProjectWeight = true,
   isContextMenuOpen = false,
+  currentWeekIndex = 0, // ✅ Индекс текущей недели для визуального эффекта прошедших частей
   roundTopLeft = true,
   roundTopRight = true,
   roundBottomLeft = true,
@@ -341,7 +343,8 @@ function SchedulerEventComponent({
       {scissorsMode && scissorBoundaries.length > 0 && (
         <div className="absolute inset-0 pointer-events-none">
           {scissorBoundaries.map(boundaryWeek => {
-            const baseX = config.resourceW + boundaryWeek * config.weekPx;
+            // Позиция границы недели относительно grid (без resourceW, т.к. left уже учитывает это)
+            const baseX = boundaryWeek * config.weekPx;
             const lineLeft = baseX - left;
             const isHovered = hoveredScissor === boundaryWeek;
 

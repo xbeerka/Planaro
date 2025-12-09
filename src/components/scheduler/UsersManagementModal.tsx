@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, forwardRef } from 'react';
 import { Resource, Department, Grade, Company } from '../../types/scheduler';
 import { ManagementModalHeader } from './ManagementModalHeader';
 import { usersApi } from '../../services/api/users';
 import { resizeImageOnClient } from '../../utils/imageResize';
+import { Search, X } from 'lucide-react';
 
 interface UsersManagementModalProps {
   isOpen: boolean;
@@ -14,7 +15,8 @@ interface UsersManagementModalProps {
   onCreateUser: (userData: { fullName: string; position: string; departmentId: string; grade?: string; companyId?: string; avatarUrl?: string }) => Promise<void>;
   onUpdateUser: (userId: string, userData: { fullName: string; position: string; departmentId: string; grade?: string; companyId?: string; avatarUrl?: string }) => Promise<void>;
   onDeleteUser: (userId: string) => Promise<void>;
-  onResetHistory?: () => void; // Сброс истории после изменений
+  onResetHistory?: () => void;
+  highlightUserId?: string; // ID пользователя для подсветки и скролла
 }
 
 interface LocalNewUser {
@@ -37,7 +39,8 @@ export function UsersManagementModal({
   onCreateUser,
   onUpdateUser,
   onDeleteUser,
-  onResetHistory
+  onResetHistory,
+  highlightUserId
 }: UsersManagementModalProps) {
   const [editingUsers, setEditingUsers] = useState<Record<string, { fullName: string; position: string; departmentId: string; grade?: string; companyId?: string; avatarUrl?: string }>>({});
   const [localNewUsers, setLocalNewUsers] = useState<LocalNewUser[]>([]);
@@ -47,9 +50,20 @@ export function UsersManagementModal({
   const [uploadingAvatars, setUploadingAvatars] = useState<Record<string, boolean>>({});
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
+  // NEW: Search and filter states
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedDepartment, setSelectedDepartment] = useState<string>('all');
+  const [sortBy, setSortBy] = useState<'name' | 'department' | 'grade'>('department');
+
+  // Ref for scrolling to highlighted user
+  const contentRef = useRef<HTMLDivElement>(null);
+  const userRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  // State for highlight animation
+  const [highlightedUserId, setHighlightedUserId] = useState<string | null>(null);
+
   useEffect(() => {
     if (isOpen) {
-      // Initialize editing state with current resources
       const initialState: Record<string, { fullName: string; position: string; departmentId: string; grade?: string; companyId?: string; avatarUrl?: string }> = {};
       resources.forEach(r => {
         initialState[r.id] = {
@@ -66,20 +80,19 @@ export function UsersManagementModal({
       setDeletedUserIds([]);
       setHasChanges(false);
       setUploadingAvatars({});
+      // Reset search/filters when opening
+      setSearchQuery('');
+      setSelectedDepartment('all');
+      setSortBy('department');
     }
   }, [isOpen, resources, departments]);
 
-  // Check if there are unsaved changes
   useEffect(() => {
     if (!isOpen) return;
 
-    // Check if there are new users
     const hasNewUsers = localNewUsers.length > 0;
-
-    // Check if there are deleted users
     const hasDeletedUsers = deletedUserIds.length > 0;
 
-    // Check if existing users have changes
     let hasExistingChanges = false;
     for (const userId in editingUsers) {
       const editedData = editingUsers[userId];
@@ -100,6 +113,21 @@ export function UsersManagementModal({
 
     setHasChanges(hasNewUsers || hasDeletedUsers || hasExistingChanges);
   }, [isOpen, localNewUsers, deletedUserIds, editingUsers, resources]);
+
+  // Auto-scroll to highlighted user when modal opens
+  useEffect(() => {
+    if (isOpen && highlightUserId && contentRef.current) {
+      // Small delay to ensure DOM is ready
+      const timer = setTimeout(() => {
+        const userRow = userRowRefs.current[highlightUserId];
+        if (userRow) {
+          userRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          setHighlightedUserId(highlightUserId);
+        }
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen, highlightUserId]);
 
   if (!isOpen) return null;
 
@@ -129,16 +157,12 @@ export function UsersManagementModal({
   const handleSaveAll = async () => {
     setIsSaving(true);
     try {
-      // Step 1: Delete users
       if (deletedUserIds.length > 0) {
         console.log(`🗑️ Удаление ${deletedUserIds.length} сотрудников...`);
-        await Promise.all(
-          deletedUserIds.map(id => onDeleteUser(id))
-        );
+        await Promise.all(deletedUserIds.map(id => onDeleteUser(id)));
         console.log(`✅ ${deletedUserIds.length} сотрудников удалено`);
       }
 
-      // Step 2: Create new users (only those with valid names)
       const validNewUsers = localNewUsers.filter(u => u.fullName.trim());
       if (validNewUsers.length > 0) {
         console.log(`💾 Создание ${validNewUsers.length} новых сотрудников...`);
@@ -150,18 +174,16 @@ export function UsersManagementModal({
               departmentId: u.departmentId,
               grade: u.grade || undefined,
               companyId: u.companyId || '1',
-              avatarUrl: u.avatarUrl // Added avatar URL support
+              avatarUrl: u.avatarUrl
             })
           )
         );
         console.log(`✅ ${validNewUsers.length} новых сотрудников сохранено`);
       }
 
-      // Step 3: Update existing users
       const updatePromises: Promise<void>[] = [];
       
       for (const userId in editingUsers) {
-        // Skip if user is marked for deletion
         if (deletedUserIds.includes(userId)) continue;
 
         const editedData = editingUsers[userId];
@@ -194,7 +216,7 @@ export function UsersManagementModal({
       setLocalNewUsers([]);
       setDeletedUserIds([]);
       onClose();
-      if (onResetHistory) onResetHistory(); // Сброс истории после изменений
+      if (onResetHistory) onResetHistory();
     } catch (error) {
       console.error('Error saving changes:', error);
       alert('Ошибка при сохранении изменений');
@@ -214,7 +236,6 @@ export function UsersManagementModal({
     );
     if (!confirmed) return;
 
-    // Mark for deletion (remove from local state and add to deletion list)
     setDeletedUserIds(prev => [...prev, userId]);
     setEditingUsers(prev => {
       const newState = { ...prev };
@@ -267,7 +288,6 @@ export function UsersManagementModal({
     setUploadingAvatars(prev => ({ ...prev, [tempId]: true }));
     try {
       const resizedFile = await resizeImageOnClient(file);
-      // Upload to temp location using tempId as userId
       const avatarUrl = await usersApi.uploadAvatar(tempId, resizedFile);
       handleNewUserChange(tempId, 'avatarUrl', avatarUrl);
       console.log('✅ Аватар загружен:', avatarUrl);
@@ -301,8 +321,47 @@ export function UsersManagementModal({
     onClose();
   };
 
-  // Filter out deleted users
-  const visibleResources = resources.filter(r => !deletedUserIds.includes(r.id));
+  // Filter and sort logic
+  const visibleResources = resources
+    .filter(r => !deletedUserIds.includes(r.id))
+    .filter(r => {
+      // Search filter
+      if (searchQuery) {
+        const query = searchQuery.toLowerCase();
+        const matchesName = r.fullName.toLowerCase().includes(query);
+        const matchesPosition = r.position.toLowerCase().includes(query);
+        if (!matchesName && !matchesPosition) return false;
+      }
+
+      // Department filter
+      if (selectedDepartment !== 'all' && r.departmentId !== selectedDepartment) {
+        return false;
+      }
+
+      return true;
+    })
+    .sort((a, b) => {
+      if (sortBy === 'name') {
+        return a.fullName.localeCompare(b.fullName, 'ru');
+      } else if (sortBy === 'grade') {
+        if (!a.grade && !b.grade) return 0;
+        if (!a.grade) return 1;
+        if (!b.grade) return -1;
+        return Number(b.grade) - Number(a.grade);
+      } else {
+        // department sorting (default)
+        const deptA = departments.find(d => d.id === a.departmentId);
+        const deptB = departments.find(d => d.id === b.departmentId);
+        const queueA = deptA?.queue || 999;
+        const queueB = deptB?.queue || 999;
+        if (queueA !== queueB) return queueA - queueB;
+        
+        if (!a.grade && !b.grade) return 0;
+        if (!a.grade) return 1;
+        if (!b.grade) return -1;
+        return Number(b.grade) - Number(a.grade);
+      }
+    });
 
   return (
     <div 
@@ -310,7 +369,7 @@ export function UsersManagementModal({
       onClick={handleCancel}
     >
       <div 
-        className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[80vh] flex flex-col"
+        className="bg-white rounded-lg shadow-xl w-full max-w-6xl max-h-[85vh] flex flex-col"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -321,313 +380,151 @@ export function UsersManagementModal({
           onClose={handleCancel}
         />
 
+        {/* Search and Filter Bar */}
+        <div className="px-6 pt-4 pb-3 border-b border-gray-200 bg-gray-50">
+          <div className="flex gap-3 items-center">
+            {/* Search */}
+            <div className="flex-1 relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Поиск по имени или должности..."
+                className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            {/* Department filter */}
+            <select
+              value={selectedDepartment}
+              onChange={e => setSelectedDepartment(e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm min-w-[180px]"
+            >
+              <option value="all">Все департаменты</option>
+              {departments.map(dept => (
+                <option key={dept.id} value={dept.id}>
+                  {dept.name}
+                </option>
+              ))}
+            </select>
+
+            {/* Sort */}
+            <select
+              value={sortBy}
+              onChange={e => setSortBy(e.target.value as 'name' | 'department' | 'grade')}
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm min-w-[150px]"
+            >
+              <option value="department">По департаменту</option>
+              <option value="name">По имени</option>
+              <option value="grade">По грейду</option>
+            </select>
+          </div>
+
+          {/* Active filters summary */}
+          {(searchQuery || selectedDepartment !== 'all') && (
+            <div className="flex items-center gap-2 mt-2">
+              <span className="text-xs text-gray-500">Активные фильтры:</span>
+              {searchQuery && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded">
+                  Поиск: "{searchQuery}"
+                  <button onClick={() => setSearchQuery('')} className="hover:text-blue-900">
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+              {selectedDepartment !== 'all' && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded">
+                  {departments.find(d => d.id === selectedDepartment)?.name}
+                  <button onClick={() => setSelectedDepartment('all')} className="hover:text-blue-900">
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6">
-          <div className="space-y-3">
+        <div className="flex-1 overflow-y-auto py-6 px-0" ref={contentRef}>
+          <div className="space-y-0">
             {/* New users */}
             {localNewUsers.map(newUser => (
-              <div key={newUser.tempId} className="gap-3 p-3 bg-gray-50 rounded-lg">
-                <div className="grid grid-cols-[48px_0.7fr_2fr_1.5fr_1.3fr_1.3fr_auto] gap-3 items-center">
-                  {/* Avatar Upload */}
-                  <div>
-                    <input
-                      ref={el => fileInputRefs.current[newUser.tempId] = el}
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={e => {
-                        const file = e.target.files?.[0];
-                        if (file) handleNewUserAvatarUpload(newUser.tempId, file);
-                      }}
-                    />
-                    <div
-                      onClick={() => fileInputRefs.current[newUser.tempId]?.click()}
-                      className="relative w-[36px] h-[36px] rounded-[12px] cursor-pointer hover:opacity-80 transition-opacity"
-                    >
-                      {uploadingAvatars[newUser.tempId] ? (
-                        <div className="w-full h-full bg-[#f6f6f6] rounded-[12px] flex items-center justify-center">
-                          <div className="animate-spin w-4 h-4 border-2 border-gray-300 border-t-blue-500 rounded-full" />
-                        </div>
-                      ) : newUser.avatarUrl ? (
-                        <>
-                          <img
-                            src={newUser.avatarUrl}
-                            alt=""
-                            className="w-full h-full object-cover rounded-[12px]"
-                          />
-                          <button
-                            onClick={e => {
-                              e.stopPropagation();
-                              handleNewUserAvatarRemove(newUser.tempId);
-                            }}
-                            className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors text-xs"
-                            title="Удалить фото"
-                          >
-                            ×
-                          </button>
-                        </>
-                      ) : (
-                        <div className="w-full h-full bg-[#f6f6f6] rounded-[12px] flex items-center justify-center">
-                          <p className="text-sm text-[#868789]">
-                            {getUserInitials(newUser.fullName)}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <div>
-                    
-                    <select
-                      value={newUser.grade}
-                      onChange={e => handleNewUserChange(newUser.tempId, 'grade', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      <option value="">Не указан</option>
-                      {grades.map(grade => (
-                        <option key={grade.id} value={grade.id}>
-                          {grade.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    
-                    <input
-                      type="text"
-                      value={newUser.fullName}
-                      onChange={e => handleNewUserChange(newUser.tempId, 'fullName', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="Иван Иванов"
-                      autoFocus
-                    />
-                  </div>
-                  <div>
-                    
-                    <input
-                      type="text"
-                      value={newUser.position}
-                      onChange={e => handleNewUserChange(newUser.tempId, 'position', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="Разработчик"
-                    />
-                  </div>
-                  <div>
-                   
-                    <select
-                      value={newUser.departmentId}
-                      onChange={e => handleNewUserChange(newUser.tempId, 'departmentId', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      {departments.map(dept => (
-                        <option key={dept.id} value={dept.id}>
-                          {dept.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    
-                    <select
-                      value={newUser.companyId}
-                      onChange={e => handleNewUserChange(newUser.tempId, 'companyId', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      <option value="">Не указана</option>
-                      {companies.map(company => (
-                        <option key={company.id} value={company.id}>
-                          {company.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="">
-                    <button
-                      onClick={() => handleDeleteNewUser(newUser.tempId)}
-                      className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                      title="Удалить строку"
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="20"
-                        height="20"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <path d="M3 6h18" />
-                        <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                        <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-              </div>
+              <UserRow
+                key={newUser.tempId}
+                isNew
+                user={{
+                  id: newUser.tempId,
+                  fullName: newUser.fullName,
+                  position: newUser.position,
+                  departmentId: newUser.departmentId,
+                  grade: newUser.grade,
+                  companyId: newUser.companyId,
+                  avatarUrl: newUser.avatarUrl
+                }}
+                departments={departments}
+                grades={grades}
+                companies={companies}
+                uploadingAvatar={uploadingAvatars[newUser.tempId]}
+                onChange={(field, value) => handleNewUserChange(newUser.tempId, field, value)}
+                onDelete={() => handleDeleteNewUser(newUser.tempId)}
+                onAvatarUpload={file => handleNewUserAvatarUpload(newUser.tempId, file)}
+                onAvatarRemove={() => handleNewUserAvatarRemove(newUser.tempId)}
+                getUserInitials={getUserInitials}
+                fileInputRef={el => fileInputRefs.current[newUser.tempId] = el}
+              />
             ))}
             
-            {/* Existing users - sorted by department queue, then by grade */}
-            <div className="flex flex-col gap-2 p-3 bg-gray-50 rounded-lg">
-            {visibleResources
-              .sort((a, b) => {
-                const deptA = departments.find(d => d.id === a.departmentId);
-                const deptB = departments.find(d => d.id === b.departmentId);
-                const queueA = deptA?.queue || 999;
-                const queueB = deptB?.queue || 999;
-                if (queueA !== queueB) return queueA - queueB;
-                
-                if (!a.grade && !b.grade) return 0;
-                if (!a.grade) return 1;
-                if (!b.grade) return -1;
-                return Number(b.grade) - Number(a.grade);
-              })
-              .map(resource => {
+            {/* Existing users */}
+            {visibleResources.map(resource => {
               const userData = editingUsers[resource.id];
               if (!userData) return null;
 
               return (
-                <div key={resource.id} className="">
-                  <div className="grid grid-cols-[48px_0.7fr_2fr_1.5fr_1.3fr_1.3fr_auto] gap-3 items-center">
-                    {/* Avatar Upload */}
-                    <div>
-                      <input
-                        ref={el => fileInputRefs.current[resource.id] = el}
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={e => {
-                          const file = e.target.files?.[0];
-                          if (file) handleAvatarUpload(resource.id, file);
-                        }}
-                      />
-                      <div
-                        onClick={() => fileInputRefs.current[resource.id]?.click()}
-                        className="relative w-[36px] h-[36px] rounded-[12px] cursor-pointer hover:opacity-80 transition-opacity"
-                      >
-                        {uploadingAvatars[resource.id] ? (
-                          <div className="w-full h-full bg-[#f6f6f6] rounded-[12px] flex items-center justify-center">
-                            <div className="animate-spin w-4 h-4 border-2 border-gray-300 border-t-blue-500 rounded-full" />
-                          </div>
-                        ) : userData.avatarUrl ? (
-                          <>
-                            <img
-                              src={userData.avatarUrl}
-                              alt=""
-                              className="w-full h-full object-cover rounded-[12px]"
-                            />
-                            <button
-                              onClick={e => {
-                                e.stopPropagation();
-                                handleAvatarRemove(resource.id);
-                              }}
-                              className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors text-xs"
-                              title="Удалить фото"
-                            >
-                              ×
-                            </button>
-                          </>
-                        ) : (
-                          <div className="w-full h-full bg-[#f6f6f6] rounded-[12px] flex items-center justify-center">
-                            <p className="text-sm text-[#868789]">
-                              {getUserInitials(userData.fullName)}
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <div>
-                      <select
-                        value={userData.grade || ''}
-                        onChange={e => handleChange(resource.id, 'grade', e.target.value)}
-                        className="w-full px-3 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        <option value="">Не указан</option>
-                        {grades.map(grade => (
-                          <option key={grade.id} value={grade.id}>
-                            {grade.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <input
-                        type="text"
-                        value={userData.fullName}
-                        onChange={e => handleChange(resource.id, 'fullName', e.target.value)}
-                        className="w-full px-3 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        placeholder="Имя сотрудника"
-                      />
-                    </div>
-                    <div>
-                      <input
-                        type="text"
-                        value={userData.position}
-                        onChange={e => handleChange(resource.id, 'position', e.target.value)}
-                        className="w-full px-3 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        placeholder="Должность"
-                      />
-                    </div>
-                    <div>
-                      <select
-                        value={userData.departmentId}
-                        onChange={e => handleChange(resource.id, 'departmentId', e.target.value)}
-                        className="w-full px-3 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        {departments.map(dept => (
-                          <option key={dept.id} value={dept.id}>
-                            {dept.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <select
-                        value={userData.companyId || ''}
-                        onChange={e => handleChange(resource.id, 'companyId', e.target.value)}
-                        className="w-full px-3 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        <option value="">Не указана</option>
-                        {companies.map(company => (
-                          <option key={company.id} value={company.id}>
-                            {company.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="pt-0">
-                      <button
-                        onClick={() => handleDelete(resource.id)}
-                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                        title="Удалить сотрудника"
-                      >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          width="20"
-                          height="20"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M3 6h18" />
-                          <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                          <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
-                </div>
+                <UserRow
+                  key={resource.id}
+                  isHighlighted={resource.id === highlightedUserId}
+                  user={{
+                    id: resource.id,
+                    fullName: userData.fullName,
+                    position: userData.position,
+                    departmentId: userData.departmentId,
+                    grade: userData.grade || '',
+                    companyId: userData.companyId || '',
+                    avatarUrl: userData.avatarUrl
+                  }}
+                  departments={departments}
+                  grades={grades}
+                  companies={companies}
+                  uploadingAvatar={uploadingAvatars[resource.id]}
+                  onChange={(field, value) => handleChange(resource.id, field, value)}
+                  onDelete={() => handleDelete(resource.id)}
+                  onAvatarUpload={file => handleAvatarUpload(resource.id, file)}
+                  onAvatarRemove={() => handleAvatarRemove(resource.id)}
+                  getUserInitials={getUserInitials}
+                  fileInputRef={el => fileInputRefs.current[resource.id] = el}
+                  ref={el => userRowRefs.current[resource.id] = el}
+                />
               );
             })}
-            </div>
 
             {visibleResources.length === 0 && localNewUsers.length === 0 && (
               <div className="text-center py-12 text-gray-500">
                 <p>Нет сотрудников</p>
-                <p className="text-sm mt-2">Нажмите "Добавить сотрудника" для создания</p>
+                <p className="text-sm mt-2">
+                  {searchQuery || selectedDepartment !== 'all' 
+                    ? 'Попробуйте изменить фильтры поиска'
+                    : 'Нажмите "Добавить сотрудника" для создания'
+                  }
+                </p>
               </div>
             )}
           </div>
@@ -670,11 +567,7 @@ export function UsersManagementModal({
               type="button"
               onClick={handleSaveAll}
               disabled={!hasChanges || isSaving}
-              className={`px-6 py-2 rounded-lg transition-colors ${
-                hasChanges && !isSaving
-                  ? 'bg-blue-600 text-white hover:bg-blue-700'
-                  : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-              }`}
+              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
             >
               {isSaving ? 'Сохранение...' : 'Сохранить'}
             </button>
@@ -684,3 +577,245 @@ export function UsersManagementModal({
     </div>
   );
 }
+
+// Separate UserRow component for cleaner code
+interface UserRowProps {
+  isNew?: boolean;
+  isHighlighted?: boolean;
+  user: {
+    id: string;
+    fullName: string;
+    position: string;
+    departmentId: string;
+    grade: string;
+    companyId: string;
+    avatarUrl?: string;
+  };
+  departments: Department[];
+  grades: Grade[];
+  companies: Company[];
+  uploadingAvatar?: boolean;
+  onChange: (field: string, value: string) => void;
+  onDelete: () => void;
+  onAvatarUpload: (file: File) => void;
+  onAvatarRemove: () => void;
+  getUserInitials: (name: string) => string;
+  fileInputRef: (el: HTMLInputElement | null) => void;
+}
+
+const UserRow = forwardRef<HTMLDivElement, UserRowProps>(({
+  isNew,
+  isHighlighted,
+  user,
+  departments,
+  grades,
+  companies,
+  uploadingAvatar,
+  onChange,
+  onDelete,
+  onAvatarUpload,
+  onAvatarRemove,
+  getUserInitials,
+  fileInputRef
+}, ref) => {
+  const [isAnimating, setIsAnimating] = useState(false);
+
+  useEffect(() => {
+    if (isHighlighted) {
+      setIsAnimating(true);
+      const timer = setTimeout(() => setIsAnimating(false), 2000); // 2 секунды анимация
+      return () => clearTimeout(timer);
+    }
+  }, [isHighlighted]);
+
+  return (
+    <div 
+      ref={ref}
+      className={`relative transition-all duration-300 ${isNew ? 'bg-blue-50' : ''} ${isAnimating ? 'animate-highlight' : ''}`}
+      style={{
+        paddingLeft: '16px',
+        paddingRight: '16px',
+        paddingTop: '16px',
+        paddingBottom: '16px',
+      }}
+    >
+      {/* Дивайдер снизу (как в календаре) */}
+      {!isNew && (
+        <div
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            bottom: 0,
+            left: '16px',
+            right: 0,
+            borderBottom: '1px solid #f0f0f0',
+            pointerEvents: 'none',
+          }}
+        />
+      )}
+
+      <div className="grid grid-cols-[56px_1fr_2fr_1.5fr_1.3fr_1.3fr_auto] gap-4 items-center">
+        {/* Avatar */}
+        <div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={e => {
+              const file = e.target.files?.[0];
+              if (file) onAvatarUpload(file);
+            }}
+          />
+          <div
+            onClick={() => document.querySelector<HTMLInputElement>(`input[type="file"]`)?.click()}
+            className="relative w-[48px] h-[48px] rounded-xl cursor-pointer hover:opacity-80 transition-opacity group"
+          >
+            {uploadingAvatar ? (
+              <div className="w-full h-full bg-gray-100 rounded-xl flex items-center justify-center">
+                <div className="animate-spin w-5 h-5 border-2 border-gray-300 border-t-blue-500 rounded-full" />
+              </div>
+            ) : user.avatarUrl ? (
+              <>
+                <img
+                  src={user.avatarUrl}
+                  alt=""
+                  className="w-full h-full object-cover rounded-xl"
+                />
+                <button
+                  onClick={e => {
+                    e.stopPropagation();
+                    onAvatarRemove();
+                  }}
+                  className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors text-sm opacity-0 group-hover:opacity-100"
+                  title="Удалить фото"
+                >
+                  ×
+                </button>
+              </>
+            ) : (
+              <div className="w-full h-full bg-gray-100 rounded-xl flex items-center justify-center">
+                <p className="text-sm text-gray-500 font-medium">
+                  {getUserInitials(user.fullName)}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Grade */}
+        <div>
+          <select
+            value={user.grade}
+            onChange={e => onChange('grade', e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+          >
+            <option value="">Грейд</option>
+            {grades.map(grade => (
+              <option key={grade.id} value={grade.id}>
+                {grade.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Full Name */}
+        <div>
+          <input
+            type="text"
+            value={user.fullName}
+            onChange={e => onChange('fullName', e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+            placeholder="Иван Иванов"
+            autoFocus={isNew}
+          />
+        </div>
+
+        {/* Position */}
+        <div>
+          <input
+            type="text"
+            value={user.position}
+            onChange={e => onChange('position', e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+            placeholder="Должность"
+          />
+        </div>
+
+        {/* Department */}
+        <div>
+          <select
+            value={user.departmentId}
+            onChange={e => onChange('departmentId', e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+          >
+            {departments.map(dept => (
+              <option key={dept.id} value={dept.id}>
+                {dept.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Company */}
+        <div>
+          <select
+            value={user.companyId}
+            onChange={e => onChange('companyId', e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+          >
+            <option value="">Компания</option>
+            {companies.map(company => (
+              <option key={company.id} value={company.id}>
+                {company.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Delete button */}
+        <div>
+          <button
+            onClick={onDelete}
+            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+            title={isNew ? "Удалить строку" : "Удалить сотрудника"}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M3 6h18" />
+              <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+              <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      {/* CSS Animation */}
+      <style>{`
+        @keyframes highlight {
+          0% {
+            background-color: rgba(59, 130, 246, 0.2);
+          }
+          100% {
+            background-color: transparent;
+          }
+        }
+
+        .animate-highlight {
+          animation: highlight 2s ease-out;
+        }
+      `}</style>
+    </div>
+  );
+});
+
+UserRow.displayName = 'UserRow';

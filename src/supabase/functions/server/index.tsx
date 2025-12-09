@@ -78,7 +78,7 @@ function isCloudflareError(error: any): boolean {
 }
 
 /**
- * Логирование Cloudflare ошибки (короткое сообщение вместо HTML)
+ * Логирование Cloudflare ошибки (коротк��е сообщение вместо HTML)
  */
 function logCloudflareError(context: string, error: any): void {
   const cloudflareError = parseCloudflareError(error.message);
@@ -210,6 +210,8 @@ app.post("/make-server-73d66528/auth/session", async (c) => {
     
     // Load session from KV store
     console.log('🔍 Проверка session_id в KV store...');
+    console.log('   Session ID:', session_id);
+    console.log('   KV key будет:', `session:${session_id}`);
     console.log('   KV import type:', typeof kv);
     console.log('   KV.get type:', typeof kv.get);
     
@@ -217,6 +219,10 @@ app.post("/make-server-73d66528/auth/session", async (c) => {
     try {
       sessionData = await kv.get(`session:${session_id}`);
       console.log('   KV.get результат:', sessionData ? 'данные получены' : 'null');
+      if (sessionData) {
+        console.log('   KV.get data type:', typeof sessionData);
+        console.log('   KV.get data preview:', JSON.stringify(sessionData).substring(0, 100) + '...');
+      }
     } catch (kvError: any) {
       console.error('❌ Ошибка чтения из KV:', kvError.message);
       return c.json({ error: 'KV store error', session: null }, 500);
@@ -224,17 +230,32 @@ app.post("/make-server-73d66528/auth/session", async (c) => {
     
     if (!sessionData) {
       console.log('❌ Сессия не найдена в KV store');
+      console.log('   Возможные причины:');
+      console.log('   1. Сессия не была сохранена при логине');
+      console.log('   2. Сессия была удалена');
+      console.log('   3. Session ID не совпадает');
       return c.json({ session: null }, 200);
     }
     
     console.log('✅ Сессия найдена в KV store');
     
-    let session;
-    try {
-      session = JSON.parse(sessionData);
-    } catch (jsonError: any) {
-      console.error('❌ Ошибка парсинга сессии из KV:', jsonError.message);
-      return c.json({ error: 'Invalid session data', session: null }, 500);
+    // ✅ ИСПРАВЛЕНО: KV Store возвращает объект напрямую (JSONB), не нужен JSON.parse
+    // Однако, для обратной совместимости с сессиями, созданными до фикса (когда использовался JSON.stringify),
+    // добавим проверку типа и парсинг, если это строка.
+    let session = sessionData;
+    if (typeof sessionData === 'string') {
+      try {
+        console.log('⚠️ Обнаружена legacy сессия (строка), выполняю парсинг...');
+        session = JSON.parse(sessionData);
+      } catch (e) {
+        console.error('❌ Ошибка парсинга legacy сессии:', e);
+        session = null;
+      }
+    }
+    
+    if (!session) {
+       console.log('❌ Сессия пуста после загрузки (или ошибки парсинга)');
+       return c.json({ session: null }, 200);
     }
     
     const { user_id, created_at, access_token, refresh_token, expires_at, user } = session;
@@ -317,7 +338,8 @@ app.post("/make-server-73d66528/auth/session", async (c) => {
           created_at: created_at // Keep original creation time
         };
         
-        await kv.set(`session:${session_id}`, JSON.stringify(updatedSessionData));
+        // ✅ ИСПРАВЛЕНО: KV Store принимает объект напрямую (JSONB), не нужен JSON.stringify
+        await kv.set(`session:${session_id}`, updatedSessionData);
         console.log('💾 Обновленная сессия сохранена в KV store');
         
         // Return refreshed session
@@ -430,13 +452,13 @@ app.post("/make-server-73d66528/auth/signin", async (c) => {
       created_at: Date.now()
     };
     
-    const sessionDataJson = JSON.stringify(sessionData);
     console.log('💾 Сохранение сессии в KV store...');
-    console.log('   Key: session:' + sessionId.substring(0, 8) + '...');
-    console.log('   Data size:', sessionDataJson.length, 'bytes');
+    console.log('   Key: session:' + sessionId);
+    console.log('   User:', data.user.email);
     
     try {
-      await kv.set(`session:${sessionId}`, sessionDataJson);
+      // ✅ КРИТИЧНО: KV Store принимает объект напрямую (JSONB), не нужен JSON.stringify!
+      await kv.set(`session:${sessionId}`, sessionData);
       console.log('✅ Сессия сохранена в KV store');
     } catch (kvError: any) {
       console.error('❌ Ошибка сохранения в KV:', kvError.message);
@@ -446,7 +468,10 @@ app.post("/make-server-73d66528/auth/signin", async (c) => {
     // Verify it was saved
     try {
       const verify = await kv.get(`session:${sessionId}`);
-      console.log('🔍 Проверка сохранения:', verify ? 'OK' : 'FAILED');
+      console.log('🔍 Проверка сохранения:', verify ? 'OK (тип: ' + typeof verify + ')' : 'FAILED');
+      if (verify) {
+        console.log('   Пользователь из проверки:', verify.user?.email || verify.user_id);
+      }
     } catch (verifyError: any) {
       console.error('❌ Ошибка проверки:', verifyError.message);
     }
@@ -537,13 +562,13 @@ app.post("/make-server-73d66528/auth/verify-otp", async (c) => {
       created_at: Date.now()
     };
     
-    const sessionDataJson = JSON.stringify(sessionData);
-    console.log('💾 Сохранение сессии в KV store...');
-    console.log('   Key: session:' + sessionId.substring(0, 8) + '...');
-    console.log('   Data size:', sessionDataJson.length, 'bytes');
+    console.log('💾 Сохранение сессии в KV store... (SIGNIN)');
+    console.log('   Key: session:' + sessionId);
+    console.log('   User:', data.user.email);
     
     try {
-      await kv.set(`session:${sessionId}`, sessionDataJson);
+      // ✅ КРИТИЧНО: KV Store принимает объект напрямую (JSONB), не нужен JSON.stringify!
+      await kv.set(`session:${sessionId}`, sessionData);
       console.log('✅ Сессия сохранена в KV store');
     } catch (kvError: any) {
       console.error('❌ Ошибка сохранения в KV:', kvError.message);
@@ -553,7 +578,10 @@ app.post("/make-server-73d66528/auth/verify-otp", async (c) => {
     // Verify it was saved
     try {
       const verify = await kv.get(`session:${sessionId}`);
-      console.log('🔍 Проверка сохранения:', verify ? 'OK' : 'FAILED');
+      console.log('🔍 Проверка сохранения:', verify ? 'OK (тип: ' + typeof verify + ')' : 'FAILED');
+      if (verify) {
+        console.log('   Пользователь из проверки:', verify.user?.email || verify.user_id);
+      }
     } catch (verifyError: any) {
       console.error('❌ Ошибка проверки:', verifyError.message);
     }
@@ -1039,7 +1067,7 @@ app.get("/make-server-73d66528/departments/:id/users-count", async (c) => {
       .eq('department_id', numericId);
     
     if (error) {
-      console.error(`❌ Ошибка подсчета пользователей:`, error);
+      console.error(`❌ Ошибка подсче��а пользователей:`, error);
       return c.json({ error: `Failed to count users: ${error.message}` }, 500);
     }
     
@@ -1784,7 +1812,12 @@ app.get("/make-server-73d66528/events/changes", async (c) => {
       query = query.gt('updated_at', since);
     }
     
-    const { data: events, error } = await query;
+    // ⏱️ Timeout защита - 10 секунд максимум
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Request timeout after 10s')), 10000);
+    });
+    
+    const { data: events, error } = await Promise.race([query, timeoutPromise]) as any;
     
     if (error) {
       console.error('❌ Supabase error fetching event changes:', error);
@@ -1821,7 +1854,12 @@ app.get("/make-server-73d66528/events/changes", async (c) => {
     });
   } catch (error) {
     console.error('❌ Exception fetching event changes:', error);
-    return c.json({ error: `Failed to fetch event changes: ${error.message || error}` }, 500);
+    // Возвращаем пустой массив вместо ошибки (graceful degradation)
+    return c.json({ 
+      events: [], 
+      timestamp: new Date().toISOString(),
+      error: error.message === 'Request timeout after 10s' ? 'timeout' : 'unknown'
+    }, error.message === 'Request timeout after 10s' ? 504 : 500);
   }
 });
 
@@ -2058,7 +2096,7 @@ app.post("/make-server-73d66528/events/batch-create", async (c) => {
       console.log(`✅ Все ${createdCount} событий успешно созданы (100% success rate)`);
     }
     
-    // Обновляем дату последнего изменения воркспейса
+    // Обновляем дату последнего изме��ения воркспейса
     await updateWorkspaceSummary(workspaceId, `batch create ${data?.length || 0} events`);
     
     // Преобразуем обратно в frontend формат
@@ -2566,7 +2604,7 @@ app.delete("/make-server-73d66528/events/clear/:workspaceId", async (c) => {
       return c.json({ success: true, deleted: 0 });
     }
     
-    // Удаляем все события в воркспейсе
+    // ��даляем все события в воркспейсе
     const { error } = await supabase
       .from('events')
       .delete()
@@ -3881,11 +3919,23 @@ app.post("/make-server-73d66528/presence/heartbeat", async (c) => {
   try {
     const accessToken = c.req.header('Authorization')?.split(' ')[1];
     
-    // Verify user
-    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(accessToken);
-    if (authError || !user) {
-      console.error('❌ Ошибка авторизации при heartbeat:', authError);
+    if (!accessToken) {
+      console.error('❌ Heartbeat: токен не передан');
       return c.json({ error: 'Unauthorized' }, 401);
+    }
+    
+    // Verify user with try-catch (getUser может бросить exception при невалидном токене)
+    let user;
+    try {
+      const { data, error: authError } = await supabaseAuth.auth.getUser(accessToken);
+      if (authError || !data?.user) {
+        console.error('❌ Ошибка авторизации при heartbeat:', authError?.message || 'No user data');
+        return c.json({ error: 'Unauthorized' }, 401);
+      }
+      user = data.user;
+    } catch (authException) {
+      console.error('❌ Exception при проверке токена в heartbeat:', authException);
+      return c.json({ error: 'Invalid token' }, 401);
     }
 
     const body = await c.req.json();
@@ -3926,11 +3976,23 @@ app.post("/make-server-73d66528/presence/online-batch", async (c) => {
   try {
     const accessToken = c.req.header('Authorization')?.split(' ')[1];
     
-    // Verify user
-    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(accessToken);
-    if (authError || !user) {
-      console.error('❌ Ошибка авторизации при batch получении онлайн пользователей:', authError);
+    if (!accessToken) {
+      console.error('❌ Online-batch: токен не передан');
       return c.json({ error: 'Unauthorized' }, 401);
+    }
+    
+    // Verify user with try-catch
+    let user;
+    try {
+      const { data, error: authError } = await supabaseAuth.auth.getUser(accessToken);
+      if (authError || !data?.user) {
+        console.error('❌ Ошибка авторизации при batch получении онлайн пользователей:', authError?.message || 'No user data');
+        return c.json({ error: 'Unauthorized' }, 401);
+      }
+      user = data.user;
+    } catch (authException) {
+      console.error('❌ Exception при проверке токена в online-batch:', authException);
+      return c.json({ error: 'Invalid token' }, 401);
     }
 
     const body = await c.req.json();
@@ -4233,56 +4295,6 @@ app.post("/make-server-73d66528/users/upload-avatar", async (c) => {
   }
 });
 
-// ==================== PRESENCE ENDPOINTS ====================
-
-// Presence heartbeat - отправляется каждые 30 секунд из OnlineUsers компонента
-app.post("/make-server-73d66528/presence/heartbeat", async (c) => {
-  try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    
-    // Verify user
-    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(accessToken);
-    if (authError || !user) {
-      console.error('❌ Ошибка авторизации в heartbeat:', authError);
-      return c.json({ error: 'Unauthorized' }, 401);
-    }
-
-    const body = await c.req.json();
-    const { workspace_id } = body;
-
-    if (!workspace_id) {
-      return c.json({ error: 'workspace_id обязателен' }, 400);
-    }
-
-    console.log(`💓 Heartbeat от ${user.email} в workspace ${workspace_id}`);
-    console.log(`   user_metadata:`, JSON.stringify(user.user_metadata));
-
-    // Сохраняем presence в KV Store с TTL 60 секунд (1 минута)
-    // Если пользователь закроет календарь и не отправит "leave", он исчезнет через 60 сек
-    const presenceKey = `presence:${workspace_id}:${user.id}`;
-    const presenceData = {
-      userId: user.id,
-      email: user.email,
-      displayName: user.user_metadata?.name || user.user_metadata?.display_name || null,
-      avatarUrl: user.user_metadata?.avatar_url || null,
-      lastSeen: new Date().toISOString(),
-      workspaceId: workspace_id
-    };
-
-    // Сохраняем объект напрямую (kv.set делает JSON.stringify внутри)
-    await kv.set(presenceKey, presenceData);
-
-    console.log(`✅ Presence сохранён: ${presenceKey}`);
-    console.log(`   displayName: ${presenceData.displayName || 'нет'}`);
-    console.log(`   avatarUrl: ${presenceData.avatarUrl || 'нет'}`);
-
-    return c.json({ success: true });
-  } catch (error: any) {
-    console.error('❌ Ошибка heartbeat:', error);
-    return c.json({ error: error.message || 'Ошибка heartbeat' }, 500);
-  }
-});
-
 // Get online users for specific workspace
 app.get("/make-server-73d66528/presence/online/:workspaceId", async (c) => {
   const startTime = Date.now();
@@ -4290,11 +4302,23 @@ app.get("/make-server-73d66528/presence/online/:workspaceId", async (c) => {
   try {
     const accessToken = c.req.header('Authorization')?.split(' ')[1];
     
-    // Verify user
-    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(accessToken);
-    if (authError || !user) {
-      console.error('❌ Ошибка авторизации при получении онлайн пользователей:', authError);
+    if (!accessToken) {
+      console.error('❌ Online/:workspaceId: токен не передан');
       return c.json({ error: 'Unauthorized' }, 401);
+    }
+    
+    // Verify user with try-catch
+    let user;
+    try {
+      const { data, error: authError } = await supabaseAuth.auth.getUser(accessToken);
+      if (authError || !data?.user) {
+        console.error('❌ Ошибка авторизации при получении онлайн пользователей:', authError?.message || 'No user data');
+        return c.json({ error: 'Unauthorized' }, 401);
+      }
+      user = data.user;
+    } catch (authException) {
+      console.error('❌ Exception при проверке токена в online/:workspaceId:', authException);
+      return c.json({ error: 'Invalid token' }, 401);
     }
 
     const workspaceId = c.req.param('workspaceId');
@@ -4347,87 +4371,28 @@ app.get("/make-server-73d66528/presence/online/:workspaceId", async (c) => {
   }
 });
 
-// Batch endpoint - получает онлайн пользователей для нескольких воркспейсов за один запрос
-app.post("/make-server-73d66528/presence/online-batch", async (c) => {
-  try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    
-    // Verify user
-    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(accessToken);
-    if (authError || !user) {
-      console.error('❌ Ошибка авторизации в batch endpoint:', authError);
-      return c.json({ error: 'Unauthorized' }, 401);
-    }
-
-    const body = await c.req.json();
-    const { workspace_ids } = body;
-
-    if (!Array.isArray(workspace_ids)) {
-      return c.json({ error: 'workspace_ids должен быть массивом' }, 400);
-    }
-
-    console.log(`👥 Batch запрос онлайн пользователей для ${workspace_ids.length} воркспейсов:`, workspace_ids);
-
-    // Получаем presence для всех воркспейсов параллельно
-    const results: Record<string, any[]> = {};
-    const now = Date.now();
-
-    await Promise.all(
-      workspace_ids.map(async (workspaceId) => {
-        const prefix = `presence:${workspaceId}:`;
-        const presenceRecords = await kv.getByPrefix(prefix);
-
-        // Парсим и фильтруем
-        const users = presenceRecords
-          .map(record => {
-            try {
-              const data = typeof record === 'string' ? JSON.parse(record) : record;
-              return data;
-            } catch (e) {
-              console.error('⚠️ Ошибка парсинга presence записи:', e);
-              return null;
-            }
-          })
-          .filter(data => {
-            if (!data) return false;
-            const lastSeen = new Date(data.lastSeen).getTime();
-            const age = now - lastSeen;
-            return age < 60000; // 60 секунд (1 минута)
-          });
-
-        results[String(workspaceId)] = users;
-        console.log(`  📊 Workspace ${workspaceId}: ${users.length} онлайн`)
-        
-        // Детальное логирование для диагностики аватарок
-        if (users.length > 0) {
-          users.forEach(u => {
-            console.log(`     👤 ${u.email}: displayName=${u.displayName || 'нет'}, avatarUrl=${u.avatarUrl ? 'да' : 'нет'}`);
-          });
-        }
-      
-      })
-    );
-
-    console.log(`✅ Batch запрос выполнен, всего воркспейсов: ${workspace_ids.length}`);
-    console.log(`📤 Возвращаем results:`, JSON.stringify(results));
-
-    return c.json(results);
-  } catch (error: any) {
-    console.error('❌ Ошибка batch запроса:', error);
-    return c.json({ error: error.message || 'Ошибка batch запроса' }, 500);
-  }
-});
-
 // Leave workspace - явное удаление presence при закрытии календаря
 app.delete("/make-server-73d66528/presence/leave/:workspaceId", async (c) => {
   try {
     const accessToken = c.req.header('Authorization')?.split(' ')[1];
     
-    // Verify user
-    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(accessToken);
-    if (authError || !user) {
-      console.error('❌ Ошибка авторизации в leave endpoint:', authError);
+    if (!accessToken) {
+      console.error('❌ Leave: токен не передан');
       return c.json({ error: 'Unauthorized' }, 401);
+    }
+    
+    // Verify user with try-catch
+    let user;
+    try {
+      const { data, error: authError } = await supabaseAuth.auth.getUser(accessToken);
+      if (authError || !data?.user) {
+        console.error('❌ Ошибка авторизации в leave endpoint:', authError?.message || 'No user data');
+        return c.json({ error: 'Unauthorized' }, 401);
+      }
+      user = data.user;
+    } catch (authException) {
+      console.error('❌ Exception при проверке токена в leave:', authException);
+      return c.json({ error: 'Invalid token' }, 401);
     }
 
     const workspaceId = c.req.param('workspaceId');

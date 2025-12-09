@@ -271,7 +271,7 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
       onAuthSuccess(data.access_token, 'signin', displayName, data.session_id);
     } catch (err: any) {
       if (err.message && err.message.includes('Email не подтвержден')) {
-        setError('Email не подтвержден. Хотите получить новый код по��тверждения?');
+        setError('Email не подтвержден. Хотите получить новый код подтверждения?');
       } else if (err.message && err.message.includes('Пользователь не найден')) {
         setError('Пользователь не найден. Пожалуйста, зарегистрируйтесь.');
       } else {
@@ -363,7 +363,37 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
             <div className="mb-6 p-4 rounded-xl bg-red-50/50 border border-red-200 text-sm flex gap-3 items-start">
               <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
               <div className="flex-1">
-                <p className="text-red-600 font-medium">{error}</p>
+                <p className="text-red-600 font-medium">
+                  {(() => {
+                    // Дружелюбные сообщения вместо технических
+                    if (error.includes('Email не подтвержден')) {
+                      return 'Проверьте вашу почту и введите код подтверждения';
+                    }
+                    if (error.includes('Пользователь не найден')) {
+                      return 'Аккаунт с этой почтой не найден. Хотите зарегистрироваться?';
+                    }
+                    if (error.includes('Неправильный пароль') || error.includes('Invalid login credentials')) {
+                      return 'Неверный пароль. Попробуйте ещё раз';
+                    }
+                    if (error.includes('Email должен быть @kode.ru')) {
+                      return 'Используйте корпоративную почту @kode.ru для входа';
+                    }
+                    if (error.includes('Код подтверждения истек')) {
+                      return 'Срок действия кода истёк. Запросите новый код';
+                    }
+                    if (error.includes('Неверный код')) {
+                      return 'Код не подходит. Проверьте и попробуйте снова';
+                    }
+                    if (error.includes('User already registered')) {
+                      return 'Этот email уже зарегистрирован. Попробуйте войти';
+                    }
+                    if (error.includes('Failed to fetch') || error.includes('Network')) {
+                      return 'Проблема с подключением. Проверьте интернет и попробуйте снова';
+                    }
+                    // Если не нашли совпадения - показываем как есть
+                    return error;
+                  })()}
+                </p>
                 
                 {error.includes('Email не подтвержден') && (
                   <Button 

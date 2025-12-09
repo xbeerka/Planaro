@@ -16,9 +16,10 @@ export function sortResourcesByGrade(resources: Resource[]): Resource[] {
 }
 
 function formatDate(date: Date): string {
-  const day = String(date.getDate()).padStart(2, '0');
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  return `${day}.${month}`;
+  const day = date.getDate();
+  const monthNames = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+  const month = monthNames[date.getMonth()];
+  return `${day} ${month}`;
 }
 
 function getStartOfDay(date: Date): Date {

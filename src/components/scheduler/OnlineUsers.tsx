@@ -9,6 +9,7 @@ import { projectId, publicAnonKey } from '../../utils/supabase/info';
 import { decodeSupabaseJWT, getEmailFromToken, getDisplayNameFromToken } from '../../utils/jwt';
 import { getStorageJSON } from '../../utils/storage';
 import { presenceApi } from '../../services/api/presence';
+import { throttledRequest } from '../../utils/requestThrottle';
 
 interface OnlineUser {
   userId: string;
@@ -99,8 +100,16 @@ function OnlineUsersComponent({ workspaceId, accessToken, currentUserEmail }: On
     }
 
     try {
-      // Используем presenceApi с автоматическими ретраями
-      const newUsers = await presenceApi.getOnlineUsers(workspaceId);
+      // 🛡️ Throttled request - защита от перегрузки
+      const newUsers = await throttledRequest(
+        `presence-fetch-${workspaceId}`,
+        () => presenceApi.getOnlineUsers(workspaceId)
+      );
+      
+      if (!newUsers) {
+        console.warn('⚠️ OnlineUsers: пропущен (throttle)');
+        return;
+      }
       
       // Обновляем только если изменился состав пользователей
       setOnlineUsers(prev => {

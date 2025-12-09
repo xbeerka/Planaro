@@ -13,7 +13,11 @@ export const eventsApi = {
     const endpoint = since 
       ? `/events/changes?workspace_id=${workspaceId}&since=${encodeURIComponent(since)}`
       : `/events/changes?workspace_id=${workspaceId}`;
-    return apiRequest<{ events: SchedulerEvent[]; timestamp: string }>(endpoint, { token });
+    // ⏱️ Короткий timeout для Delta Sync (10 секунд)
+    return apiRequest<{ events: SchedulerEvent[]; timestamp: string }>(endpoint, { 
+      token,
+      timeout: 10000 // 10 секунд максимум
+    });
   },
     
   create: (event: Partial<SchedulerEvent>, token?: string) =>

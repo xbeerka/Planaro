@@ -10,6 +10,7 @@ import { toast } from 'sonner@2.0.3';
 import { WorkspaceUsers } from './WorkspaceUsers';
 import { presenceApi } from '../../services/api/presence';
 import { ProfileModal } from '../auth/ProfileModal';
+import { throttledRequest } from '../../utils/requestThrottle';
 import { LoadingScreen } from '../ui/spinner';
 import { 
   DropdownMenu, 
@@ -154,11 +155,24 @@ export function WorkspaceListScreen({ onSelectWorkspace, onSignOut, onTokenRefre
       try {
         const workspaceIds = workspaces.map(w => w.id);
         
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+        // 🛡️ Throttled request - защита от перегрузки
+        let workspacesData = await throttledRequest(
+          'presence-batch-all-workspaces',
+          async () => {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+            
+            // Один батч-запрос вместо N запросов - оптимизация для снижения DDOS базы
+            const result = await presenceApi.getOnlineUsersBatch(workspaceIds);
+            clearTimeout(timeoutId);
+            return result;
+          }
+        );
         
-        // Один батч-запрос вместо N запросов - оптимизация для снижения DDOS базы
-        let workspacesData = await presenceApi.getOnlineUsersBatch(workspaceIds);
+        if (!workspacesData) {
+          console.warn('⚠️ Batch запрос: пропущен (throttle)');
+          return;
+        }
         
         // 🔒 Проверяем блокировку текущего пользователя (предотвращение "мигания")
         try {

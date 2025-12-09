@@ -20,7 +20,7 @@ import { Toolbar } from "./Toolbar";
 import { RealtimeCursors } from "./RealtimeCursors";
 import { SchedulerModals } from "./SchedulerModals";
 import { SchedulerContextMenus } from "./SchedulerContextMenus";
-import { SchedulerGrid } from "./SchedulerGrid";
+import { SchedulerGrid } from "./SchedulerGridUnified"; // ✅ UNIFIED CSS GRID - один контейнер!
 import { EventGapHandles } from "./EventGapHandles"; // ✨ Gap handles компонент
 import {
   SchedulerEvent,
@@ -117,6 +117,7 @@ export function SchedulerMain({
     createResource,
     updateResource,
     deleteResource,
+    uploadUserAvatar,
     createProject,
     updateProject,
     deleteProject,
@@ -173,12 +174,10 @@ export function SchedulerMain({
     pendingComment,
     setPendingComment,
 
-    usersModalOpen,
-    setUsersModalOpen,
-    projectsModalOpen,
-    setProjectsModalOpen,
-    departmentsModalOpen,
-    setDepartmentsModalOpen,
+    managementModalOpen,
+    setManagementModalOpen,
+    managementModalTab,
+    setManagementModalTab,
     shortcutsModalOpen,
     setShortcutsModalOpen,
     profileModalOpen,
@@ -204,8 +203,20 @@ export function SchedulerMain({
   >(new Map());
 
   const schedulerRef = useRef<HTMLDivElement>(null);
-  const gridRef = useRef<HTMLDivElement>(null);
+  const gridRef = useRef<{
+    scrollContainer: HTMLDivElement;
+    showRowHover: (resourceId: string) => void;
+    hideRowHover: () => void;
+  } | null>(null);
   const eventsContainerRef = useRef<HTMLDivElement>(null);
+  
+  // Extract scroll container ref for usePanning
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (gridRef.current?.scrollContainer) {
+      scrollContainerRef.current = gridRef.current.scrollContainer;
+    }
+  }, [gridRef.current?.scrollContainer]);
 
   // Track scroll position for canvas sticky headers
   const [scrollTop, setScrollTop] = useState(0);
@@ -213,6 +224,12 @@ export function SchedulerMain({
 
   // Search query for filtering resources (moved from SchedulerGrid to sync with events)
   const [searchQuery, setSearchQuery] = useState("");
+
+  // State for row hover highlight
+  const [hoveredResourceId, setHoveredResourceId] = useState<string | null>(null);
+
+  // State for highlighting user in Users Management Modal
+  const [highlightUserId, setHighlightUserId] = useState<string | undefined>(undefined);
 
   const months = useMemo(
     () => generateMonths(workspace.timeline_year),
@@ -229,6 +246,16 @@ export function SchedulerMain({
     () => currentYear === workspace.timeline_year,
     [workspace.timeline_year],
   );
+
+  // 🐛 DEBUG: Log current week marker state
+  useEffect(() => {
+    console.log('🐛 Хроно оверлей DEBUG:', {
+      showCurrentWeekMarker,
+      currentYear,
+      workspaceYear: workspace.timeline_year,
+      currentWeekIndex: getCurrentWeekIndex(workspace.timeline_year),
+    });
+  }, [showCurrentWeekMarker, workspace.timeline_year]);
 
   // Get current user info from token (memoized to prevent unnecessary re-renders)
   const currentUserEmail = useMemo(() => {
@@ -357,15 +384,12 @@ export function SchedulerMain({
     // ✅ 1. Первичная инициализация
     // Ждём когда загрузятся И события И проекты (но не блокируем если одного нет долго)
     if (!isLoading && !historyInitializedRef.current) {
-      console.log(`📝 Инициализация истории: ${events.length} событий, ${projects.length} проектов`);
-      
       // ✅ Инициализируем историю СИНХРОННО
       resetHistory(events, eventZOrder, projects);
       historyInitializedRef.current = true;
     }
     // ✅ 2. Ре-инициализация при рассинхроне (защита от late arrival или потери состояния)
     else if (needsReinitialization) {
-       console.log(`📝 Ре-инициализация истории (рассинхрон): ${events.length} событий (было ${historyEventsCount}), ${projects.length} проектов (было ${historyProjectsCount})`);
        resetHistory(events, eventZOrder, projects);
     }
     
@@ -376,7 +400,6 @@ export function SchedulerMain({
   // Сбрасываем флаг при размонтировании компонента
   React.useEffect(() => {
     return () => {
-      console.log('🧹 Сброс флага истории (размонтирование компонента)');
       historyInitializedRef.current = false;
     };
   }, []);
@@ -543,8 +566,8 @@ export function SchedulerMain({
       schedulerRef,
     });
 
-  // Use gridRef which points to the scrollable right panel
-  usePanning(gridRef, isSpacePressed);
+  // Use scrollContainerRef which points to the scrollable right panel
+  usePanning(scrollContainerRef, isSpacePressed);
 
   // Reset scissors mode when component mounts (new workspace opened)
   useEffect(() => {
@@ -554,7 +577,6 @@ export function SchedulerMain({
 
   // Кэшируем отфильтрованные события для оптимизации
   const sortedEventsWithZOrder = useMemo(() => {
-    console.log('📊 sortedEventsWithZOrder пересчитывается! visibleEvents:', visibleEvents.length, 'filteredResources:', filteredResources.length, 'eventZOrder.size:', eventZOrder?.size || 0);
     const filteredResourceIds = new Set(
       filteredResources.map((r) => r.id),
     );
@@ -813,6 +835,18 @@ export function SchedulerMain({
         unitIndex,
         visibleEvents,
       );
+      console.log('🔍 handleCellClick:', {
+        resourceId,
+        week,
+        unitIndex,
+        free,
+        visibleEventsCount: visibleEvents.length,
+        eventsInCell: visibleEvents.filter(ev =>
+          ev.resourceId === resourceId &&
+          week >= ev.startWeek &&
+          week < ev.startWeek + ev.weeksSpan
+        )
+      });
       if (free === 0) {
         showToast({
           type: "warning",
@@ -900,7 +934,7 @@ export function SchedulerMain({
       unitsTall: contextMenu.event.unitsTall,
       maxUnits: UNITS,
       startWeek: contextMenu.event.startWeek,
-      workspaceId: String(workspace.id) // ✨ Добавлено для tracking использования проектов
+      workspaceId: String(workspace.id) // ✨ Добавлено для tracking использования п��оектов
     });
     setPendingEvent(contextMenu.event);
     setModalOpen(true);
@@ -1018,7 +1052,6 @@ export function SchedulerMain({
       );
       if (free > 0 && unitIndex >= 0 && unitIndex < UNITS) {
         const left =
-          config.resourceW +
           week * config.weekPx +
           config.cellPaddingLeft;
         const top = topFor(
@@ -1298,7 +1331,6 @@ export function SchedulerMain({
         // Уменьшаем зону на 8px со всех сторон для визуального отступа
         const COMMENT_INSET = 8;
         const left =
-          config.resourceW +
           week * config.weekPx +
           config.cellPaddingLeft +
           COMMENT_INSET;
@@ -1321,10 +1353,10 @@ export function SchedulerMain({
             COMMENT_INSET * 2,
           height: heightFor(4, config) - COMMENT_INSET * 2,
         });
-        return; // ВАЖНО: ранний выход, обычные ховеры не работают в режиме комментирования
+        return; // ВАЖНО: ранний выход, обыч��ые ховеры не работают в режиме комментирования
       }
 
-      // ��бычный режим: показываем доступное свободное место
+      // ����бычный режим: показываем доступное свободное место
       const free = getAvailableFreeSpace(
         resourceId,
         week,
@@ -1333,7 +1365,6 @@ export function SchedulerMain({
       );
       if (free > 0 && unitIndex >= 0 && unitIndex < UNITS) {
         const left =
-          config.resourceW +
           week * config.weekPx +
           config.cellPaddingLeft;
         const top = topFor(
@@ -1384,37 +1415,19 @@ export function SchedulerMain({
 
   // Мемоизируем позиции событий чтобы избежать пересчёта при каждом рендере
   const eventPositions = useMemo(() => {
-    console.log('📐 eventPositions пересчитывается!');
     const positions = new Map<string, { left: number; top: number; width: number; height: number }>();
     
     sortedEventsWithZOrder.forEach(event => {
       const neighborInfo = eventNeighbors.get(event.id);
       
       // В режиме производительности отключаем логику склейки
-      // Padding убирается ТОЛЬКО при ПОЛНОЙ склейке (одинаковая высота)
-      const hasAnyLeftNeighbor = !showGaps ? false : 
-        (neighborInfo?.hasFullLeftNeighbor);
-      const hasAnyRightNeighbor = !showGaps ? false : 
-        (neighborInfo?.hasFullRightNeighbor);
-      
-      let paddingLeft = hasAnyLeftNeighbor ? 0 : config.cellPaddingLeft;
-      let paddingRight = hasAnyRightNeighbor ? 0 : config.cellPaddingRight;
-      
-      // DEBUG: проверка padding для событий 10-11 недель
-      if (event.startWeek === 10 || event.startWeek === 11) {
-        console.log(`🔍 [PADDING] Event ${event.id} (week ${event.startWeek}):`, {
-          hasAnyLeftNeighbor,
-          hasAnyRightNeighbor,
-          paddingLeft,
-          paddingRight,
-          'cellPaddingLeft': config.cellPaddingLeft,
-          'cellPaddingRight': config.cellPaddingRight
-        });
-      }
+      // В новой логике v9.0 padding НЕ убирается, а компенсируется через expandMultiplier
+      // Расширение добавляет gap к ширине, который компенсирует убранный padding
+      const paddingLeft = showGaps ? config.cellPaddingLeft : 0;
+      const paddingRight = showGaps ? config.cellPaddingRight : 0;
       
       // Вычисляем базовые координаты
       let left =
-        config.resourceW +
         event.startWeek * config.weekPx +
         paddingLeft;
       const top = topFor(
@@ -1430,38 +1443,15 @@ export function SchedulerMain({
         paddingRight;
       const height = heightFor(event.unitsTall, config);
       
-      // DEBUG: базовая ширина ДО расширения
-      const widthBeforeExpand = width;
-      
       // Применяем расширение на основе множителей (новая логика v3.0)
       if (neighborInfo?.expandLeftMultiplier) {
         const expandAmount = config.gap * neighborInfo.expandLeftMultiplier;
         left -= expandAmount;
         width += expandAmount;
-        
-        // DEBUG
-        if (event.startWeek === 10 || event.startWeek === 11) {
-          console.log(`📏 [expandLeft] Event ${event.id} (week ${event.startWeek}): +${expandAmount}px`);
-        }
       }
       if (neighborInfo?.expandRightMultiplier) {
         const expandAmount = config.gap * neighborInfo.expandRightMultiplier;
         width += expandAmount;
-        
-        // DEBUG: логирование для событий 10-11 недель
-        if (event.startWeek === 10 || event.startWeek === 11) {
-          console.log(`📏 [expandRight] Event ${event.id} (week ${event.startWeek}): +${expandAmount}px`);
-          console.log(`���� [ПРИМЕНЕНИЕ] Event ${event.id} (week ${event.startWeek}):`, {
-            'ширина ДО': widthBeforeExpand,
-            paddingLeft,
-            paddingRight,
-            expandLeftMultiplier: neighborInfo.expandLeftMultiplier,
-            expandRightMultiplier: neighborInfo.expandRightMultiplier,
-            'config.gap': config.gap,
-            'ширина ПОСЛЕ': width,
-            'разница': width - widthBeforeExpand
-          });
-        }
       }
       
       positions.set(event.id, { left, top, width, height });
@@ -1494,6 +1484,9 @@ export function SchedulerMain({
     const cullRight = viewportLeft + viewportWidth + bufferX;
     const cullTop = viewportTop - bufferY;
     const cullBottom = viewportTop + viewportHeight + bufferY;
+
+    // ✅ Вычисляем currentWeekIndex для визуального эффекта прошедших частей
+    const currentWeekIndex = getCurrentWeekIndex(workspace.timeline_year);
 
     return sortedEventsWithZOrder
       .map((event) => {
@@ -1568,6 +1561,7 @@ export function SchedulerMain({
             showPatterns={showPatterns}
             showProjectWeight={showProjectWeight}
             isContextMenuOpen={isContextMenuOpen}
+            currentWeekIndex={currentWeekIndex}
             // Упрощённая логика v3.1: round* флаги (позитивная логика)
             roundTopLeft={!!(neighbors.flags & MASK_ROUND_TL)}
             roundTopRight={!!(neighbors.flags & MASK_ROUND_TR)}
@@ -1604,6 +1598,21 @@ export function SchedulerMain({
             }}
             onClick={handleEventClick}
             onScissorClick={cutEventByBoundary}
+            onMouseEnter={() => {
+              // Вызываем showRowHover через ref (БЕЗ ре-рендера!)
+              if (gridRef.current?.showRowHover) {
+                gridRef.current.showRowHover(event.resourceId);
+              }
+              // Сбрасываем пунктирную рамку при hover на событие
+              handleCellMouseLeave();
+            }}
+            onMouseLeave={() => {
+              // Скрываем hover строки при уходе с события
+              if (gridRef.current?.hideRowHover) {
+                gridRef.current.hideRowHover();
+              }
+            }}
+            data-resource-id={event.resourceId}
             left={left}
             top={top}
             width={width}
@@ -1643,32 +1652,37 @@ export function SchedulerMain({
   // Auto scroll to current week on mount (only if current year matches workspace year)
   React.useEffect(() => {
     if (
-      schedulerRef.current &&
-      gridRef.current &&
+      gridRef.current?.scrollContainer &&
       showCurrentWeekMarker
     ) {
       const currentWeek = getCurrentWeekIndex(
         workspace.timeline_year,
       );
-      const currentWeekLeft =
-        config.resourceW +
-        currentWeek * config.weekPx +
-        config.weekPx / 2;
-      const viewportWidth = schedulerRef.current.clientWidth;
-      const desiredScrollLeft =
-        currentWeekLeft - viewportWidth * 0.5;
+      // Позиция текущей недели (левый край)
+      const currentWeekLeft = currentWeek * config.weekPx;
+      // Отступ: 1 неделя влево от текущей недели
+      const desiredScrollLeft = currentWeekLeft - config.weekPx;
+      const viewportWidth = gridRef.current.scrollContainer.clientWidth;
       const maxScrollLeft = Math.max(
         0,
-        gridRef.current.scrollWidth - viewportWidth,
+        gridRef.current.scrollContainer.scrollWidth - viewportWidth,
       );
-      schedulerRef.current.scrollLeft = clamp(
+      gridRef.current.scrollContainer.scrollLeft = clamp(
         desiredScrollLeft,
         0,
         maxScrollLeft,
       );
+      
+      console.log('🎯 Автоскролл к текущей неделе:', {
+        currentWeek,
+        currentWeekLeft,
+        desiredScrollLeft,
+        actualScrollLeft: gridRef.current.scrollContainer.scrollLeft,
+        viewportWidth,
+        maxScrollLeft,
+      });
     }
   }, [
-    config.resourceW,
     config.weekPx,
     workspace.timeline_year,
     showCurrentWeekMarker,
@@ -1795,31 +1809,28 @@ export function SchedulerMain({
         onToggleComment={handleToggleComment}
         onWeekPxChange={setWeekPx}
         onEventRowHChange={setEventRowH}
-        onOpenUsersModal={() => setUsersModalOpen(true)}
-        onOpenProjectsModal={() => setProjectsModalOpen(true)}
-        onOpenDepartmentsModal={() => setDepartmentsModalOpen(true)}
+        onOpenUsersModal={() => {
+          setManagementModalTab('users');
+          setManagementModalOpen(true);
+        }}
+        onOpenProjectsModal={() => {
+          setManagementModalTab('projects');
+          setManagementModalOpen(true);
+        }}
+        onOpenDepartmentsModal={() => {
+          setManagementModalTab('departments');
+          setManagementModalOpen(true);
+        }}
       />
       
       {/* Realtime Cursors - Collaborative presence */}
-      <RealtimeCursors 
-        workspaceId={String(workspace.id)}
-        schedulerRef={schedulerRef}
-        scrollLeft={scrollLeft}
-        scrollTop={scrollTop}
-      />
+      <RealtimeCursors />
 
       {/* Main scheduler area */}
-      <div
-        ref={schedulerRef}
-        className="flex-1 overflow-auto relative scheduler-container"
-        style={{
-          // Optimizations for smooth scrolling
-          WebkitOverflowScrolling: "touch",
-          willChange: "scroll-position",
-        }}
-      >
+      <div className="flex-1 relative scheduler-container overflow-hidden">
         <SchedulerGrid
           ref={gridRef}
+          scrollRef={schedulerRef} // ✨ Pass ref to SchedulerGrid for panning hook
           config={config}
           accessToken={accessToken}
           months={months}
@@ -1856,6 +1867,24 @@ export function SchedulerMain({
           currentUserDisplayName={currentUserDisplayName}
           currentUserEmail={currentUserEmail}
           currentUserAvatarUrl={currentUserAvatarUrl}
+          // User actions
+          onEditUser={(userId) => {
+            setHighlightUserId(userId);
+            setManagementModalTab('users');
+            setManagementModalOpen(true);
+          }}
+          onDeleteUser={(userId) => {
+            const user = resources.find(r => r.id === userId);
+            if (user) {
+              const confirmed = window.confirm(
+                `Вы уверены, что хотите удалить сотрудника "${user.fullName}"?\n\n` +
+                `⚠️ ВНИМАНИЕ: Все события этого сотрудника также будут удалены!`
+              );
+              if (confirmed) {
+                handleDeleteUser(userId);
+              }
+            }
+          }}
         >
           {/* ✨ Gap Handles - ручки для ресайза границ между событиями */}
           {gridChildren}
@@ -1874,6 +1903,7 @@ export function SchedulerMain({
         handleModalSave={handleModalSave}
         projects={projects}
         resources={resources}
+        events={events}
 
         // Comment Modal
         commentModalOpen={commentModalOpen}
@@ -1881,28 +1911,32 @@ export function SchedulerMain({
         setPendingComment={setPendingComment}
         handleCommentSave={handleCommentSave}
 
-        // Users Modal
-        usersModalOpen={usersModalOpen}
-        setUsersModalOpen={setUsersModalOpen}
+        // Unified Management Modal
+        managementModalOpen={managementModalOpen}
+        setManagementModalOpen={(open) => {
+          if (!open) setHighlightUserId(undefined); // Reset highlight when closing
+          setManagementModalOpen(open);
+        }}
+        managementModalTab={managementModalTab}
+        
+        // Users props
         departments={departments}
         companies={companies}
         grades={grades}
         createResource={createResource}
         updateResource={updateResource}
         deleteResource={deleteResource}
-        getGradeName={useScheduler().getGradeName}
+        uploadUserAvatar={uploadUserAvatar}
+        highlightUserId={highlightUserId}
 
-        // Projects Modal
-        projectsModalOpen={projectsModalOpen}
-        setProjectsModalOpen={setProjectsModalOpen}
+        // Projects props
         eventPatterns={eventPatterns}
         createProject={createProject}
         updateProject={updateProject}
         handleDeleteProject={handleDeleteProject}
+        resetHistory={resetHistory}
 
-        // Departments Modal
-        departmentsModalOpen={departmentsModalOpen}
-        setDepartmentsModalOpen={setDepartmentsModalOpen}
+        // Departments props
         createDepartment={createDepartment}
         deleteDepartment={deleteDepartment}
         getDepartmentUsersCount={getDepartmentUsersCount}

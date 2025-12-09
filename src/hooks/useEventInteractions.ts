@@ -215,12 +215,12 @@ export function useEventInteractions({
       const cursorTopAbs = ev.clientY - pointerStateRef.current.tableRect.top;
 
       // 🔍 КРИТИЧНО: Используем РЕАЛЬНЫЕ padding (которые были применены при рендере)
-      const desiredLeftRel = desiredLeftAbs - config.resourceW - pointerStateRef.current.realPaddingLeft;
+      const desiredLeftRel = desiredLeftAbs - pointerStateRef.current.realPaddingLeft;
       const maxLeftRel = Math.max(0, (WEEKS - pointerStateRef.current.evData.weeksSpan) * config.weekPx);
       const clampedRel = clamp(desiredLeftRel, 0, maxLeftRel);
       const snappedWeek = Math.round(clampedRel / config.weekPx);
       const snappedRel = clamp(snappedWeek * config.weekPx, 0, maxLeftRel);
-      const snappedLeftAbs = config.resourceW + snappedRel + pointerStateRef.current.realPaddingLeft;
+      const snappedLeftAbs = snappedRel + pointerStateRef.current.realPaddingLeft;
 
       // ✅ Используем реальную позицию курсора для определения ресурса (строки)
       // Но передаём offsetUnit чтобы unitStart внутри строки учитывал точку захвата
@@ -299,7 +299,7 @@ export function useEventInteractions({
         // 🔍 КРИТИЧНО: Пересчитываем snappedLeftAbs с ОБНОВЛЁННЫМ padding И расширением!
         // При рендере событие смещается влево на expandLeftAmount, поэтому мы тоже должны это учесть
         const finalSnappedRel = pointerStateRef.current.lastValidModel.startWeek * config.weekPx;
-        let finalSnappedLeftAbs = config.resourceW + finalSnappedRel + pointerStateRef.current.realPaddingLeft;
+        let finalSnappedLeftAbs = finalSnappedRel + pointerStateRef.current.realPaddingLeft;
         
         // ⚠️ КРИТИЧНО: Вычитаем expandLeftAmount чтобы событие смещалось влево как при рендере!
         finalSnappedLeftAbs -= pointerStateRef.current.expandLeftAmount;
@@ -411,7 +411,7 @@ export function useEventInteractions({
             + (savedState.expandLeftAmount || 0)
             + (savedState.expandRightAmount || 0);
 
-          let correctLeft = config.resourceW + savedState.evData.startWeek * config.weekPx + savedState.realPaddingLeft;
+          let correctLeft = savedState.evData.startWeek * config.weekPx + savedState.realPaddingLeft;
           correctLeft -= (savedState.expandLeftAmount || 0); // ⚠️ Вычитаем расширение влево!
           
           const correctTop = topFor(savedState.evData.resourceId, savedState.evData.unitStart, resources, visibleDepartments, config);
@@ -653,7 +653,7 @@ export function useEventInteractions({
       newWidth = Math.max(newWidth, 24);
       newHeight = Math.max(newHeight, 4);
 
-      const maxLeftAbs = config.resourceW + (WEEKS * config.weekPx) - 10;
+      const maxLeftAbs = (WEEKS * config.weekPx) - 10;
       newLeft = clamp(newLeft, config.cellPaddingLeft, maxLeftAbs);
 
       // Snap to grid
@@ -673,7 +673,7 @@ export function useEventInteractions({
           if (newStartWeek + newWeeksSpan > WEEKS) newWeeksSpan = WEEKS - newStartWeek;
           // 🔍 КРИТИЧНО: Используем РЕАЛЬНЫЕ padding (которые были применены при рендере)
           newWidth = newWeeksSpan * config.weekPx - pointerStateRef.current.realPaddingLeft - pointerStateRef.current.realPaddingRight;
-          newLeft = config.resourceW + newStartWeek * config.weekPx + pointerStateRef.current.realPaddingLeft;
+          newLeft = newStartWeek * config.weekPx + pointerStateRef.current.realPaddingLeft;
           // ✅ СОХРАНЯЕМ вычисленные значения для использования в onUp
           pointerStateRef.current.currentStartWeek = newStartWeek;
           pointerStateRef.current.currentWeeksSpan = newWeeksSpan;
@@ -849,7 +849,7 @@ export function useEventInteractions({
       onEventsUpdate(prev => prev.map(e => e.id === updatedEvent.id ? updatedEvent : e));
       
       // ✅ Используем snapshot для сохранения истории
-      // Это гарантирует строгую последова��ельность изменений без пропусков
+      // Это гарантирует строгую последоваельность изменений без пропусков
       onSaveHistory(
         currentEvents.map(e => e.id === updatedEvent.id ? updatedEvent : e),
         currentZOrder,

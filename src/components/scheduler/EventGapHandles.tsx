@@ -41,6 +41,18 @@ export const EventGapHandles: React.FC<EventGapHandlesProps> = React.memo(({
         const resourceTop = resourcePositions.get(gap.resourceId);
         if (resourceTop === undefined) return null;
         
+        // ✅ Проверяем загружаются ли события (временные ID)
+        const isEvent1Pending = gap.event1.id.startsWith('ev_temp_');
+        const isEvent2Pending = gap.event2.id.startsWith('ev_temp_');
+        const isAnyEventPending = isEvent1Pending || isEvent2Pending;
+        
+        // Если хотя бы одно событие грузится - блокируем gap handle
+        const handleColor = isAnyEventPending 
+          ? 'rgba(156, 163, 175, 0.6)' // серый (gray-400)
+          : 'rgba(59, 130, 246, 0.6)'; // синий (blue-500)
+        
+        const cursor = isAnyEventPending ? 'default' : (gap.type === 'vertical' ? 'ns-resize' : 'ew-resize');
+        
         if (gap.type === 'vertical') {
           // Вертикальный gap handle (между событиями сверху-снизу)
           // Находим на каких неделях оба события присутствуют (пересечение)
@@ -55,7 +67,7 @@ export const EventGapHandles: React.FC<EventGapHandlesProps> = React.memo(({
           
           // Вычисляем позицию в ЦЕНТРЕ пересечения
           const centerWeek = overlapStartWeek + (overlapEndWeek - overlapStartWeek) / 2;
-          const left = config.resourceW + config.cellPaddingLeft + (centerWeek * config.weekPx);
+          const left = config.cellPaddingLeft + (centerWeek * config.weekPx);
           
           // Позиция по вертикали - СМЕЩАЕМ ВНИЗ на 0.5 gap (в центр промежутка)
           const top = resourceTop + config.rowPaddingTop + (gap.unitBoundary! * config.unitStride) - config.gap / 2;
@@ -81,7 +93,7 @@ export const EventGapHandles: React.FC<EventGapHandlesProps> = React.memo(({
                 top: `${top - clickZoneHeight / 2}px`,
                 width: `${clickZoneWidth}px`, // фиксированная ширина 40px
                 height: `${clickZoneHeight}px`, // высота меньшего события
-                cursor: 'ns-resize',
+                cursor: cursor,
                 pointerEvents: 'auto',
                 zIndex: 200,
                 display: 'flex',
@@ -92,15 +104,23 @@ export const EventGapHandles: React.FC<EventGapHandlesProps> = React.memo(({
               }}
               onPointerDown={(e) => {
                 e.stopPropagation();
+                // Блокируем gap resize если хотя бы одно событие грузится
+                if (isAnyEventPending) {
+                  console.log('⏸️ Gap resize заблокирован - событие грузится:', {
+                    event1: { id: gap.event1.id, pending: isEvent1Pending },
+                    event2: { id: gap.event2.id, pending: isEvent2Pending },
+                  });
+                  return;
+                }
                 onGapMouseDown(gap, e);
               }}
             >
               {/* Видимый handle - маленькая пипка синего цвета */}
               <div
                 style={{
-                  width: `${handleWidth}px`, // маленькая видимая пипка (1 gap)
-                  height: `${handleHeight}px`, // маленькая видимая пипка (4px)
-                  background: 'rgba(59, 130, 246, 0.6)', // синий цвет
+                  width: `${handleWidth}px`, // маленькая видимая пипка (4px)
+                  height: `${handleHeight}px`, // маленькая видимая пипка (1 gap)
+                  background: handleColor,
                   borderRadius: '2px',
                   boxShadow: '0 0 4px rgba(59, 130, 246, 0.4)',
                 }}
@@ -122,7 +142,7 @@ export const EventGapHandles: React.FC<EventGapHandlesProps> = React.memo(({
           const top = resourceTop + config.rowPaddingTop + (centerUnit * config.unitStride);
           
           // Позиция по горизонтали - СМЕЩАЕМ ВЛЕВО на 1 gap
-          const left = config.resourceW + config.cellPaddingLeft + (gap.weekBoundary! * config.weekPx) - config.gap;
+          const left = config.cellPaddingLeft + (gap.weekBoundary! * config.weekPx) - config.gap;
           
           // Размеры: просто квадрат 40×40px
           const clickZoneWidth = 40; // фиксированная ширина
@@ -140,7 +160,7 @@ export const EventGapHandles: React.FC<EventGapHandlesProps> = React.memo(({
                 top: `${top - clickZoneHeight / 2}px`,
                 width: `${clickZoneWidth}px`, // фиксированная ширина 40px
                 height: `${clickZoneHeight}px`, // фиксированная высота 40px
-                cursor: 'ew-resize',
+                cursor: cursor,
                 pointerEvents: 'auto',
                 zIndex: 200,
                 display: 'flex',
@@ -151,6 +171,14 @@ export const EventGapHandles: React.FC<EventGapHandlesProps> = React.memo(({
               }}
               onPointerDown={(e) => {
                 e.stopPropagation();
+                // Блокируем gap resize если хотя бы одно событие грузится
+                if (isAnyEventPending) {
+                  console.log('⏸️ Gap resize заблокирован - событие грузится:', {
+                    event1: { id: gap.event1.id, pending: isEvent1Pending },
+                    event2: { id: gap.event2.id, pending: isEvent2Pending },
+                  });
+                  return;
+                }
                 onGapMouseDown(gap, e);
               }}
             >
@@ -159,7 +187,7 @@ export const EventGapHandles: React.FC<EventGapHandlesProps> = React.memo(({
                 style={{
                   width: `${handleWidth}px`, // маленькая видимая пипка (4px)
                   height: `${handleHeight}px`, // маленькая видимая пипка (1 gap)
-                  background: 'rgba(59, 130, 246, 0.6)', // синий цвет
+                  background: handleColor,
                   borderRadius: '2px',
                   boxShadow: '0 0 4px rgba(59, 130, 246, 0.4)',
                 }}

@@ -102,6 +102,15 @@ export function HeaderOnlineUsers({ workspaceId, accessToken, className }: Heade
       heartbeatFailureCount.current = 0;
     } catch (error: any) {
       heartbeatFailureCount.current++;
+      
+      // Если ошибка авторизации (401) - автоматически перезагружаем страницу
+      // Это запустит checkAuth() в App.tsx который обновит токен
+      if (error.message?.includes('Unauthorized') || error.message?.includes('invalid JWT')) {
+        console.warn(`⚠️ Heartbeat: ошибка авторизации, перезагрузка для обновления токена...`);
+        window.location.reload();
+        return;
+      }
+      
       if (heartbeatFailureCount.current >= 3) {
         console.error(`❌ Heartbeat: ошибка (попытка ${heartbeatFailureCount.current})`);
       }

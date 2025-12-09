@@ -10,6 +10,7 @@ export interface ApiOptions {
   requireAuth?: boolean; // Требуется ли авторизация пользователя
   retries?: number; // Количество повторных попыток
   retryDelay?: number; // Базовая задержка между попытками (мс)
+  timeout?: number; // Максимальное время ожидания ответа (мс), по умолчанию 15000
 }
 
 /**
@@ -47,7 +48,8 @@ export async function apiRequest<T>(
     token, 
     requireAuth = true,
     retries = 2, // По умолчанию 2 повторных попытки
-    retryDelay = 1000 // По умолчанию 1 секунда базовая задержка
+    retryDelay = 1000, // По умолчанию 1 секунда базовая задержка
+    timeout = 15000 // По умолчанию 15 секунд максимальное время ожидания
   } = options;
   
   let lastError: Error | null = null;
@@ -74,54 +76,82 @@ export async function apiRequest<T>(
       
       const url = `${BASE_URL}${endpoint}`;
       
-      const response = await fetch(url, {
-        method,
-        headers,
-        body: body ? JSON.stringify(body) : undefined
-      });
+      // ⏱️ Timeout защита с AbortController
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
       
-      if (!response.ok) {
-        const errorText = await response.text();
+      try {
+        const response = await fetch(url, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+          signal: controller.signal
+        });
         
-        // Парсим Cloudflare ошибку
-        const cloudflareError = parseCloudflareError(errorText);
+        clearTimeout(timeoutId); // Отменяем таймер если успешно
         
-        if (cloudflareError) {
-          // Cloudflare Error - короткое сообщение
-          console.error(`❌ ${cloudflareError} (попытка ${attempt + 1}/${retries + 1})`);
+        if (!response.ok) {
+          const errorText = await response.text();
           
-          // Если это 1105 и не последняя попытка - retry
-          if (cloudflareError.includes('1105') && attempt < retries) {
-            const delayMs = retryDelay * Math.pow(2, attempt); // Экспоненциальная задержка
+          // Парсим Cloudflare ошибку
+          const cloudflareError = parseCloudflareError(errorText);
+          
+          if (cloudflareError) {
+            // Cloudflare Error - короткое сообщение
+            console.error(`❌ ${cloudflareError} (попытка ${attempt + 1}/${retries + 1})`);
+            
+            // Если это 1105 и не последняя попытка - retry
+            if (cloudflareError.includes('1105') && attempt < retries) {
+              const delayMs = retryDelay * Math.pow(2, attempt); // Экспоненциальная задержка
+              console.log(`⏳ Повтор через ${delayMs}ms...`);
+              await delay(delayMs);
+              lastError = new Error(cloudflareError);
+              continue; // Retry
+            }
+            
+            throw new Error(cloudflareError);
+          }
+          
+          // Обычная ошибка API
+          console.error(`❌ API Error ${response.status}:`, errorText.substring(0, 200));
+          
+          // If we get a 401, token is invalid - clear auth and reload
+          if (response.status === 401 && requireAuth) {
+            console.error('❌ Токен невалиден (401), очистка сессии...');
+            const { removeStorageItem } = await import('../../utils/storage');
+            await removeStorageItem('auth_access_token');
+            await removeStorageItem('auth_session_id');
+            await removeStorageItem('cache_workspaces_list');
+            
+            // Reload page to force re-authentication
+            window.location.reload();
+          }
+          
+          throw new Error(`API Error ${response.status}: ${errorText.substring(0, 200)}`);
+        }
+        
+        const data = await response.json();
+        return data;
+      } catch (fetchError) {
+        clearTimeout(timeoutId); // Отменяем таймер в любом случае
+        
+        // Проверяем если это timeout
+        if (fetchError.name === 'AbortError') {
+          console.error(`⏱️ Request timeout после ${timeout}ms (попытка ${attempt + 1}/${retries + 1})`);
+          
+          if (attempt < retries) {
+            const delayMs = retryDelay * Math.pow(2, attempt);
             console.log(`⏳ Повтор через ${delayMs}ms...`);
             await delay(delayMs);
-            lastError = new Error(cloudflareError);
+            lastError = new Error(`Request timeout после ${timeout}ms`);
             continue; // Retry
           }
           
-          throw new Error(cloudflareError);
+          throw new Error(`Request timeout после ${timeout}ms и ${retries + 1} попыток`);
         }
         
-        // Обычная ошибка API
-        console.error(`❌ API Error ${response.status}:`, errorText.substring(0, 200));
-        
-        // If we get a 401, token is invalid - clear auth and reload
-        if (response.status === 401 && requireAuth) {
-          console.error('❌ Токен невалиден (401), очистка сессии...');
-          const { removeStorageItem } = await import('../../utils/storage');
-          await removeStorageItem('auth_access_token');
-          await removeStorageItem('auth_session_id');
-          await removeStorageItem('cache_workspaces_list');
-          
-          // Reload page to force re-authentication
-          window.location.reload();
-        }
-        
-        throw new Error(`API Error ${response.status}: ${errorText.substring(0, 200)}`);
+        throw fetchError; // Пробрасываем другие ошибки fetch
       }
-      
-      const data = await response.json();
-      return data;
     } catch (error) {
       if (error instanceof TypeError && error.message === 'Failed to fetch') {
         console.error(`❌ Failed to fetch (попытка ${attempt + 1}/${retries + 1})`);
@@ -158,7 +188,8 @@ export async function apiRequestNoResponse(
     token, 
     requireAuth = true,
     retries = 2,
-    retryDelay = 1000
+    retryDelay = 1000,
+    timeout = 15000
   } = options;
   
   let lastError: Error | null = null;
@@ -185,47 +216,75 @@ export async function apiRequestNoResponse(
       
       const url = `${BASE_URL}${endpoint}`;
       
-      const response = await fetch(url, {
-        method,
-        headers,
-        body: body ? JSON.stringify(body) : undefined
-      });
+      // ⏱️ Timeout защита с AbortController
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
       
-      if (!response.ok) {
-        const errorText = await response.text();
+      try {
+        const response = await fetch(url, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+          signal: controller.signal
+        });
         
-        // Парсим Cloudflare ошибку
-        const cloudflareError = parseCloudflareError(errorText);
+        clearTimeout(timeoutId); // Отменяем таймер если успешно
         
-        if (cloudflareError) {
-          console.error(`❌ ${cloudflareError} (попытка ${attempt + 1}/${retries + 1})`);
+        if (!response.ok) {
+          const errorText = await response.text();
           
-          if (cloudflareError.includes('1105') && attempt < retries) {
+          // Парсим Cloudflare ошибку
+          const cloudflareError = parseCloudflareError(errorText);
+          
+          if (cloudflareError) {
+            console.error(`❌ ${cloudflareError} (попытка ${attempt + 1}/${retries + 1})`);
+            
+            if (cloudflareError.includes('1105') && attempt < retries) {
+              const delayMs = retryDelay * Math.pow(2, attempt);
+              console.log(`⏳ Повтор через ${delayMs}ms...`);
+              await delay(delayMs);
+              lastError = new Error(cloudflareError);
+              continue;
+            }
+            
+            throw new Error(cloudflareError);
+          }
+          
+          console.error(`❌ API Error ${response.status}:`, errorText.substring(0, 200));
+          
+          if (response.status === 401 && requireAuth) {
+            console.error('❌ Токен невалиден (401), очистка сессии...');
+            const { removeStorageItem } = await import('../../utils/storage');
+            await removeStorageItem('auth_access_token');
+            await removeStorageItem('auth_session_id');
+            await removeStorageItem('cache_workspaces_list');
+            window.location.reload();
+          }
+          
+          throw new Error(`API Error ${response.status}: ${errorText.substring(0, 200)}`);
+        }
+        
+        return; // Success
+      } catch (fetchError) {
+        clearTimeout(timeoutId); // Отменяем таймер в любом случае
+        
+        // Проверяем если это timeout
+        if (fetchError.name === 'AbortError') {
+          console.error(`⏱️ Request timeout после ${timeout}ms (попытка ${attempt + 1}/${retries + 1})`);
+          
+          if (attempt < retries) {
             const delayMs = retryDelay * Math.pow(2, attempt);
             console.log(`⏳ Повтор через ${delayMs}ms...`);
             await delay(delayMs);
-            lastError = new Error(cloudflareError);
-            continue;
+            lastError = new Error(`Request timeout после ${timeout}ms`);
+            continue; // Retry
           }
           
-          throw new Error(cloudflareError);
+          throw new Error(`Request timeout после ${timeout}ms и ${retries + 1} попыток`);
         }
         
-        console.error(`❌ API Error ${response.status}:`, errorText.substring(0, 200));
-        
-        if (response.status === 401 && requireAuth) {
-          console.error('❌ Токен невалиден (401), очистка сессии...');
-          const { removeStorageItem } = await import('../../utils/storage');
-          await removeStorageItem('auth_access_token');
-          await removeStorageItem('auth_session_id');
-          await removeStorageItem('cache_workspaces_list');
-          window.location.reload();
-        }
-        
-        throw new Error(`API Error ${response.status}: ${errorText.substring(0, 200)}`);
+        throw fetchError; // Пробрасываем другие ошибки fetch
       }
-      
-      return; // Success
     } catch (error) {
       if (error instanceof TypeError && error.message === 'Failed to fetch') {
         console.error(`❌ Failed to fetch (попытка ${attempt + 1}/${retries + 1})`);

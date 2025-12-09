@@ -1,4 +1,4 @@
-import svgPaths from "./svg-biajfpvj42";
+import svgPaths from "./svg-ucc8hsc2zq";
 
 function LeftRound() {
   return (
@@ -36,7 +36,7 @@ function RightRound() {
 
 function Frame() {
   return (
-    <div className="absolute h-[17px] left-0 right-[-8px] top-0" data-name="Frame">
+    <div className="absolute h-[17px] left-0 right-0 top-0" data-name="Frame">
       <LeftRound />
       <RightRound />
     </div>
@@ -45,7 +45,7 @@ function Frame() {
 
 function Panel() {
   return (
-    <div className="absolute h-[10px] left-0 right-[-8px] top-[16px]" data-name="Panel">
+    <div className="absolute h-[10px] left-0 right-0 top-[16px]" data-name="Panel">
       <svg className="block size-full" fill="none" preserveAspectRatio="none" viewBox="0 0 332 10">
         <g id="Panel">
           <g id="divider">

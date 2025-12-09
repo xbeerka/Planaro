@@ -459,11 +459,13 @@ function applyExpansionRules(
     if (geometry.left.hasInnerConnection) {
       decision.expandLeft = 1;
       decision.reason = "horizontal-glue-left";
+      if (DEBUG) console.log(`⬅️ RULE 1: Event week=${event.startWeek} units=${event.unitStart}-${event.unitStart + event.unitsTall - 1} expandLeft=1 (${geometry.left.neighbors.length} left neighbors)`);
     }
     
     if (geometry.right.hasInnerConnection) {
       decision.expandRight = 1;
       decision.reason = "horizontal-glue-right";
+      if (DEBUG) console.log(`➡️ RULE 1: Event week=${event.startWeek} units=${event.unitStart}-${event.unitStart + event.unitsTall - 1} expandRight=1 (${geometry.right.neighbors.length} right neighbors)`);
     }
   }
   

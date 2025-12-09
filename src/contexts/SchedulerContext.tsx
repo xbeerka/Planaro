@@ -13,12 +13,14 @@ import {
   CreateProjectData,
   UpdateProjectData
 } from '../services/api';
+import { usersApi } from '../services/api/users';
 import { getStorageJSON, setStorageJSON } from '../utils/storage';
 import { usePendingOperations } from '../hooks/usePendingOperations';
 import { useSyncManager } from '../hooks/useSyncManager';
 import { projectId } from '../utils/supabase/info';
 import { handleCloudflareError } from '../utils/cloudflareErrorHandler';
 import { toast } from 'sonner@2.0.3';
+import { throttledRequest } from '../utils/requestThrottle';
 
 interface SchedulerContextType {
   // Data
@@ -68,6 +70,7 @@ interface SchedulerContextType {
   createResource: (data: CreateResourceData) => Promise<void>;
   updateResource: (id: string, data: UpdateResourceData) => Promise<void>;
   deleteResource: (id: string) => Promise<void>;
+  uploadUserAvatar: (userId: string, file: File) => Promise<string>;
   
   // Project operations
   createProject: (data: CreateProjectData) => Promise<void>;
@@ -582,11 +585,18 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
       
       if (isFullSync) {
         fullSyncCounter = 0;
-        console.log('🔄 Full Sync: загрузка ВСЕХ событий (для обнаружения удалений)');
         
         try {
-          // Загружаем ВСЕ события
-          const allEvents = await eventsApi.getAll(accessToken, workspaceId);
+          // 🛡️ Throttled request - защита от перегрузки
+          const allEvents = await throttledRequest(
+            `events-full-sync-${workspaceId}`,
+            () => eventsApi.getAll(accessToken, workspaceId)
+          );
+          
+          if (!allEvents) {
+            // console.log('ℹ️ Full Sync: пропущен (throttle)');
+            return;
+          }
           
           setEventsState(prev => {
             // Сравниваем с текущими событиями
@@ -655,7 +665,6 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
             
             const result = [...mergedEvents, ...newServerEvents];
             
-            console.log(`✅ Full Sync: загружено ${result.length} событий (было ${prev.length}, с сервера ${filtered.length}, новых ${newServerEvents.length})`);
             loadedEventIds.current = new Set(result.map(e => e.id));
             
             // Обновляем кэш
@@ -678,16 +687,24 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
       } else {
         // Delta Sync - только изменения
         try {
-          // Загружаем ТОЛЬКО изменённые события
-          const { events: changedEvents, timestamp } = await eventsApi.getChanges(
-            accessToken,
-            workspaceId,
-            lastSyncTimestampRef.current || undefined
+          // 🛡️ Throttled request - защита от перегрузки
+          const result = await throttledRequest(
+            `events-delta-sync-${workspaceId}`,
+            () => eventsApi.getChanges(
+              accessToken,
+              workspaceId,
+              lastSyncTimestampRef.current || undefined
+            )
           );
           
+          if (!result) {
+            // console.log('ℹ️ Delta Sync: пропущен (throttle)');
+            return;
+          }
+          
+          const { events: changedEvents, timestamp } = result;
+          
           if (changedEvents.length > 0) {
-            console.log(`📥 Delta Sync: получено ${changedEvents.length} изменений`);
-            
             setEventsState(prev => {
               // Создаём Map для быстрого поиска
               const changedMap = new Map(changedEvents.map(e => [e.id, e]));
@@ -706,7 +723,6 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
               // Фильтруем удалённые события
               const filtered = merged.filter(event => !deletedEventIdsRef.current.has(event.id));
               
-              console.log(`✅ Delta Sync: применено ${changedEvents.length} изменений`);
               loadedEventIds.current = new Set(filtered.map(e => e.id));
               
               // Обновляем кэш
@@ -761,7 +777,16 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
       }
 
       try {
-        const serverProjects = await projectsApi.getAll(accessToken, workspaceId);
+        // 🛡️ Throttled request - защита от перегрузки
+        const serverProjects = await throttledRequest(
+          `projects-sync-${workspaceId}`,
+          () => projectsApi.getAll(accessToken, workspaceId)
+        );
+        
+        if (!serverProjects) {
+          // console.log('ℹ️ Projects Sync: пропущен (throttle)');
+          return;
+        }
 
         setProjects(prev => {
           // Сравниваем с текущими проектами через JSON
@@ -819,7 +844,16 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
       }
 
       try {
-        const serverResources = await resourcesApi.getAll(accessToken, workspaceId);
+        // 🛡️ Throttled request - защита от перегрузки
+        const serverResources = await throttledRequest(
+          `resources-sync-${workspaceId}`,
+          () => resourcesApi.getAll(accessToken, workspaceId)
+        );
+        
+        if (!serverResources) {
+          // console.log('ℹ️ Resources Sync: пропущен (throttle)');
+          return;
+        }
 
         setResources(prev => {
           // Сравниваем с текущими ресурсами через JSON
@@ -877,7 +911,16 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
       }
 
       try {
-        const serverDepartments = await departmentsApi.getAll(accessToken, workspaceId);
+        // 🛡️ Throttled request - защита от перегрузки
+        const serverDepartments = await throttledRequest(
+          `departments-sync-${workspaceId}`,
+          () => departmentsApi.getAll(accessToken, workspaceId)
+        );
+        
+        if (!serverDepartments) {
+          // console.log('ℹ️ Departments Sync: пропущен (throttle)');
+          return;
+        }
 
         setDepartments(prev => {
           // Сравниваем с текущими департаментами через JSON
@@ -1005,8 +1048,6 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
   }, [sortedDepartments]);
 
   const visibleEvents = useMemo(() => {
-    console.log(`🔍 Пересчёт visibleEvents: всего событий ${events.length}, ресурсов ${resources.length}, департаментов ${departments.length}`);
-    
     const filtered = events.filter(event => {
       const resource = resources.find(r => r.id === event.resourceId);
       if (!resource) {
@@ -1289,6 +1330,12 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
     
     console.log('✅ Сотрудник удален:', id);
   }, [accessToken, workspaceId]);
+
+  const uploadUserAvatar = useCallback(async (userId: string, file: File): Promise<string> => {
+    const avatarUrl = await usersApi.uploadAvatar(userId, file);
+    console.log('✅ Аватар загружен для пользователя:', userId, '→', avatarUrl);
+    return avatarUrl;
+  }, []);
 
   // Project operations
   const createProject = useCallback(async (data: CreateProjectData) => {
@@ -1577,6 +1624,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
     createResource,
     updateResource,
     deleteResource,
+    uploadUserAvatar,
     createProject,
     updateProject,
     deleteProject,
@@ -1616,6 +1664,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
     createResource,
     updateResource,
     deleteResource,
+    uploadUserAvatar,
     createProject,
     updateProject,
     deleteProject,

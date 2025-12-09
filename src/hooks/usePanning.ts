@@ -72,7 +72,14 @@ export function usePanning(
       // Get the scrollable container
       const scrollable = scrollableRef.current;
       if (!scrollable) {
-        console.warn('⚠️ usePanning: scrollableRef.current is null');
+        // console.warn('⚠️ usePanning: scrollableRef.current is null');
+        return;
+      }
+      
+      // Use a safer check than instanceof Element to avoid cross-frame issues
+      // and check for required properties
+      if (typeof scrollable.scrollLeft !== 'number') {
+        console.warn('⚠️ usePanning: scrollableRef.current does not look like a scrollable element');
         return;
       }
       
@@ -91,15 +98,28 @@ export function usePanning(
       // Set cursor to grabbing globally
       document.body.style.cursor = 'grabbing';
       
+      // Safe logging with primitive values only
+      const targetClassName = typeof target.className === 'string' 
+        ? target.className 
+        : (target.className && typeof target.className === 'object' && 'baseVal' in target.className)
+          ? String((target.className as any).baseVal)
+          : String(target.className);
+
+      const scrollableClassName = typeof scrollable.className === 'string'
+        ? scrollable.className
+        : String(scrollable.className);
+
       console.log('🖱️ Panning started:', {
         button: e.button,
         buttonName: isMiddle ? 'middle' : 'space+left',
         startX: e.clientX,
         startY: e.clientY,
-        scrollLeft: scrollable.scrollLeft,
-        scrollTop: scrollable.scrollTop,
-        targetElement: target.tagName,
-        targetClass: target.className
+        initialScrollLeft: scrollable.scrollLeft,
+        initialScrollTop: scrollable.scrollTop,
+        targetTagName: target.tagName,
+        targetClass: targetClassName,
+        scrollableTagName: scrollable.tagName,
+        scrollableClassName: scrollableClassName
       });
     };
 
@@ -115,17 +135,28 @@ export function usePanning(
       const dx = e.clientX - panStartRef.current.x;
       const dy = e.clientY - panStartRef.current.y;
       
+      const startScrollLeft = panStartRef.current.scrollLeft;
+      const startScrollTop = panStartRef.current.scrollTop;
+      
       // Apply scroll delta (inverted for natural panning feel)
-      scrollable.scrollLeft = panStartRef.current.scrollLeft - dx;
-      scrollable.scrollTop = panStartRef.current.scrollTop - dy;
+      // Ensure values are valid numbers
+      const newScrollLeft = Math.max(0, (startScrollLeft || 0) - dx);
+      const newScrollTop = Math.max(0, (startScrollTop || 0) - dy);
+      
+      scrollable.scrollLeft = newScrollLeft;
+      scrollable.scrollTop = newScrollTop;
       
       // Debug log every 100ms
       if (Math.abs(dx) % 50 < 5 || Math.abs(dy) % 50 < 5) {
         console.log('🖱️ Panning move:', {
           dx,
           dy,
-          newScrollLeft: scrollable.scrollLeft,
-          newScrollTop: scrollable.scrollTop
+          startScrollLeft,
+          startScrollTop,
+          calcScrollLeft: newScrollLeft,
+          calcScrollTop: newScrollTop,
+          actualScrollLeft: scrollable.scrollLeft,
+          actualScrollTop: scrollable.scrollTop
         });
       }
     };
