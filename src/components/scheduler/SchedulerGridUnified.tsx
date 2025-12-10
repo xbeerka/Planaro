@@ -1,4 +1,10 @@
-import React, { useMemo, forwardRef } from "react";
+import React, {
+  useMemo,
+  forwardRef,
+  useState,
+  useRef,
+  useEffect,
+} from "react";
 import {
   Department,
   Resource,
@@ -15,13 +21,18 @@ import {
   sortResourcesByGrade,
 } from "../../utils/scheduler";
 import { LayoutConfig } from "../../utils/schedulerLayout";
-import { X } from "lucide-react";
+import { X, Settings, Trash2 } from "lucide-react";
 import svgPaths from "../../imports/svg-k0w039fxgr";
 import Fakebottomfix from "../../imports/Fakebottomfix";
 import Header from "../../imports/Header";
 import { useScheduler } from "../../contexts/SchedulerContext";
 import { ResourceRowWithMenu } from "./ResourceRowWithMenu";
-import { CustomScrollbars } from "./CustomScrollbars";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
 
 interface SchedulerGridProps {
   config: LayoutConfig;
@@ -60,6 +71,7 @@ interface SchedulerGridProps {
   onSignOut?: () => void;
   onOpenProfileModal?: () => void;
   onOpenSettingsModal?: () => void;
+  onRenameWorkspace?: (newName: string) => void;
   currentUserDisplayName?: string;
   currentUserEmail?: string;
   currentUserAvatarUrl?: string;
@@ -403,21 +415,137 @@ function IconlyRegularLightArrowUp() {
   );
 }
 
-function HeaderTitle({ name }: { name: string }) {
+function HeaderTitle({
+  name,
+  onRename,
+  onOpenSettings,
+  onDelete,
+}: {
+  name: string;
+  onRename?: (newName: string) => void;
+  onOpenSettings?: () => void;
+  onDelete?: () => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editValue, setEditValue] = useState(name);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setEditValue(name);
+  }, [name]);
+
+  useEffect(() => {
+    if (isEditing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [isEditing]);
+
+  const handleStartEdit = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsEditing(true);
+  };
+
+  const handleSave = () => {
+    const trimmedValue = editValue.trim();
+    if (trimmedValue && trimmedValue !== name) {
+      onRename?.(trimmedValue);
+    } else {
+      setEditValue(name);
+    }
+    setIsEditing(false);
+  };
+
+  const handleCancel = () => {
+    setEditValue(name);
+    setIsEditing(false);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleSave();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      handleCancel();
+    }
+  };
+
+  if (isEditing) {
+    return (
+      <div className="bg-[#f6f6f6] rounded-[4px] px-[4px] h-[20px] flex items-center w-full">
+        <input
+          ref={inputRef}
+          type="text"
+          value={editValue}
+          onChange={(e) => setEditValue(e.target.value)}
+          onBlur={handleSave}
+          onKeyDown={handleKeyDown}
+          className="font-semibold text-[14px] text-black bg-transparent border-none outline-none w-full"
+        />
+      </div>
+    );
+  }
+
   return (
-    <div className="flex gap-[4px] items-start">
-      <p className="font-semibold text-[14px] text-black whitespace-nowrap truncate max-w-[180px]">
-        {name}
-      </p>
-      <IconlyRegularLightArrowUp />
-    </div>
+    <DropdownMenu open={isOpen} onOpenChange={setIsOpen}>
+      <div className="w-full flex gap-[2px] items-center header-title-container">
+        {/* Левая часть - клик для редактирования */}
+        <div
+          className="px-[4px] h-[20px] rounded-bl-[4px] rounded-tl-[4px] cursor-text transition-colors flex items-center header-title-left flex-1 min-w-0"
+          onClick={handleStartEdit}
+        >
+          <p className="font-semibold text-[14px] text-black whitespace-nowrap truncate w-full">
+            {name}
+          </p>
+        </div>
+
+        {/* Правая часть - стрелочка открывает dropdown */}
+        <DropdownMenuTrigger asChild>
+          <div className="size-[20px] rounded-br-[4px] rounded-tr-[4px] cursor-pointer transition-colors flex items-center justify-center header-title-right shrink-0">
+            <div className="rotate-[180deg] scale-y-[-100%]">
+              <IconlyRegularLightArrowUp />
+            </div>
+          </div>
+        </DropdownMenuTrigger>
+      </div>
+
+      <DropdownMenuContent
+        align="start"
+        className="w-48 rounded-xl"
+      >
+        <DropdownMenuItem
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenSettings?.();
+            setIsOpen(false);
+          }}
+          className="py-2.5 cursor-pointer"
+        >
+          <Settings className="w-4 h-4 mr-2 opacity-70" />
+          Настройки
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete?.();
+            setIsOpen(false);
+          }}
+          className="text-red-600 focus:text-red-600 focus:bg-red-50 py-2.5 cursor-pointer"
+        >
+          <Trash2 className="w-4 h-4 mr-2 opacity-70" />
+          Удалить
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
 function YearContainer({ year }: { year: number | string }) {
   return (
-    <div className="h-[16px] w-full">
-      <p className="font-normal text-[#868789] text-[12px] whitespace-nowrap">
+    <div className="px-1 w-full">
+      <p className="w-full font-normal text-[#868789] text-[12px] whitespace-nowrap">
         {year}
       </p>
     </div>
@@ -508,6 +636,7 @@ export const SchedulerGrid = forwardRef<
       onSignOut,
       onOpenProfileModal,
       onOpenSettingsModal,
+      onRenameWorkspace,
       currentUserDisplayName,
       currentUserEmail,
       currentUserAvatarUrl,
@@ -530,23 +659,60 @@ export const SchedulerGrid = forwardRef<
     const { projects } = useScheduler();
     const { events } = useScheduler();
 
+    // ====================================
+    // VIRTUALIZATION STATE
+    // ====================================
+    const [scrollTop, setScrollTop] = useState(0);
+    const [viewportHeight, setViewportHeight] = useState(800);
+    const OVERSCAN_COUNT = 3; // Строк сверху/снизу для плавности
+
     // Получаем год из workspace
-    const timelineYear = workspace?.year || new Date().getFullYear();
+    const timelineYear =
+      workspace?.timeline_year || new Date().getFullYear();
 
     // ====================================
-    // ВЫЧИСЛЕНИЕ ВЫСОТЫ ДЛЯ РОЗОВОГО СПЕЙСЕРА
+    // КОНСТАНТЫ ДЛЯ ВЫЧИСЛЕНИЙ
     // ====================================
     const TOTAL_TOP_HEIGHT =
       HEADER_ROW_HEIGHT + MONTH_ROW_HEIGHT + WEEK_ROW_HEIGHT;
 
-    const usedHeight = useMemo(() => {
-      return visibleDepartments.reduce((acc, dept) => {
-        const deptResCount = resources.filter(
-          (r) => r.departmentId === dept.id,
-        ).length;
-        return acc + DEPARTMENT_ROW_HEIGHT + deptResCount * RESOURCE_ROW_HEIGHT;
-      }, TOTAL_TOP_HEIGHT);
-    }, [visibleDepartments, resources, TOTAL_TOP_HEIGHT]);
+    // ====================================
+    // SCROLL TRACKING (with RAF throttling)
+    // ====================================
+    useEffect(() => {
+      const scrollEl = scrollRef?.current;
+      if (!scrollEl) return;
+
+      let rafId: number | null = null;
+
+      const handleScroll = () => {
+        if (rafId !== null) return;
+        
+        rafId = requestAnimationFrame(() => {
+          setScrollTop(scrollEl.scrollTop);
+          rafId = null;
+        });
+      };
+
+      const handleResize = () => {
+        setViewportHeight(scrollEl.clientHeight);
+      };
+
+      // Initial values
+      setScrollTop(scrollEl.scrollTop);
+      setViewportHeight(scrollEl.clientHeight);
+
+      scrollEl.addEventListener("scroll", handleScroll, { passive: true });
+      window.addEventListener("resize", handleResize);
+
+      return () => {
+        if (rafId !== null) {
+          cancelAnimationFrame(rafId);
+        }
+        scrollEl.removeEventListener("scroll", handleScroll);
+        window.removeEventListener("resize", handleResize);
+      };
+    }, [scrollRef]);
 
     // Фильтрация ресурсов и департаментов
     const filteredResources = resources;
@@ -562,16 +728,19 @@ export const SchedulerGrid = forwardRef<
       return visibleDepartments;
     }, [visibleDepartments, filteredResources, searchQuery]);
 
-    // Построение структуры grid (departments + resources)
+    // Построение структуры grid (departments + resources) с вычислением offsets
     const gridItems = useMemo(() => {
       const items: Array<{
         type: "department" | "resource";
         dept?: Department;
         resource?: Resource;
         row: number;
+        offset: number; // Y-coordinate from top of data section
+        height: number;
       }> = [];
 
       let currentRow = 4; // Row 1=Header, Row 2=Month, Row 3=Week, Row 4+=Data
+      let currentOffset = 0;
 
       filteredDepartments.forEach((dept) => {
         const deptResources = sortResourcesByGrade(
@@ -585,8 +754,11 @@ export const SchedulerGrid = forwardRef<
           type: "department",
           dept,
           row: currentRow,
+          offset: currentOffset,
+          height: DEPARTMENT_ROW_HEIGHT,
         });
         currentRow++;
+        currentOffset += DEPARTMENT_ROW_HEIGHT;
 
         // Resource rows
         deptResources.forEach((resource) => {
@@ -594,13 +766,87 @@ export const SchedulerGrid = forwardRef<
             type: "resource",
             resource,
             row: currentRow,
+            offset: currentOffset,
+            height: RESOURCE_ROW_HEIGHT,
           });
           currentRow++;
+          currentOffset += RESOURCE_ROW_HEIGHT;
         });
       });
 
       return items;
     }, [filteredDepartments, filteredResources]);
+
+    // Вычисляем общую высоту контента из gridItems
+    const totalContentHeight = useMemo(() => {
+      if (gridItems.length === 0) return 0;
+      const lastItem = gridItems[gridItems.length - 1];
+      return lastItem.offset + lastItem.height;
+    }, [gridItems]);
+
+    // ====================================
+    // VIRTUALIZATION: Calculate visible range (Binary Search O(log n))
+    // ====================================
+    const { visibleItems, topSpacer } = useMemo(() => {
+      if (gridItems.length === 0) {
+        return { visibleItems: [], topSpacer: 0 };
+      }
+
+      const scrollOffset = Math.max(0, scrollTop - TOTAL_TOP_HEIGHT);
+      const viewportStart = scrollOffset;
+      const viewportEnd = scrollOffset + viewportHeight;
+
+      // Binary search: Find first visible item (O(log n))
+      let left = 0;
+      let right = gridItems.length - 1;
+      let startIndex = 0;
+
+      while (left <= right) {
+        const mid = Math.floor((left + right) / 2);
+        const item = gridItems[mid];
+        
+        if (item.offset + item.height > viewportStart) {
+          startIndex = mid;
+          right = mid - 1;
+        } else {
+          left = mid + 1;
+        }
+      }
+
+      // Binary search: Find last visible item (O(log n))
+      left = startIndex;
+      right = gridItems.length - 1;
+      let endIndex = gridItems.length;
+
+      while (left <= right) {
+        const mid = Math.floor((left + right) / 2);
+        const item = gridItems[mid];
+        
+        if (item.offset < viewportEnd) {
+          endIndex = mid + 1;
+          left = mid + 1;
+        } else {
+          right = mid - 1;
+        }
+      }
+
+      // Apply overscan buffer
+      const bufferedStart = Math.max(0, startIndex - OVERSCAN_COUNT);
+      const bufferedEnd = Math.min(gridItems.length, endIndex + OVERSCAN_COUNT);
+
+      const visible = gridItems.slice(bufferedStart, bufferedEnd);
+      const spacer = gridItems[bufferedStart]?.offset || 0;
+
+      // Логируем только в dev mode
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`🎯 Virtualization: ${visible.length}/${gridItems.length} rows | offset: ${spacer.toFixed(0)}px | total: ${totalContentHeight.toFixed(0)}px`);
+      }
+
+      return {
+        visibleItems: visible,
+        topSpacer: spacer,
+      };
+    }, [gridItems, scrollTop, viewportHeight, TOTAL_TOP_HEIGHT, OVERSCAN_COUNT, totalContentHeight]);
 
     return (
       <div
@@ -615,6 +861,7 @@ export const SchedulerGrid = forwardRef<
         {/* ====================================== */}
         <div
           ref={scrollRef}
+          className="scheduler-scroll-container"
           style={{
             position: "absolute",
             top: 0,
@@ -622,10 +869,7 @@ export const SchedulerGrid = forwardRef<
             right: 0,
             bottom: 0,
             overflow: "auto",
-            scrollbarWidth: "none", // Firefox
-            msOverflowStyle: "none", // IE/Edge
           }}
-          className="[&::-webkit-scrollbar]:hidden"
         >
           {/* ====================================== */}
           {/* UNIFIED CSS GRID */}
@@ -653,15 +897,18 @@ export const SchedulerGrid = forwardRef<
               }}
             >
               <SidePaddedBox roundedTop topBorder topPadding>
-                <div className="flex items-center gap-2 px-3 py-2">
+                <div className="flex items-center gap-2 pl-2 pr-4 py-2 w-full h-full">
                   {onBackToWorkspaces && (
                     <HeaderBackButton
                       onClick={onBackToWorkspaces}
                     />
                   )}
-                  <div className="flex flex-col">
+                  <div className="flex flex-col flex-1 min-w-0">
                     <HeaderTitle
                       name={workspace?.name || "Workspace"}
+                      onRename={onRenameWorkspace}
+                      onOpenSettings={onOpenSettingsModal}
+                      onDelete={onSignOut}
                     />
                     <YearContainer year={timelineYear} />
                   </div>
@@ -727,7 +974,7 @@ export const SchedulerGrid = forwardRef<
                 months
                   .slice(0, idx)
                   .reduce((sum, m) => sum + m.weeks, 0) + 3;
-              
+
               // Определяем паддинг: 8px по краям, 4px между месяцами
               const isFirst = idx === 0;
               const isLast = idx === months.length - 1;
@@ -739,7 +986,7 @@ export const SchedulerGrid = forwardRef<
               } else if (isLast) {
                 paddingClass = "pl-0.5 pr-2"; // 2px слева, 8px справа
               }
-              
+
               return (
                 <div
                   key={`month-${idx}`}
@@ -753,7 +1000,9 @@ export const SchedulerGrid = forwardRef<
                     zIndex: 300,
                   }}
                 >
-                  <div className={`${paddingClass} h-full flex items-center`}>
+                  <div
+                    className={`${paddingClass} h-full flex items-center`}
+                  >
                     <div className="bg-[#f6f6f6] rounded-[12px] h-full w-full flex items-center justify-center">
                       <p className="font-semibold text-[12px] text-[#1a1a1a]">
                         {month.name}
@@ -805,8 +1054,20 @@ export const SchedulerGrid = forwardRef<
               </div>
             ))}
 
-            {/* ========== ROW 4+: DEPARTMENTS + RESOURCES ========== */}
-            {gridItems.map((item) => {
+            {/* ========== ROW 4+: DEPARTMENTS + RESOURCES (VIRTUALIZED) ========== */}
+            
+            {/* Top Spacer - Виртуальное пространство для пропущенных строк сверху */}
+            {topSpacer > 0 && (
+              <div
+                style={{
+                  gridColumn: "1 / -1",
+                  gridRow: 4,
+                  height: `${topSpacer}px`,
+                }}
+              />
+            )}
+
+            {visibleItems.map((item, index) => {
               if (item.type === "department" && item.dept) {
                 return (
                   <React.Fragment key={`dept-${item.dept.id}`}>
@@ -852,9 +1113,7 @@ export const SchedulerGrid = forwardRef<
 
               if (item.type === "resource" && item.resource) {
                 return (
-                  <React.Fragment
-                    key={`resource-${item.resource.id}`}
-                  >
+                  <React.Fragment key={`resource-${item.resource.id}`}>
                     {/* Resource Name (Left) */}
                     <div
                       style={{
@@ -878,58 +1137,56 @@ export const SchedulerGrid = forwardRef<
                       />
                     </div>
 
-                    {/* Resource Cells (52 weeks) */}
-                    {Array.from({ length: WEEKS }).map(
-                      (_, w) => {
-                        const isLastInMonth = lastWeeks.has(w);
-                        return (
-                          <div
-                            key={`cell-${item.resource!.id}-${w}`}
-                            className={`cell resource-row event-row ${isLastInMonth ? "last-in-month" : ""}`}
-                            style={{
-                              gridColumn: w + 3,
-                              gridRow: item.row,
-                              height: `${RESOURCE_ROW_HEIGHT}px`,
-                              backgroundColor: "#fff",
-                              borderRight:
-                                "0.5px solid #DFE7EE",
-                              cursor: "pointer",
-                            }}
-                            data-resource-id={item.resource!.id}
-                            data-week={w}
-                            onClick={(e) => {
-                              const rect =
-                                e.currentTarget.getBoundingClientRect();
-                              const y = e.clientY - rect.top;
-                              const unitIndex = Math.floor(
-                                (y - config.rowPaddingTop) /
-                                  config.unitStride,
-                              );
-                              onCellClick(
-                                item.resource!.id,
-                                w,
-                                unitIndex,
-                              );
-                            }}
-                            onContextMenu={(e) =>
-                              onCellContextMenu?.(
-                                e,
-                                item.resource!.id,
-                                w,
-                              )
-                            }
-                            onMouseMove={(e) =>
-                              onCellMouseMove(
-                                e,
-                                item.resource!.id,
-                                w,
-                              )
-                            }
-                            onMouseLeave={onCellMouseLeave}
-                          />
+                    {/* Resource Row (unified 52 weeks) - ONE div instead of 52 */}
+                    <div
+                      className="cell resource-row event-row"
+                      style={{
+                        gridColumn: "3 / -1", // Spanning all 52 weeks
+                        gridRow: item.row,
+                        height: `${RESOURCE_ROW_HEIGHT}px`,
+                        backgroundColor: "#fff",
+                        cursor: "pointer",
+                        // CSS Grid background для визуализации границ недель
+                        backgroundImage: `repeating-linear-gradient(
+                          to right,
+                          transparent 0,
+                          transparent calc(${config.weekPx}px - 0.5px),
+                          #DFE7EE calc(${config.weekPx}px - 0.5px),
+                          #DFE7EE ${config.weekPx}px
+                        )`,
+                        backgroundSize: `${config.weekPx}px 100%`,
+                        backgroundPosition: "0 0",
+                      }}
+                      data-resource-id={item.resource!.id}
+                      onClick={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const x = e.clientX - rect.left;
+                        const y = e.clientY - rect.top;
+                        
+                        // Вычисляем неделю по X-координате
+                        const week = Math.floor(x / config.weekPx);
+                        
+                        // Вычисляем unitIndex по Y-координате
+                        const unitIndex = Math.floor(
+                          (y - config.rowPaddingTop) / config.unitStride
                         );
-                      },
-                    )}
+                        
+                        onCellClick(item.resource!.id, week, unitIndex);
+                      }}
+                      onContextMenu={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const x = e.clientX - rect.left;
+                        const week = Math.floor(x / config.weekPx);
+                        onCellContextMenu?.(e, item.resource!.id, week);
+                      }}
+                      onMouseMove={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const x = e.clientX - rect.left;
+                        const week = Math.floor(x / config.weekPx);
+                        onCellMouseMove(e, item.resource!.id, week);
+                      }}
+                      onMouseLeave={onCellMouseLeave}
+                    />
                   </React.Fragment>
                 );
               }
@@ -937,15 +1194,26 @@ export const SchedulerGrid = forwardRef<
               return null;
             })}
 
+            {/* Bottom Spacer - Виртуальное пространство для пропущенных строк снизу */}
+            {visibleItems.length > 0 && (
+              <div
+                style={{
+                  gridColumn: "1 / -1",
+                  gridRow: (visibleItems[visibleItems.length - 1]?.row || 4) + 1,
+                  height: `${Math.max(0, totalContentHeight - topSpacer - visibleItems.reduce((sum, item) => sum + item.height, 0))}px`,
+                }}
+              />
+            )}
+
             {/* 🌸 СПЕЙСЕР - Заполняет пространство до низа экрана */}
             <div
               style={{
-                gridColumn: 1, // ✅ Только левая колонка (сайдбар)
-                gridRow: 9998, // В конце таблицы
-                position: "sticky",
+                position: "fixed",
                 left: 0,
-                zIndex: 300,
-                minHeight: `max(0px, calc(100vh - ${usedHeight}px - 24px))`,
+                top: `${HEADER_ROW_HEIGHT + MONTH_ROW_HEIGHT + WEEK_ROW_HEIGHT}px`,
+                bottom: 0,
+                width: `${LEFT_SIDEBAR_WIDTH}px`,
+                zIndex: 150,
               }}
             >
               <SidePaddedBox>
@@ -1072,19 +1340,6 @@ export const SchedulerGrid = forwardRef<
             </div>
           </div>
         </div>
-
-        {/* ====================================== */}
-        {/* CUSTOM SCROLLBARS */}
-        {/* ====================================== */}
-        <CustomScrollbars
-          scrollContainerRef={scrollRef!}
-          leftOffset={LEFT_SIDEBAR_WIDTH}
-          topOffset={
-            HEADER_ROW_HEIGHT +
-            MONTH_ROW_HEIGHT +
-            WEEK_ROW_HEIGHT
-          }
-        />
 
         {/* ====================================== */}
         {/* FAKE BOTTOM FIX */}

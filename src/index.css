@@ -1069,6 +1069,10 @@
     height: 18px;
   }
 
+  .h-\[20px\] {
+    height: 20px;
+  }
+
   .h-\[24px\] {
     height: 24px;
   }
@@ -1257,10 +1261,6 @@
     max-width: 120px;
   }
 
-  .max-w-\[180px\] {
-    max-width: 180px;
-  }
-
   .max-w-\[300px\] {
     max-width: 300px;
   }
@@ -1402,6 +1402,10 @@
     cursor: pointer;
   }
 
+  .cursor-text {
+    cursor: text;
+  }
+
   .resize {
     resize: both;
   }
@@ -1506,8 +1510,8 @@
     gap: calc(var(--spacing) * 8);
   }
 
-  .gap-\[4px\] {
-    gap: 4px;
+  .gap-\[2px\] {
+    gap: 2px;
   }
 
   .gap-\[6px\] {
@@ -1606,6 +1610,10 @@
     border-radius: var(--radius-3xl);
   }
 
+  .rounded-\[4px\] {
+    border-radius: 4px;
+  }
+
   .rounded-\[8px\] {
     border-radius: 8px;
   }
@@ -1659,9 +1667,25 @@
     border-top-right-radius: 0;
   }
 
+  .rounded-tl-\[4px\] {
+    border-top-left-radius: 4px;
+  }
+
+  .rounded-tr-\[4px\] {
+    border-top-right-radius: 4px;
+  }
+
   .rounded-b-\[32px\] {
     border-bottom-right-radius: 32px;
     border-bottom-left-radius: 32px;
+  }
+
+  .rounded-br-\[4px\] {
+    border-bottom-right-radius: 4px;
+  }
+
+  .rounded-bl-\[4px\] {
+    border-bottom-left-radius: 4px;
   }
 
   .border {
@@ -2250,6 +2274,10 @@
 
   .px-8 {
     padding-inline: calc(var(--spacing) * 8);
+  }
+
+  .px-\[4px\] {
+    padding-inline: 4px;
   }
 
   .px-\[5px\] {
@@ -3562,10 +3590,6 @@
     height: calc(var(--spacing) * 5);
   }
 
-  .\[\&\:\:-webkit-scrollbar\]\:hidden::-webkit-scrollbar {
-    display: none;
-  }
-
   .\[\&\>svg\]\:absolute > svg {
     position: absolute;
   }
@@ -4089,6 +4113,22 @@ mark {
   background-color: #fef08a99;
   border-radius: 2px;
   padding: 0;
+}
+
+.header-title-left:hover {
+  background-color: #e2e2e2;
+}
+
+.header-title-container:has(.header-title-left:hover) .header-title-right {
+  background-color: #f6f6f6;
+}
+
+.header-title-right:hover {
+  background-color: #e2e2e2;
+}
+
+.header-title-container:has(.header-title-right:hover) .header-title-left {
+  background-color: #f6f6f6;
 }
 
 @property --tw-translate-x {

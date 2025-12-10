@@ -31,7 +31,7 @@ app.use(
   cors({
     origin: "*",
     allowHeaders: ["Content-Type", "Authorization"],
-    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     exposeHeaders: ["Content-Length"],
     maxAge: 600,
   }),
@@ -3862,6 +3862,60 @@ app.put("/make-server-73d66528/workspaces/:id", async (c) => {
     if (timeline_year !== undefined) updateData.timeline_year = timeline_year;
     
     // updated_at не используется - нет такой колонки в таблице workspaces
+    
+    // If no fields to update, return error
+    if (Object.keys(updateData).length === 0) {
+      return c.json({ error: 'No fields to update' }, 400);
+    }
+    
+    const { data: workspace, error } = await supabase
+      .from('workspaces')
+      .update(updateData)
+      .eq('id', workspaceId)
+      .select()
+      .single();
+    
+    if (error) {
+      console.error('❌ Ошибка обновления workspace:', error);
+      return c.json({ error: `Failed to update workspace: ${error.message}` }, 500);
+    }
+    
+    console.log('✅ Workspace обновлен:', workspace.name);
+    return c.json(workspace);
+  } catch (error) {
+    console.error('❌ Exception updating workspace:', error);
+    return c.json({ error: `Failed to update workspace: ${error.message || error}` }, 500);
+  }
+});
+
+// Update workspace (PATCH method - same as PUT)
+app.patch("/make-server-73d66528/workspaces/:id", async (c) => {
+  try {
+    const workspaceId = c.req.param('id');
+    console.log('✏️ Обновление workspace (PATCH):', workspaceId);
+    
+    // Verify user authentication
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    if (!accessToken) {
+      console.error('❌ Missing access token');
+      return c.json({ error: 'Unauthorized: Missing access token' }, 401);
+    }
+    
+    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(accessToken);
+    if (authError || !user) {
+      console.error('❌ Auth error:', authError);
+      return c.json({ error: 'Unauthorized: Invalid access token' }, 401);
+    }
+    
+    console.log('👤 Authorized user:', user.email);
+    
+    const body = await c.req.json();
+    const { name, timeline_year } = body;
+    
+    const updateData: any = {};
+    
+    if (name !== undefined) updateData.name = name;
+    if (timeline_year !== undefined) updateData.timeline_year = timeline_year;
     
     // If no fields to update, return error
     if (Object.keys(updateData).length === 0) {

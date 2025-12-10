@@ -647,3 +647,20 @@ mark {
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
 }
+
+/* Header Title hover effects */
+.header-title-left:hover {
+  background-color: #e2e2e2;
+}
+
+.header-title-container:has(.header-title-left:hover) .header-title-right {
+  background-color: #f6f6f6;
+}
+
+.header-title-right:hover {
+  background-color: #e2e2e2;
+}
+
+.header-title-container:has(.header-title-right:hover) .header-title-left {
+  background-color: #f6f6f6;
+}

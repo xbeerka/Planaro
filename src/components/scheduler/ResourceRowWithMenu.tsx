@@ -44,7 +44,7 @@ export function ResourceRowWithMenu({
       <>
         {parts.map((part, i) => 
           part.toLowerCase() === query.toLowerCase() ? (
-            <span key={i} style={{ backgroundColor: '#FFD700', fontWeight: 600 }}>
+            <span key={i} style={{ backgroundColor: '#FFD700' }}>
               {part}
             </span>
           ) : (

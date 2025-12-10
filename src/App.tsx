@@ -494,6 +494,7 @@ function AppContent() {
               accessToken={accessToken}
               onTokenRefresh={handleTokenRefresh}
               onSignOut={handleSignOut}
+              onWorkspaceUpdate={setSelectedWorkspace}
             />
           </PresenceProvider>
         </FilterProvider>

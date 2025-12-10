@@ -5,7 +5,8 @@ import { UnifiedManagementModal, TabType } from "./UnifiedManagementModal";
 import { KeyboardShortcutsModal } from "./KeyboardShortcutsModal";
 import { SettingsModal } from "./SettingsModal";
 import { ProfileModal } from "../auth/ProfileModal";
-import { SchedulerEvent, Project, SchedulerResource, Department, Company, Grade, EventPattern } from "../../types/scheduler";
+import { WorkspaceSettingsModal } from "../workspace/WorkspaceSettingsModal";
+import { SchedulerEvent, Project, SchedulerResource, Department, Company, Grade, EventPattern, Workspace } from "../../types/scheduler";
 
 interface SchedulerModalsProps {
   // Event Modal

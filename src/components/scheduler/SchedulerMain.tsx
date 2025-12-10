@@ -71,6 +71,7 @@ interface SchedulerMainProps {
   onSignOut: () => void;
   onBackToWorkspaces: () => void;
   onTokenRefresh: (newToken: string) => Promise<void>;
+  onWorkspaceUpdate?: (workspace: Workspace) => void;
 }
 
 export function SchedulerMain({
@@ -79,6 +80,7 @@ export function SchedulerMain({
   onSignOut,
   onBackToWorkspaces,
   onTokenRefresh,
+  onWorkspaceUpdate,
 }: SchedulerMainProps) {
   const {
     weekPx,
@@ -902,7 +904,7 @@ export function SchedulerMain({
         week: null,
         unitIndex: null,
       });
-      // Убираем hover при закрытии контекстного меню пустой ячейки
+      // Убираем hover при закрытии контекстного ��еню пустой ячейки
       setHoverHighlight((prev) => ({
         ...prev,
         visible: false,
@@ -1782,6 +1784,96 @@ export function SchedulerMain({
   const handleOpenProfileModal = useCallback(() => setProfileModalOpen(true), []);
   const handleOpenSettingsModal = useCallback(() => setSettingsModalOpen(true), []);
 
+  const handleRenameWorkspace = useCallback(async (newName: string) => {
+    if (!accessToken || !workspace) {
+      console.warn('⚠️ Нет accessToken или workspace');
+      return;
+    }
+    
+    if (!projectId) {
+      console.error('❌ projectId не определен!');
+      showToast({
+        type: 'error',
+        message: 'Ошибка конфигурации',
+        description: 'Project ID не найден',
+      });
+      return;
+    }
+    
+    // 🎯 Оптимистичное обновление - мгновенно меняем UI
+    const oldName = workspace.name;
+    const updatedWorkspace = { ...workspace, name: newName };
+    
+    // Обновляем локально
+    if (onWorkspaceUpdate) {
+      onWorkspaceUpdate(updatedWorkspace);
+    }
+    
+    // Обновляем title
+    document.title = `${newName} - Planaro`;
+    
+    console.log('📝 Переименование воркспейса (оптимистичное):', {
+      oldName,
+      newName,
+      workspaceId: workspace.id,
+    });
+
+    // Очищаем кэш воркспейсов чтобы при возврате загрузилось актуальное название
+    try {
+      const { removeStorageItem } = await import('../../utils/storage');
+      await removeStorageItem('cache_workspaces_list');
+    } catch (err) {
+      console.warn('⚠️ Не удалось очистить кэш воркспейсов:', err);
+    }
+
+    // Silent update в БД
+    try {
+      const url = `https://${projectId}.supabase.co/functions/v1/make-server-73d66528/workspaces/${workspace.id}`;
+      
+      const response = await fetch(url, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ name: newName }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        console.error('❌ Ошибка сохранения:', errorData);
+        
+        // Откатываем изменения при ошибке
+        if (onWorkspaceUpdate) {
+          onWorkspaceUpdate(workspace);
+        }
+        document.title = `${oldName} - Planaro`;
+        
+        showToast({
+          type: 'error',
+          message: 'Ошибка переименования',
+          description: errorData.error || 'Неизвестная ошибка',
+        });
+      } else {
+        console.log('✅ Воркспейс сохранен на сервере');
+      }
+    } catch (error) {
+      console.error('❌ Ошибка сети:', error);
+      
+      // Откатываем изменения при ошибке
+      if (onWorkspaceUpdate) {
+        onWorkspaceUpdate(workspace);
+      }
+      document.title = `${oldName} - Planaro`;
+      
+      showToast({
+        type: 'error',
+        message: 'Ошибка переименования',
+        description: error instanceof Error ? error.message : 'Неизвестная ошибка',
+      });
+    }
+  }, [accessToken, workspace, showToast, onWorkspaceUpdate]);
+
   const gridChildren = useMemo(() => (
     <EventGapHandles
       gaps={eventGaps}
@@ -1864,6 +1956,7 @@ export function SchedulerMain({
           onSignOut={onSignOut}
           onOpenProfileModal={handleOpenProfileModal}
           onOpenSettingsModal={handleOpenSettingsModal}
+          onRenameWorkspace={handleRenameWorkspace}
           currentUserDisplayName={currentUserDisplayName}
           currentUserEmail={currentUserEmail}
           currentUserAvatarUrl={currentUserAvatarUrl}
