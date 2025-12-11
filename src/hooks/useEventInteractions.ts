@@ -1,8 +1,8 @@
 import { useRef, useCallback, useLayoutEffect } from 'react';
 import { SchedulerEvent, Resource, Department, Project } from '../types/scheduler';
-import { LayoutConfig, modelFromGeometry, topFor, heightFor, getResourceGlobalTop } from '../utils/schedulerLayout';
+import { LayoutConfig, modelFromGeometry, topFor, heightFor, getResourceGlobalTop, getBorderRadiusForRowHeight } from '../utils/schedulerLayout';
 import { clamp, WEEKS, UNITS } from '../utils/scheduler';
-import { calculateEventNeighbors } from '../utils/eventNeighbors';
+import { calculateEventNeighbors, MASK_ROUND_TL, MASK_ROUND_TR, MASK_ROUND_BL, MASK_ROUND_BR, MASK_FULL_LEFT, MASK_FULL_RIGHT } from '../utils/eventNeighbors';
 
 interface UseEventInteractionsProps {
   config: LayoutConfig;
@@ -143,8 +143,8 @@ export function useEventInteractions({
     }
     
     const neighborInfo = neighborsMap.get(evData.id);
-    const hasAnyLeftNeighbor = neighborInfo?.hasFullLeftNeighbor || false;
-    const hasAnyRightNeighbor = neighborInfo?.hasFullRightNeighbor || false;
+    const hasAnyLeftNeighbor = neighborInfo ? (neighborInfo.flags & MASK_FULL_LEFT) !== 0 : false;
+    const hasAnyRightNeighbor = neighborInfo ? (neighborInfo.flags & MASK_FULL_RIGHT) !== 0 : false;
     const realPaddingLeft = hasAnyLeftNeighbor ? 0 : config.cellPaddingLeft;
     const realPaddingRight = hasAnyRightNeighbor ? 0 : config.cellPaddingRight;
     
@@ -171,7 +171,7 @@ export function useEventInteractions({
     });
 
     const initialModel = modelFromGeometry(
-      startLeft,
+      startLeft + config.resourceW,
       startTop,
       el.offsetWidth,
       el.offsetHeight,
@@ -204,7 +204,8 @@ export function useEventInteractions({
       expandRightAmount,
       // ✅ Для отслеживания последней обработанной позиции (чтобы не пересчитывать повторно)
       lastProcessedResourceId: evData.resourceId,
-      lastProcessedUnitStart: evData.unitStart
+      lastProcessedUnitStart: evData.unitStart,
+      lastProcessedStartWeek: evData.startWeek
     };
 
     const onMove = (ev: PointerEvent) => {
@@ -215,7 +216,7 @@ export function useEventInteractions({
       const cursorTopAbs = ev.clientY - pointerStateRef.current.tableRect.top;
       
       // ✅ ИСПРАВЛЕНО v4.0.12: НЕ вычитаем UNIFIED_GRID_OFFSET здесь!
-      // modelFromGeometry уже делает компенсацию внутри себя
+      // modelFromGeometry уже делает комп��нсацию внутри себя
       // Двойная компенсация приводит к тому что события не двигаются по вертикали
       
       // 🐛 DEBUG: Логируем координаты для диагностики
@@ -249,7 +250,7 @@ export function useEventInteractions({
         // потому что событие физически ещё находится в старой строке
         // offsetUnit компенсирует разницу между курсором и верхом события
         newModel = modelFromGeometry(
-          snappedLeftAbs,
+          snappedLeftAbs + config.resourceW,
           cursorTopAbs, // ✅ ИСПРАВЛЕНО: используем позицию курсора
           pointerStateRef.current.el.offsetWidth,
           pointerStateRef.current.el.offsetHeight,
@@ -268,15 +269,16 @@ export function useEventInteractions({
         pointerStateRef.current.lastValidModel = newModel;
         
         // 🔍 КРИТИЧНО: Если позиция или высота изменилась, ПЕРЕСЧИТЫВАЕМ padding на основе НОВЫХ соседей!
-        // Это предотвращает смещение на 1 гап при перемещении между событиями разной высоты
+        // Используем lastProcessed значения, чтобы избежать спама и КОРРЕКТНО обрабатывать возвращение на исходную позицию
         const positionChanged = 
-          newModel.resourceId !== pointerStateRef.current.evData.resourceId ||
-          newModel.unitStart !== pointerStateRef.current.evData.unitStart;
+          newModel.resourceId !== pointerStateRef.current.lastProcessedResourceId ||
+          newModel.unitStart !== pointerStateRef.current.lastProcessedUnitStart ||
+          newModel.startWeek !== pointerStateRef.current.lastProcessedStartWeek;
         
         // 🐛 DEBUG: Логируем переход на другую строку
-        if (newModel.resourceId !== pointerStateRef.current.evData.resourceId) {
+        if (newModel.resourceId !== pointerStateRef.current.lastProcessedResourceId) {
           console.log('🔄 DRAG: Переход на другую строку:', {
-            from: pointerStateRef.current.evData.resourceId,
+            from: pointerStateRef.current.lastProcessedResourceId,
             to: newModel.resourceId,
             unitStart: newModel.unitStart
           });
@@ -297,8 +299,8 @@ export function useEventInteractions({
           const neighborsMap = calculateEventNeighbors(tempEvents, projects);
           const neighborInfo = neighborsMap.get(tempEvent.id);
           
-          const hasAnyLeftNeighbor = neighborInfo?.hasFullLeftNeighbor || false;
-          const hasAnyRightNeighbor = neighborInfo?.hasFullRightNeighbor || false;
+          const hasAnyLeftNeighbor = neighborInfo ? (neighborInfo.flags & MASK_FULL_LEFT) !== 0 : false;
+          const hasAnyRightNeighbor = neighborInfo ? (neighborInfo.flags & MASK_FULL_RIGHT) !== 0 : false;
           const newRealPaddingLeft = hasAnyLeftNeighbor ? 0 : config.cellPaddingLeft;
           const newRealPaddingRight = hasAnyRightNeighbor ? 0 : config.cellPaddingRight;
           
@@ -312,9 +314,82 @@ export function useEventInteractions({
           pointerStateRef.current.expandLeftAmount = newExpandLeftAmount;
           pointerStateRef.current.expandRightAmount = newExpandRightAmount;
           
+          // ✅ ОБНОВЛЕНИЕ DOM: Применяем стили (скругления, отступы, классы) ко всем затронутым соседям
+          neighborsMap.forEach((info, eventId) => {
+             // Find element: dragged element or neighbor in DOM
+             let el: HTMLElement | null = null;
+             if (eventId === pointerStateRef.current.id) {
+                el = pointerStateRef.current.el;
+             } else {
+                el = document.querySelector(`[data-event-id="${eventId}"]`);
+             }
+             
+             if (!el) return;
+             
+             // Get event data (from tempEvents for accuracy)
+             const event = tempEvents.find(e => e.id === eventId);
+             if (!event) return;
+             
+             // 1. Apply Border Radius
+             const r = getBorderRadiusForRowHeight(config.eventRowH);
+             const tl = (info.flags & MASK_ROUND_TL) ? r : 0;
+             const tr = (info.flags & MASK_ROUND_TR) ? r : 0;
+             const br = (info.flags & MASK_ROUND_BR) ? r : 0;
+             const bl = (info.flags & MASK_ROUND_BL) ? r : 0;
+             el.style.borderRadius = `${tl}px ${tr}px ${br}px ${bl}px`;
+             
+             // 2. Apply Inner Colors (CSS variables) & Classes
+             const getCol = (pid?: string) => {
+                if (!pid) return 'transparent';
+                const p = projectsRef.current.find(prj => prj.id === pid);
+                return p?.backgroundColor || 'transparent';
+             };
+             el.style.setProperty('--inner-tl-color', getCol(info.innerTopLeftProjectId));
+             el.style.setProperty('--inner-tr-color', getCol(info.innerTopRightProjectId));
+             el.style.setProperty('--inner-bl-color', getCol(info.innerBottomLeftProjectId));
+             el.style.setProperty('--inner-br-color', getCol(info.innerBottomRightProjectId));
+             
+             // Toggle classes for inner corners (Critical for visibility)
+             el.classList.toggle('inner-tl', !!info.innerTopLeftProjectId);
+             el.classList.toggle('inner-tr', !!info.innerTopRightProjectId);
+             el.classList.toggle('inner-bl', !!info.innerBottomLeftProjectId);
+             el.classList.toggle('inner-br', !!info.innerBottomRightProjectId);
+             
+             // ✅ Fix: Also toggle classes on the wrapper element if it exists
+             // (SchedulerEvent renders bottom corners in a separate wrapper div)
+             const wrapper = el.querySelector('.inner-bottom-wrapper');
+             if (wrapper) {
+                wrapper.classList.toggle('inner-bl', !!info.innerBottomLeftProjectId);
+                wrapper.classList.toggle('inner-br', !!info.innerBottomRightProjectId);
+             }
+             
+             // 3. Apply Geometry Expansion (Visual Padding)
+             const hasFullLeft = (info.flags & MASK_FULL_LEFT) !== 0;
+             const hasFullRight = (info.flags & MASK_FULL_RIGHT) !== 0;
+             
+             const pLeft = hasFullLeft ? 0 : config.cellPaddingLeft;
+             const pRight = hasFullRight ? 0 : config.cellPaddingRight;
+             
+             const expLeft = info.expandLeftMultiplier * config.gap;
+             const expRight = info.expandRightMultiplier * config.gap;
+             
+             // Update WIDTH for both dragged event and neighbors
+             const newWidth = event.weeksSpan * config.weekPx - pLeft - pRight + expLeft + expRight;
+             el.style.width = `${newWidth}px`;
+             
+             // Update LEFT for neighbors ONLY (dragged event is handled by mouse position at end of onMove)
+             if (eventId !== pointerStateRef.current.id) {
+                 const newLeft = event.startWeek * config.weekPx + pLeft - expLeft;
+                 el.style.left = `${newLeft}px`;
+             }
+          });
+
           // ✅ Обновляем последнюю обработанную позицию (чтобы не пересчитывать повторно для той же позиции)
           pointerStateRef.current.lastProcessedResourceId = newModel.resourceId;
           pointerStateRef.current.lastProcessedUnitStart = newModel.unitStart;
+          pointerStateRef.current.lastProcessedStartWeek = newModel.startWeek;
+          
+          // pointerStateRef.current.evData.startWeek = newModel.startWeek; // No longer needed, using lastProcessedStartWeek
         }
       }
 
@@ -546,7 +621,7 @@ export function useEventInteractions({
     e.stopPropagation();
 
     // ✅ v3.3.7: Flush pending changes ПЕРЕД началом resize
-    // Это гарантирует что все события с временными ID будут созданы на сервере
+    // Это гарантирует что все события с временными ID будут соз��аны на сервере
     // и получат реальные ID ДО того как resize попадёт в историю
     console.log('🚀 RESIZE: Flush pending операций перед началом resize');
     flushPendingChanges(updateHistoryEventId).catch(err => console.error('❌ Ошибка flush перед resize:', err));
@@ -841,10 +916,8 @@ export function useEventInteractions({
 
         const resourceTop = getResourceGlobalTop(updatedEvent.resourceId, resources, visibleDepartments, config);
         
-        // ✅ ИСПРАВЛЕНО v4.0.6: Вычитаем компенсацию +88px (которая добавляется в topFor)
-        // Это критично для корректного обратного преобразования координат в Unified CSS Grid
-        const UNIFIED_GRID_OFFSET = 88; // 80px (новые заголовки 152px - старые 72px) + 8px отступ
-        const withinRow = gTop - resourceTop - config.rowPaddingTop - UNIFIED_GRID_OFFSET;
+        // ✅ ИСПРАВЛЕНО v4.0.6: Убрана компенсация +88px, так как topFor больше не добавляет её
+        const withinRow = gTop - resourceTop - config.rowPaddingTop;
         
         updatedEvent.unitStart = clamp(Math.round(withinRow / config.unitStride), 0, UNITS - 1);
         updatedEvent.unitsTall = clamp(Math.round(gHeight / config.unitStride), 1, UNITS - updatedEvent.unitStart);

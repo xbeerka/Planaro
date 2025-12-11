@@ -113,10 +113,11 @@ export function topFor(
   departments: Department[],
   config: LayoutConfig
 ): number {
+  const EVENTS_TOP_OFFSET = 88; // Дополнительный отступ для Events Layer (чтобы не залезали под шапку)
   return getResourceGlobalTop(resourceId, resources, departments, config) +
     unitStart * config.unitStride +
     config.rowPaddingTop +
-    88; // ✅ Компенсация для Unified Grid: 80px (новые заголовки 152px - старые 72px) + 8px отступ = 88px
+    EVENTS_TOP_OFFSET;
 }
 
 export function heightFor(unitsTall: number, config: LayoutConfig): number {
@@ -129,6 +130,7 @@ export function findClosestResource(
   departments: Department[],
   config: LayoutConfig
 ): Resource | null {
+  const EVENTS_TOP_OFFSET = 88; // Компенсируем offset для корректного определения ресурса
   let cur = 2 * config.rowH;
 
   // First pass: check if topAbs is inside any resource row bounds
@@ -136,8 +138,8 @@ export function findClosestResource(
     cur += config.rowH;
     const deptR = sortResourcesByGrade(resources.filter(r => r.departmentId === dept.id));
     for (const r of deptR) {
-      const rowTop = cur;
-      const rowBottom = cur + config.eventRowH;
+      const rowTop = cur + EVENTS_TOP_OFFSET;
+      const rowBottom = cur + config.eventRowH + EVENTS_TOP_OFFSET;
       
       // If cursor is inside this resource row, return it immediately
       if (topAbs >= rowTop && topAbs < rowBottom) {
@@ -199,7 +201,7 @@ export function modelFromGeometry(
   unitStart: number;
   unitsTall: number;
 } | null {
-  const leftRel = leftAbs - config.cellPaddingLeft;
+  const leftRel = leftAbs - config.resourceW - config.cellPaddingLeft;
   const startWeek = Math.max(0, Math.min(WEEKS - 1, Math.round(leftRel / config.weekPx)));
 
   // findClosestResource now returns null if cursor is not inside any resource row
@@ -208,10 +210,9 @@ export function modelFromGeometry(
 
   const resourceTop = getResourceGlobalTop(closest.id, resources, departments, config);
   
-  // ✅ ИСПРАВЛЕНО v4.0.6: Вычитаем компенсацию +88px (которая добавляется в topFor)
-  // Это критично для корректного обратного преобразования координат в Unified CSS Grid
-  const UNIFIED_GRID_OFFSET = 88; // 80px (новые заголовки 152px - старые 72px) + 8px отступ
-  const withinRow = topAbs - resourceTop - config.rowPaddingTop - UNIFIED_GRID_OFFSET;
+  // ✅ ВАЖНО: Компенсируем EVENTS_TOP_OFFSET, так как topFor теперь добавляет его
+  const EVENTS_TOP_OFFSET = 88;
+  const withinRow = topAbs - resourceTop - config.rowPaddingTop - EVENTS_TOP_OFFSET;
   
   // 🐛 DEBUG: Логируем вычисления для диагностики
   const debugLog = false; // ✅ ВЫКЛЮЧЕНО v4.0.13
@@ -220,7 +221,7 @@ export function modelFromGeometry(
       topAbs: Math.round(topAbs),
       resourceTop: Math.round(resourceTop),
       rowPaddingTop: config.rowPaddingTop,
-      UNIFIED_GRID_OFFSET,
+      EVENTS_TOP_OFFSET,
       withinRow: Math.round(withinRow),
       unitStride: config.unitStride,
       rawUnitStart: Math.floor(withinRow / config.unitStride),

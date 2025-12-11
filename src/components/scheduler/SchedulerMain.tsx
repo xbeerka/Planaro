@@ -207,9 +207,9 @@ export function SchedulerMain({
 
   const schedulerRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<{
-    scrollContainer: HTMLDivElement;
-    showRowHover: (resourceId: string) => void;
-    hideRowHover: () => void;
+    scrollContainer: HTMLDivElement | null;
+    showRowHover?: (resourceId: string) => void;
+    hideRowHover?: () => void;
   } | null>(null);
   const eventsContainerRef = useRef<HTMLDivElement>(null);
   
@@ -1661,37 +1661,42 @@ export function SchedulerMain({
 
   // Auto scroll to current week on mount (only if current year matches workspace year)
   React.useEffect(() => {
-    if (
-      gridRef.current?.scrollContainer &&
-      showCurrentWeekMarker
-    ) {
-      const currentWeek = getCurrentWeekIndex(
-        workspace.timeline_year,
-      );
-      // Позиция текущей недели (левый край)
-      const currentWeekLeft = currentWeek * config.weekPx;
-      // Отступ: 1 неделя влево от текущей недели
-      const desiredScrollLeft = currentWeekLeft - config.weekPx;
-      const viewportWidth = gridRef.current.scrollContainer.clientWidth;
-      const maxScrollLeft = Math.max(
-        0,
-        gridRef.current.scrollContainer.scrollWidth - viewportWidth,
-      );
-      gridRef.current.scrollContainer.scrollLeft = clamp(
-        desiredScrollLeft,
-        0,
-        maxScrollLeft,
-      );
-      
-      console.log('🎯 Автоскролл к текущей неделе:', {
-        currentWeek,
-        currentWeekLeft,
-        desiredScrollLeft,
-        actualScrollLeft: gridRef.current.scrollContainer.scrollLeft,
-        viewportWidth,
-        maxScrollLeft,
-      });
-    }
+    // Небольшая задержка, чтобы дождаться полной инициализации grid
+    const timeoutId = setTimeout(() => {
+      if (
+        gridRef.current?.scrollContainer &&
+        showCurrentWeekMarker
+      ) {
+        const currentWeek = getCurrentWeekIndex(
+          workspace.timeline_year,
+        );
+        // Позиция текущей недели (левый край)
+        const currentWeekLeft = currentWeek * config.weekPx;
+        // Отступ: 2 недели влево от текущей недели, чтобы был виден контекст
+        const desiredScrollLeft = currentWeekLeft - (config.weekPx * 2);
+        const viewportWidth = gridRef.current.scrollContainer.clientWidth;
+        const maxScrollLeft = Math.max(
+          0,
+          gridRef.current.scrollContainer.scrollWidth - viewportWidth,
+        );
+        gridRef.current.scrollContainer.scrollLeft = clamp(
+          desiredScrollLeft,
+          0,
+          maxScrollLeft,
+        );
+        
+        console.log('🎯 Автоскролл к текущей неделе:', {
+          currentWeek,
+          currentWeekLeft,
+          desiredScrollLeft,
+          actualScrollLeft: gridRef.current.scrollContainer.scrollLeft,
+          viewportWidth,
+          maxScrollLeft,
+        });
+      }
+    }, 0); // Откладываем до следующего тика
+    
+    return () => clearTimeout(timeoutId);
   }, [
     config.weekPx,
     workspace.timeline_year,

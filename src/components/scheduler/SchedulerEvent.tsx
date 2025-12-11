@@ -287,7 +287,8 @@ function SchedulerEventComponent({
     >
       {/* Wrapper для нижних внутренних скруглений - абсолютно позиционированный на дне события */}
       {/* В режиме производительности внутренние скругления отключены */}
-      {showGaps && (hasInnerBottomLeft || hasInnerBottomRight) && (
+      {/* ВСЕГДА рендерим wrapper, если showGaps=true, чтобы useEventInteractions мог найти его и переключить классы */}
+      {showGaps && (
         <div 
           className={`inner-bottom-wrapper ${hasInnerBottomLeft ? 'inner-bl' : ''} ${hasInnerBottomRight ? 'inner-br' : ''}`}
         />

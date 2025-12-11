@@ -5,6 +5,7 @@ import React, {
   useRef,
   useEffect,
   useCallback,
+  useImperativeHandle,
 } from "react";
 import {
   Department,
@@ -715,6 +716,13 @@ export const SchedulerGrid = forwardRef<
       };
     }, [scrollRef]);
 
+    // ====================================
+    // EXPOSE scrollContainer via ref for autoscroll
+    // ====================================
+    useImperativeHandle(ref, () => ({
+      scrollContainer: scrollRef?.current || null,
+    }), [scrollRef]);
+
     // Фильтрация ресурсов и департаментов
     const filteredResources = resources;
     const filteredDepartments = useMemo(() => {
@@ -1122,16 +1130,8 @@ export const SchedulerGrid = forwardRef<
             {visibleItems.map((item, index) => {
               // ✨ SKELETON ROW
               if (item.type === "skeleton") {
-                // 🎯 Детерминированная генерация длины skeleton событий:
-                // - Начинаются с недели 0
-                // - Занимают 4 юнита высоты (unitStart: 0, unitsTall: 4) - 100% высоты строки
-                // - Ширина от 4 до 16 недель (детерминированно на основе номера строки)
-                const seed = item.row % 13; // 13 разных паттернов длины
-                const weeksSpan = 4 + seed; // 4, 5, 6, ..., 16 недель
-                
-                const skeletonEvents = [
-                  { startWeek: 0, weeksSpan, unitStart: 0, unitsTall: 4 }
-                ];
+                // 🎯 Fixed positioned скелетоны - заполняют viewport
+                const skeletonTop = HEADER_ROW_HEIGHT + MONTH_ROW_HEIGHT + WEEK_ROW_HEIGHT + item.offset - scrollTop;
                 
                 return (
                   <React.Fragment key={`skeleton-${item.row}`}>
@@ -1154,7 +1154,7 @@ export const SchedulerGrid = forwardRef<
                       </div>
                     </div>
 
-                    {/* Skeleton Row (52 weeks) + Skeleton Events */}
+                    {/* Skeleton Row (52 weeks) */}
                     <div
                       style={{
                         gridColumn: "3 / -1",
@@ -1173,31 +1173,36 @@ export const SchedulerGrid = forwardRef<
                         position: "relative",
                       }}
                     >
-                      {/* Skeleton Events */}
-                      {skeletonEvents.map((evt, idx) => {
-                        const left = evt.startWeek * config.weekPx;
-                        const width = evt.weeksSpan * config.weekPx;
-                        const top = config.rowPaddingTop + evt.unitStart * config.unitStride;
-                        const height = evt.unitsTall * config.unitStride - config.gap;
-
+                      {/* Skeleton Event - от недели 0 до 51 (все 52 недели) */}
+                      {(() => {
+                        // 🎯 Адаптивная высота скелетона в зависимости от высоты строки
+                        const getDefaultSkeletonUnits = (rowHeight: number): number => {
+                          if (rowHeight <= 60) return 1;  // 48-60px → 1 юнит
+                          if (rowHeight <= 84) return 2;  // 61-84px → 2 юнита
+                          if (rowHeight <= 120) return 3; // 85-120px → 3 юнита
+                          return 4;                       // 121-144px → 4 юнита
+                        };
+                        
+                        const skeletonUnits = getDefaultSkeletonUnits(config.rowHeight);
+                        const skeletonHeight = skeletonUnits * config.unitStride - config.gap + 8; // +8px (4px сверху + 4px снизу)
+                        
                         return (
                           <div
-                            key={`skeleton-event-${item.row}-${idx}`}
                             className="animate-pulse"
                             style={{
                               position: "absolute",
-                              left: `${left}px`,
-                              top: `${top}px`,
-                              width: `${width}px`,
-                              height: `${height}px`,
-                              padding: `${config.cellPadding}px`,
-                              opacity: 1, // 🎨 Полная непрозрачность
+                              left: `${config.cellPaddingLeft}px`,
+                              top: `${config.rowPaddingTop}px`,
+                              width: `${WEEKS * config.weekPx - config.cellPaddingLeft - config.cellPaddingRight}px`,
+                              height: `${skeletonHeight}px`,
+                              padding: `${config.cellPaddingLeft}px`,
+                              opacity: 1,
                             }}
                           >
                             <EventBlock />
                           </div>
                         );
-                      })}
+                      })()}
                     </div>
                   </React.Fragment>
                 );
