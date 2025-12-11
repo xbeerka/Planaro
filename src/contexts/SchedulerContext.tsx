@@ -34,6 +34,7 @@ interface SchedulerContextType {
   
   // Loading states
   isLoading: boolean;
+  isLoadingResources: boolean; // ✅ Для блокировки рендера событий
   
   // Computed data
   visibleDepartments: Department[];
@@ -1602,6 +1603,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
     eventPatterns,
     companies,
     isLoading,
+    isLoadingResources, // ✅ Экспорт для блокировки рендера событий
     visibleDepartments,
     visibleEvents,
     createEvent,
@@ -1647,6 +1649,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
     eventPatterns,
     companies,
     isLoading,
+    isLoadingResources,
     visibleDepartments,
     visibleEvents,
     createEvent,

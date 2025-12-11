@@ -4,6 +4,7 @@ import React, {
   useState,
   useRef,
   useEffect,
+  useCallback,
 } from "react";
 import {
   Department,
@@ -27,12 +28,10 @@ import Fakebottomfix from "../../imports/Fakebottomfix";
 import Header from "../../imports/Header";
 import { useScheduler } from "../../contexts/SchedulerContext";
 import { ResourceRowWithMenu } from "./ResourceRowWithMenu";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "../ui/dropdown-menu";
+import { ResourceRowSkeleton } from "./ResourceRowSkeleton";
+import { DepartmentRowSkeleton } from "./DepartmentRowSkeleton";
+import EventBlock from "../../imports/EventBlock";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../ui/dropdown-menu";
 
 interface SchedulerGridProps {
   config: LayoutConfig;
@@ -88,6 +87,7 @@ interface SchedulerGridProps {
   onEventMouseEnter?: (resourceId: string) => void;
   children?: React.ReactNode;
   scrollRef?: React.RefObject<HTMLDivElement>;
+  isLoading?: boolean;
 }
 
 // ============================================================
@@ -99,6 +99,7 @@ const MONTH_ROW_HEIGHT = 36; // Row 2: Месяцы
 const WEEK_ROW_HEIGHT = 36; // Row 3: Недели
 const DEPARTMENT_ROW_HEIGHT = 44;
 const RESOURCE_ROW_HEIGHT = 144;
+const OVERSCAN_COUNT = 3; // Rows above/below viewport for smooth scroll
 
 // ============================================================
 // ВСПОМОГАТЕЛЬНЫЕ КОМПОНЕНТЫ
@@ -182,7 +183,7 @@ function getUserSignificantProjects(
 }
 
 // ============================================================
-// SIDEBAR BOX (обертка для левой колонки с отступами)
+// SIDEBAR BOX (обртка для левой колонки с отступами)
 // ============================================================
 const SidePaddedBox = ({
   children,
@@ -653,18 +654,18 @@ export const SchedulerGrid = forwardRef<
       onEventMouseEnter,
       children,
       scrollRef,
+      isLoading,
     },
     ref,
   ) => {
-    const { projects } = useScheduler();
-    const { events } = useScheduler();
+    const { events, projects } = useScheduler();
 
     // ====================================
-    // VIRTUALIZATION STATE
+    // STATE & REFS
     // ====================================
     const [scrollTop, setScrollTop] = useState(0);
-    const [viewportHeight, setViewportHeight] = useState(800);
-    const OVERSCAN_COUNT = 3; // Строк сверху/снизу для плавности
+    const [viewportHeight, setViewportHeight] = useState(600);
+    const [srAnnouncement, setSrAnnouncement] = useState('');
 
     // Получаем год из workspace
     const timelineYear =
@@ -730,14 +731,53 @@ export const SchedulerGrid = forwardRef<
 
     // Построение структуры grid (departments + resources) с вычислением offsets
     const gridItems = useMemo(() => {
+      console.log('🔍 SchedulerGrid: isLoading =', isLoading, ', viewportHeight =', viewportHeight);
+      
       const items: Array<{
-        type: "department" | "resource";
+        type: "department" | "resource" | "skeleton" | "skeleton-department";
         dept?: Department;
         resource?: Resource;
         row: number;
         offset: number; // Y-coordinate from top of data section
         height: number;
       }> = [];
+
+      // ✨ SKELETON STATE - показываем скелетоны во время загрузки
+      if (isLoading) {
+        let currentRow = 4;
+        let currentOffset = 0;
+        
+        // 🎯 Динамическое вычисление количества ресурсов
+        // Заполняем viewport height + 1 ресурс (с запасом)
+        const availableHeight = viewportHeight - TOTAL_TOP_HEIGHT - DEPARTMENT_ROW_HEIGHT;
+        const resourceCount = Math.ceil(availableHeight / RESOURCE_ROW_HEIGHT) + 1;
+        
+        console.log(`🎨 Skeleton: ${resourceCount} resources для высоты ${viewportHeight}px`);
+
+        // 1 департамент (фиксированно)
+        items.push({
+          type: "skeleton-department",
+          row: currentRow,
+          offset: currentOffset,
+          height: DEPARTMENT_ROW_HEIGHT,
+        });
+        currentRow++;
+        currentOffset += DEPARTMENT_ROW_HEIGHT;
+
+        // N ресурсов (динамически)
+        for (let r = 0; r < resourceCount; r++) {
+          items.push({
+            type: "skeleton",
+            row: currentRow,
+            offset: currentOffset,
+            height: RESOURCE_ROW_HEIGHT,
+          });
+          currentRow++;
+          currentOffset += RESOURCE_ROW_HEIGHT;
+        }
+        
+        return items;
+      }
 
       let currentRow = 4; // Row 1=Header, Row 2=Month, Row 3=Week, Row 4+=Data
       let currentOffset = 0;
@@ -775,7 +815,7 @@ export const SchedulerGrid = forwardRef<
       });
 
       return items;
-    }, [filteredDepartments, filteredResources]);
+    }, [filteredDepartments, filteredResources, isLoading, viewportHeight, TOTAL_TOP_HEIGHT, DEPARTMENT_ROW_HEIGHT, RESOURCE_ROW_HEIGHT]);
 
     // Вычисляем общую высоту контента из gridItems
     const totalContentHeight = useMemo(() => {
@@ -848,6 +888,18 @@ export const SchedulerGrid = forwardRef<
       };
     }, [gridItems, scrollTop, viewportHeight, TOTAL_TOP_HEIGHT, OVERSCAN_COUNT, totalContentHeight]);
 
+    // ====================================
+    // SCREEN READER ANNOUNCEMENT UPDATE
+    // ====================================
+    useEffect(() => {
+      const resourceCount = visibleItems.filter(item => item.type === 'resource').length;
+      const totalResources = gridItems.filter(item => item.type === 'resource').length;
+      
+      setSrAnnouncement(
+        `Showing ${resourceCount} of ${totalResources} resources. Scroll to see more.`
+      );
+    }, [visibleItems.length, gridItems.length]);
+
     return (
       <div
         style={{
@@ -868,7 +920,7 @@ export const SchedulerGrid = forwardRef<
             left: 0,
             right: 0,
             bottom: 0,
-            overflow: "auto",
+            overflow: isLoading ? "hidden" : "auto", // 🚫 Блокировка скролла при загрузке
           }}
         >
           {/* ====================================== */}
@@ -1068,6 +1120,128 @@ export const SchedulerGrid = forwardRef<
             )}
 
             {visibleItems.map((item, index) => {
+              // ✨ SKELETON ROW
+              if (item.type === "skeleton") {
+                // 🎯 Детерминированная генерация длины skeleton событий:
+                // - Начинаются с недели 0
+                // - Занимают 4 юнита высоты (unitStart: 0, unitsTall: 4) - 100% высоты строки
+                // - Ширина от 4 до 16 недель (детерминированно на основе номера строки)
+                const seed = item.row % 13; // 13 разных паттернов длины
+                const weeksSpan = 4 + seed; // 4, 5, 6, ..., 16 недель
+                
+                const skeletonEvents = [
+                  { startWeek: 0, weeksSpan, unitStart: 0, unitsTall: 4 }
+                ];
+                
+                return (
+                  <React.Fragment key={`skeleton-${item.row}`}>
+                    {/* Skeleton Name (Left) */}
+                    <div
+                      style={{
+                        gridColumn: 1,
+                        gridRow: item.row,
+                        position: "sticky",
+                        left: 0,
+                        height: `${RESOURCE_ROW_HEIGHT}px`,
+                        backgroundColor: "#fff",
+                        zIndex: 200,
+                      }}
+                    >
+                      <div className="w-full h-full flex items-center pl-2">
+                        <div className="w-full h-full border-l border-r border-[#f0f0f0]">
+                          <ResourceRowSkeleton />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Skeleton Row (52 weeks) + Skeleton Events */}
+                    <div
+                      style={{
+                        gridColumn: "3 / -1",
+                        gridRow: item.row,
+                        height: `${RESOURCE_ROW_HEIGHT}px`,
+                        backgroundColor: "#fff",
+                        backgroundImage: `repeating-linear-gradient(
+                          to right,
+                          transparent 0,
+                          transparent calc(${config.weekPx}px - 0.5px),
+                          #DFE7EE calc(${config.weekPx}px - 0.5px),
+                          #DFE7EE ${config.weekPx}px
+                        )`,
+                        backgroundSize: `${config.weekPx}px 100%`,
+                        backgroundPosition: "0 0",
+                        position: "relative",
+                      }}
+                    >
+                      {/* Skeleton Events */}
+                      {skeletonEvents.map((evt, idx) => {
+                        const left = evt.startWeek * config.weekPx;
+                        const width = evt.weeksSpan * config.weekPx;
+                        const top = config.rowPaddingTop + evt.unitStart * config.unitStride;
+                        const height = evt.unitsTall * config.unitStride - config.gap;
+
+                        return (
+                          <div
+                            key={`skeleton-event-${item.row}-${idx}`}
+                            className="animate-pulse"
+                            style={{
+                              position: "absolute",
+                              left: `${left}px`,
+                              top: `${top}px`,
+                              width: `${width}px`,
+                              height: `${height}px`,
+                              padding: `${config.cellPadding}px`,
+                              opacity: 1, // 🎨 Полная непрозрачность
+                            }}
+                          >
+                            <EventBlock />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </React.Fragment>
+                );
+              }
+
+              if (item.type === "skeleton-department") {
+                return (
+                  <React.Fragment key={`skeleton-dept-${item.row}`}>
+                    {/* Department Skeleton (Left) */}
+                    <div
+                      style={{
+                        gridColumn: 1,
+                        gridRow: item.row,
+                        position: "sticky",
+                        left: 0,
+                        top: `${HEADER_ROW_HEIGHT + MONTH_ROW_HEIGHT + WEEK_ROW_HEIGHT}px`,
+                        height: `${DEPARTMENT_ROW_HEIGHT}px`,
+                        backgroundColor: "#fff",
+                        zIndex: 201,
+                      }}
+                    >
+                      <SidePaddedBox>
+                        <DepartmentRowSkeleton />
+                      </SidePaddedBox>
+                    </div>
+
+                    {/* Department Row (52 weeks) */}
+                    <div
+                      style={{
+                        gridColumn: "3 / -1",
+                        gridRow: item.row,
+                        position: "sticky",
+                        left: 0,
+                        top: `${HEADER_ROW_HEIGHT + MONTH_ROW_HEIGHT + WEEK_ROW_HEIGHT}px`,
+                        height: `${DEPARTMENT_ROW_HEIGHT}px`,
+                        backgroundColor: "#fff",
+                        borderRight: "0.5px solid #DFE7EE",
+                        zIndex: 150,
+                      }}
+                    />
+                  </React.Fragment>
+                );
+              }
+
               if (item.type === "department" && item.dept) {
                 return (
                   <React.Fragment key={`dept-${item.dept.id}`}>
@@ -1140,6 +1314,12 @@ export const SchedulerGrid = forwardRef<
                     {/* Resource Row (unified 52 weeks) - ONE div instead of 52 */}
                     <div
                       className="cell resource-row event-row"
+                      role="row"
+                      aria-label={`${item.resource!.displayName}, ${
+                        grades.find(g => g.id === item.resource!.gradeId)?.name || ''
+                      }, ${
+                        companies.find(c => c.id === item.resource!.companyId)?.name || ''
+                      }`}
                       style={{
                         gridColumn: "3 / -1", // Spanning all 52 weeks
                         gridRow: item.row,
@@ -1173,6 +1353,29 @@ export const SchedulerGrid = forwardRef<
                         
                         onCellClick(item.resource!.id, week, unitIndex);
                       }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          // Create event on first week/unit
+                          onCellClick(item.resource!.id, 0, 0);
+                        } else if (e.key === 'ArrowDown') {
+                          e.preventDefault();
+                          // Focus next resource
+                          const allRows = Array.from(document.querySelectorAll('[data-resource-id]'));
+                          const currentIdx = allRows.findIndex(el => el.getAttribute('data-resource-id') === item.resource!.id);
+                          if (currentIdx < allRows.length - 1) {
+                            (allRows[currentIdx + 1] as HTMLElement).focus();
+                          }
+                        } else if (e.key === 'ArrowUp') {
+                          e.preventDefault();
+                          // Focus previous resource
+                          const allRows = Array.from(document.querySelectorAll('[data-resource-id]'));
+                          const currentIdx = allRows.findIndex(el => el.getAttribute('data-resource-id') === item.resource!.id);
+                          if (currentIdx > 0) {
+                            (allRows[currentIdx - 1] as HTMLElement).focus();
+                          }
+                        }
+                      }}
                       onContextMenu={(e) => {
                         const rect = e.currentTarget.getBoundingClientRect();
                         const x = e.clientX - rect.left;
@@ -1186,6 +1389,7 @@ export const SchedulerGrid = forwardRef<
                         onCellMouseMove(e, item.resource!.id, week);
                       }}
                       onMouseLeave={onCellMouseLeave}
+                      tabIndex={0}
                     />
                   </React.Fragment>
                 );
@@ -1356,6 +1560,18 @@ export const SchedulerGrid = forwardRef<
           }}
         >
           <Fakebottomfix />
+        </div>
+
+        {/* ====================================== */}
+        {/* SCREEN READER LIVE REGION */}
+        {/* ====================================== */}
+        <div 
+          role="status" 
+          aria-live="polite" 
+          aria-atomic="true"
+          className="sr-only"
+        >
+          {srAnnouncement}
         </div>
       </div>
     );

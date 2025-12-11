@@ -213,6 +213,23 @@ export function useEventInteractions({
       const desiredLeftAbs = ev.clientX - pointerStateRef.current.tableRect.left - pointerStateRef.current.offsetX;
       const desiredTopAbs = ev.clientY - pointerStateRef.current.tableRect.top - pointerStateRef.current.offsetY;
       const cursorTopAbs = ev.clientY - pointerStateRef.current.tableRect.top;
+      
+      // ✅ ИСПРАВЛЕНО v4.0.12: НЕ вычитаем UNIFIED_GRID_OFFSET здесь!
+      // modelFromGeometry уже делает компенсацию внутри себя
+      // Двойная компенсация приводит к тому что события не двигаются по вертикали
+      
+      // 🐛 DEBUG: Логируем координаты для диагностики
+      const debugLog = false; // ✅ ВЫКЛЮЧЕНО v4.0.13
+      if (debugLog && pointerStateRef.current.evData.resourceId === pointerStateRef.current.evData.resourceId) {
+        console.log('🐛 DRAG onMove:', {
+          cursorTopAbs: Math.round(cursorTopAbs),
+          eventTopAbs: Math.round(desiredTopAbs),
+          offsetY: Math.round(pointerStateRef.current.offsetY),
+          offsetUnit: pointerStateRef.current.offsetUnit,
+          currentResourceId: pointerStateRef.current.evData.resourceId,
+          currentUnitStart: pointerStateRef.current.evData.unitStart
+        });
+      }
 
       // 🔍 КРИТИЧНО: Используем РЕАЛЬНЫЕ padding (которые были применены при рендере)
       const desiredLeftRel = desiredLeftAbs - pointerStateRef.current.realPaddingLeft;
@@ -223,19 +240,24 @@ export function useEventInteractions({
       const snappedLeftAbs = snappedRel + pointerStateRef.current.realPaddingLeft;
 
       // ✅ Используем реальную позицию курсора для определения ресурса (строки)
-      // Но передаём offsetUnit чтобы unitStart внутри строки учитывал точку захвата
+      // И ВСЕГДА передаём offsetUnit чтобы точка захвата следовала за курсором
       let newModel = null;
       try {
+        // ✅ ИСПРАВЛЕНО v4.0.13: Используем cursorTopAbs вместо desiredTopAbs
+        // Это работает и для внутри-строчного drag, и для межстрочного
+        // desiredTopAbs (верх события) не подходит для межстрочного drag,
+        // потому что событие физически ещё находится в старой строке
+        // offsetUnit компенсирует разницу между курсором и верхом события
         newModel = modelFromGeometry(
           snappedLeftAbs,
-          cursorTopAbs, // ✅ Реальная позиция курсора для определения строки
+          cursorTopAbs, // ✅ ИСПРАВЛЕНО: используем позицию курсора
           pointerStateRef.current.el.offsetWidth,
           pointerStateRef.current.el.offsetHeight,
           pointerStateRef.current.evData,
           resources,
           visibleDepartments,
           config,
-          pointerStateRef.current.offsetUnit // ✅ Передаём offset для корректного unitStart
+          pointerStateRef.current.offsetUnit // ✅ Передаём offsetUnit для компенсации
         );
       } catch (err) {
         console.error('❌ Error in modelFromGeometry:', err);
@@ -250,6 +272,15 @@ export function useEventInteractions({
         const positionChanged = 
           newModel.resourceId !== pointerStateRef.current.evData.resourceId ||
           newModel.unitStart !== pointerStateRef.current.evData.unitStart;
+        
+        // 🐛 DEBUG: Логируем переход на другую строку
+        if (newModel.resourceId !== pointerStateRef.current.evData.resourceId) {
+          console.log('🔄 DRAG: Переход на другую строку:', {
+            from: pointerStateRef.current.evData.resourceId,
+            to: newModel.resourceId,
+            unitStart: newModel.unitStart
+          });
+        }
         
         if (positionChanged) {
           // Создаём временное событие с НОВОЙ позицией для вычисления соседей
@@ -296,7 +327,7 @@ export function useEventInteractions({
           config
         );
         
-        // 🔍 КРИТИЧНО: Пересчитываем snappedLeftAbs с ОБНОВЛЁННЫМ padding И расширением!
+        // 🔍 КРИТИЧНО: Пересчитываем snappedLeftAbs с ОБНОВЛЁННЫМ padding И расирением!
         // При рендере событие смещается влево на expandLeftAmount, поэтому мы тоже должны это учесть
         const finalSnappedRel = pointerStateRef.current.lastValidModel.startWeek * config.weekPx;
         let finalSnappedLeftAbs = finalSnappedRel + pointerStateRef.current.realPaddingLeft;
@@ -400,7 +431,7 @@ export function useEventInteractions({
           updatedEvent.unitStart !== latestEvent.unitStart;
 
         if (!hasChanged) {
-          console.log('⏭️ Событие не изменилось - восстанавливаем DOM стили напрямую');
+          console.log('⏭️ Собтие не измнилось - восстанавливаем DOM стили напрямую');
           
           // 🔧 Восстанавливаем исходные DOM стили напрямую
           // КРИТИЧНО: используем realPaddingLeft/Right (учитывают склейку), а НЕ config.cellPaddingLeft/Right!
@@ -453,7 +484,7 @@ export function useEventInteractions({
 
   // ✅ v3.3.21: Восстанавливаем стили dragged элемента после ре-рендера
   // Это критично для предотвращения залипания курсора, если во время drag
-  // происходит ре-рендер (например, из-за Delta Sync или flushPendingChanges)
+  // происходит ре-рендер (напимер, из-за Delta Sync или flushPendingChanges)
   useLayoutEffect(() => {
     if (pointerStateRef.current) {
       const { id, el, currentLeft, currentTop, currentWidth, currentHeight } = pointerStateRef.current;
@@ -711,7 +742,7 @@ export function useEventInteractions({
         }
       }
 
-      // ⚡️ МГНОВЕННОЕ ОБНОВЛЕНИЕ UI ВНУТРИ СОБЫТИЯ
+      // ⚡️ ГНОВЕННОЕ ОБНОВЛЕНИЕ UI ВНУТРИ СОБЫТИЯ
       // 1. Обновляем padding в зависимости от высоты (логика из SchedulerEvent)
       let newPadding = '8px 12px';
       if (newHeight <= 12) newPadding = '1px 12px';
@@ -809,7 +840,12 @@ export function useEventInteractions({
         const gHeight = parseFloat(savedState.el.style.height);
 
         const resourceTop = getResourceGlobalTop(updatedEvent.resourceId, resources, visibleDepartments, config);
-        const withinRow = gTop - resourceTop - config.rowPaddingTop;
+        
+        // ✅ ИСПРАВЛЕНО v4.0.6: Вычитаем компенсацию +88px (которая добавляется в topFor)
+        // Это критично для корректного обратного преобразования координат в Unified CSS Grid
+        const UNIFIED_GRID_OFFSET = 88; // 80px (новые заголовки 152px - старые 72px) + 8px отступ
+        const withinRow = gTop - resourceTop - config.rowPaddingTop - UNIFIED_GRID_OFFSET;
+        
         updatedEvent.unitStart = clamp(Math.round(withinRow / config.unitStride), 0, UNITS - 1);
         updatedEvent.unitsTall = clamp(Math.round(gHeight / config.unitStride), 1, UNITS - updatedEvent.unitStart);
       }

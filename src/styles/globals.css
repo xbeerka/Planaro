@@ -328,8 +328,31 @@ html {
 /* Оптимизация sticky элементов */
 .sticky-col, .sticky-top, .sticky-top2 {
   contain: layout style;
-  transform: translateZ(0);
-  backface-visibility: hidden;
+}
+
+/* Screen Reader Only - для accessibility */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* Resource Row Focus - клавиатурная навигация */
+/* Показываем outline ТОЛЬКО при keyboard navigation (не при клике мышью) */
+.resource-row:focus:not(:focus-visible) {
+  outline: none;
+}
+
+.resource-row:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: -2px;
+  z-index: 10;
 }
 
 /* Dragging mode */
@@ -392,25 +415,6 @@ body.comment-mode .handle-container {
 
 .scheduler-event.pending .handle-container {
   display: none !important;
-}
-
-.scheduler-event.pending::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: repeating-linear-gradient(
-    45deg,
-    transparent,
-    transparent 4px,
-    rgba(255, 255, 255, 0.1) 4px,
-    rgba(255, 255, 255, 0.1) 8px
-  );
-  pointer-events: none;
-  border-radius: inherit;
-  z-index: 1;
 }
 
 /* Ctrl/Cmd move mode */

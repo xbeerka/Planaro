@@ -207,7 +207,27 @@ export function modelFromGeometry(
   if (!closest) return null;
 
   const resourceTop = getResourceGlobalTop(closest.id, resources, departments, config);
-  const withinRow = topAbs - resourceTop - config.rowPaddingTop;
+  
+  // ✅ ИСПРАВЛЕНО v4.0.6: Вычитаем компенсацию +88px (которая добавляется в topFor)
+  // Это критично для корректного обратного преобразования координат в Unified CSS Grid
+  const UNIFIED_GRID_OFFSET = 88; // 80px (новые заголовки 152px - старые 72px) + 8px отступ
+  const withinRow = topAbs - resourceTop - config.rowPaddingTop - UNIFIED_GRID_OFFSET;
+  
+  // 🐛 DEBUG: Логируем вычисления для диагностики
+  const debugLog = false; // ✅ ВЫКЛЮЧЕНО v4.0.13
+  if (debugLog) {
+    console.log('🐛 modelFromGeometry:', {
+      topAbs: Math.round(topAbs),
+      resourceTop: Math.round(resourceTop),
+      rowPaddingTop: config.rowPaddingTop,
+      UNIFIED_GRID_OFFSET,
+      withinRow: Math.round(withinRow),
+      unitStride: config.unitStride,
+      rawUnitStart: Math.floor(withinRow / config.unitStride),
+      offsetUnit
+    });
+  }
+  
   // Use Math.floor instead of Math.round so event only moves to new unit when cursor is fully inside it
   let unitStart = Math.max(0, Math.min(UNITS - 1, Math.floor(withinRow / config.unitStride)));
   

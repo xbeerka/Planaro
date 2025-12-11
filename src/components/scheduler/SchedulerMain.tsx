@@ -104,6 +104,7 @@ export function SchedulerMain({
     eventPatterns,
     companies,
     isLoading,
+    isLoadingResources, // ✅ Для блокировки рендера событий
     visibleDepartments,
     visibleEvents,
     createEvent,
@@ -1463,6 +1464,12 @@ export function SchedulerMain({
   }, [sortedEventsWithZOrder, eventNeighbors, showGaps, config, filteredResources, filteredDepartments]);
 
   const renderEvents = useCallback(() => {
+    // 🚫 НЕ показываем события пока не загрузятся ресурсы
+    // Skeleton события показываются вместо реальных
+    if (isLoadingResources) {
+      return null;
+    }
+
     // Viewport culling с большим буфером для плавной подгрузки при быстром скролле
     const scheduler = schedulerRef.current;
     let viewportLeft = 0;
@@ -1649,6 +1656,7 @@ export function SchedulerMain({
     cutEventByBoundary,
     scrollTop,
     scrollLeft,
+    isLoadingResources, // ✅ Блокировка рендера событий пока не загрузятся ресурсы
   ]);
 
   // Auto scroll to current week on mount (only if current year matches workspace year)
@@ -1978,6 +1986,7 @@ export function SchedulerMain({
               }
             }
           }}
+          isLoading={isLoadingResources}
         >
           {/* ✨ Gap Handles - ручки для ресайза границ между событиями */}
           {gridChildren}
