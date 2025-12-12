@@ -50,11 +50,6 @@ export function usePendingOperations() {
     };
     
     pendingOpsRef.current.set(eventId, operation);
-    
-    console.log(`⏳ ${existingOp ? 'Обновлена' : 'Добавлена'} pending операция: ${type} для события ${eventId}`, {
-      totalPending: pendingOpsRef.current.size,
-      isUpdate: !!existingOp
-    });
   }, []);
 
   /**
@@ -63,12 +58,6 @@ export function usePendingOperations() {
   const removePending = useCallback((eventId: string) => {
     const hadOperation = pendingOpsRef.current.has(eventId);
     pendingOpsRef.current.delete(eventId);
-    
-    if (hadOperation) {
-      console.log(`✅ Удалена pending операция для события ${eventId}`, {
-        totalPending: pendingOpsRef.current.size
-      });
-    }
   }, []);
 
   /**

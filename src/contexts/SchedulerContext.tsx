@@ -126,8 +126,6 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
     onSync: async (items, context: any) => {
       if (items.size === 0) return;
       
-      console.log(`📦 SyncManager: Sending batch of ${items.size} operations...`);
-      
       const operations: BatchOperation[] = [];
       
       items.forEach((item, id) => {
@@ -181,7 +179,6 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
       }
 
       const results: BatchResult = await response.json();
-      console.log(`✅ SyncManager: Success. Created: ${results.created?.length || 0}, Updated: ${results.updated.length}, Deleted: ${results.deleted?.length || 0}`);
 
       // ⚠️ Log errors if any
       if (results.errors && results.errors.length > 0) {
@@ -561,7 +558,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
   useEffect(() => {
     if (!accessToken || !workspaceId || isLoadingEvents) return;
     
-    const DELTA_SYNC_INTERVAL = 4000; // ⚡ 4 секунды (быстрый delta sync!)
+    const DELTA_SYNC_INTERVAL = 5000; // ⚡ 5 секунд (быстрый delta sync!)
     const FULL_SYNC_INTERVAL = 30000; // 🔄 30 секунд (полная синхронизация)
     
     let fullSyncCounter = 0;
@@ -569,7 +566,6 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
     const syncChanges = async () => {
       // Пропускаем если пользователь взаимодействует с событиями
       if (isUserInteractingRef.current) {
-        console.log('⏸️ Delta Sync: пропуск (пользователь взаимодействует)');
         return;
       }
       
@@ -577,7 +573,6 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
       // (увеличено с 2 до 5 сек для защиты от быстрых последовательных Undo/Redo)
       const timeSinceLastChange = Date.now() - lastLocalChangeRef.current;
       if (timeSinceLastChange < 5000) {
-        console.log('⏸️ Delta Sync: пропуск (недавнее локальное изменение)');
         return;
       }
       
@@ -751,14 +746,10 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
       }
     };
     
-    // Запускаем первый sync через 4 секунды после загрузки
-    const initialTimeout = setTimeout(syncChanges, DELTA_SYNC_INTERVAL);
-    
-    // Периодический sync каждые 4 секунды
+    // Периодический sync каждые 5 секунд
     const interval = setInterval(syncChanges, DELTA_SYNC_INTERVAL);
     
     return () => {
-      clearTimeout(initialTimeout);
       clearInterval(interval);
     };
   }, [accessToken, workspaceId, isLoadingEvents]);
@@ -1132,7 +1123,6 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
       const dataToQueue = { ...event };
       if (event.weeksSpan !== undefined && event.startWeek === undefined) {
           dataToQueue.startWeek = originalEvent.startWeek;
-          console.log(`🔧 updateEvent: добавлена startWeek=${originalEvent.startWeek} к обновлению weeksSpan=${event.weeksSpan}`);
       }
 
       // SyncManager Saving

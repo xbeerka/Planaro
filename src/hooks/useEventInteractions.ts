@@ -72,6 +72,67 @@ export function useEventInteractions({
 
   const pointerStateRef = useRef<PointerState | null>(null);
 
+  const updateNeighborStyles = useCallback((neighborsMap: Map<string, any>) => {
+    neighborsMap.forEach((info, eventId) => {
+      // Skip current event (handled separately in drag/resize loop)
+      if (pointerStateRef.current && eventId === pointerStateRef.current.id) return;
+      
+      const el = document.querySelector(`[data-event-id="${eventId}"]`) as HTMLElement;
+      if (!el) return;
+      
+      const event = eventsRef.current.find(e => e.id === eventId);
+      if (!event) return;
+      
+      // 1. BorderRadius
+      const r = getBorderRadiusForRowHeight(config.eventRowH);
+      const tl = (info.flags & MASK_ROUND_TL) ? r : 0;
+      const tr = (info.flags & MASK_ROUND_TR) ? r : 0;
+      const br = (info.flags & MASK_ROUND_BR) ? r : 0;
+      const bl = (info.flags & MASK_ROUND_BL) ? r : 0;
+      el.style.borderRadius = `${tl}px ${tr}px ${br}px ${bl}px`;
+      
+      // 2. Inner Colors & Classes
+      const getCol = (pid?: string) => {
+         if (!pid) return 'transparent';
+         const p = projectsRef.current.find(prj => prj.id === pid);
+         return p?.backgroundColor || 'transparent';
+      };
+      
+      el.style.setProperty('--inner-tl-color', getCol(info.innerTopLeftProjectId));
+      el.style.setProperty('--inner-tr-color', getCol(info.innerTopRightProjectId));
+      el.style.setProperty('--inner-bl-color', getCol(info.innerBottomLeftProjectId));
+      el.style.setProperty('--inner-br-color', getCol(info.innerBottomRightProjectId));
+      
+      el.classList.toggle('inner-tl', !!info.innerTopLeftProjectId);
+      el.classList.toggle('inner-tr', !!info.innerTopRightProjectId);
+      el.classList.toggle('inner-bl', !!info.innerBottomLeftProjectId);
+      el.classList.toggle('inner-br', !!info.innerBottomRightProjectId);
+
+      const wrapper = el.querySelector('.inner-bottom-wrapper');
+      if (wrapper) {
+          wrapper.classList.toggle('inner-bl', !!info.innerBottomLeftProjectId);
+          wrapper.classList.toggle('inner-br', !!info.innerBottomRightProjectId);
+      }
+      
+      // 3. Expansion (Width & Left)
+      const expandLeftAmount = (info.expandLeftMultiplier || 0) * config.gap;
+      const expandRightAmount = (info.expandRightMultiplier || 0) * config.gap;
+      
+      // Base dimensions from event data (using constant padding)
+      const paddingLeft = config.cellPaddingLeft;
+      const paddingRight = config.cellPaddingRight;
+      
+      const baseLeft = event.startWeek * config.weekPx + paddingLeft;
+      const baseWidth = event.weeksSpan * config.weekPx - paddingLeft - paddingRight;
+      
+      const newLeft = baseLeft - expandLeftAmount;
+      const newWidth = baseWidth + expandLeftAmount + expandRightAmount;
+      
+      el.style.left = `${newLeft}px`;
+      el.style.width = `${newWidth}px`;
+    });
+  }, [config]);
+
   const startDrag = useCallback((
     e: React.PointerEvent,
     el: HTMLElement,
@@ -93,12 +154,12 @@ export function useEventInteractions({
     // ✅ v3.3.7: Flush pending changes ПЕРЕД началом drag
     // Это гарантирует что все события с временными ID будут созданы на сервере
     // и получат реальные ID ДО того как drag попадёт в историю
-    console.log('🚀 DRAG: Flush pending операций перед началом drag');
     flushPendingChanges(updateHistoryEventId).catch(err => console.error('❌ Ошибка flush перед drag:', err));
 
-    const target = e.target as HTMLElement;
-    if (target.setPointerCapture) {
-      target.setPointerCapture(e.pointerId);
+    // ✅ ИСПРАВЛЕНО: Используем el (сам элемент события) для захвата курсора, а не target (который может быть ребенком)
+    // Это гарантирует, что el.releasePointerCapture() в onUp сработает корректно
+    if (el.setPointerCapture) {
+      el.setPointerCapture(e.pointerId);
     }
 
     document.body.classList.add('dragging-mode');
@@ -106,6 +167,9 @@ export function useEventInteractions({
     
     // 🔧 ВРЕМЕННОЕ РЕШЕНИЕ: меняем z-index напрямую
     el.style.zIndex = '1000';
+
+    // ✅ Блокируем Delta Sync (polling) во время перетаскивания
+    setIsUserInteracting(true);
 
     // 🛡️ FALLBACK: Если ref недоступен, используем offsetParent
     let tableRect: DOMRect;
@@ -121,54 +185,35 @@ export function useEventInteractions({
     const startLeft = parseFloat(el.style.left || '0');
     const startTop = parseFloat(el.style.top || '0');
     const offsetX = e.clientX - tableRect.left - startLeft;
+    
+    // ✅ FIX JITTER: Calculate offset relative to GRID START (ignoring expansion)
+    // This ensures snapping logic uses stable grid coordinates, not visual expanded coordinates
+    const gridStartLeft = evData.startWeek * config.weekPx + config.cellPaddingLeft;
+    const offsetXFromGrid = e.clientX - tableRect.left - gridStartLeft;
+    
     const offsetY = e.clientY - tableRect.top - startTop;
     const offsetUnit = Math.floor(offsetY / config.unitStride);
 
-    console.log('📏 Drag geometry:', { startLeft, startTop, offsetX, offsetY, offsetUnit });
-
+    // ✅ КРИТИЧНО: Всегда вычисляем соседей на месте, чтобы использовать СВЕЖИЕ данные из eventsRef
+    // Это реш��ет проблему "кэширования" и stale closures (когда events из пропсов пустой при первом рендере)
     let neighborsMap;
-    if (eventNeighbors) {
-      // ✅ Оптимизация: используем переданные соседи, если они есть
-      neighborsMap = eventNeighbors;
-    } else {
-      // Fallback: вычисляем на месте (как было раньше)
-      try {
-        neighborsMap = calculateEventNeighbors(events, projects);
-      } catch (err) {
-        console.error('❌ Error calculating neighbors:', err);
-        // Fallback to basic neighbors or continue without neighbors?
-        // Better to return to prevent weird behavior
-        return;
-      }
+    try {
+      neighborsMap = calculateEventNeighbors(eventsRef.current, projectsRef.current);
+    } catch (err) {
+      console.error('❌ Error calculating neighbors:', err);
+      return;
     }
     
     const neighborInfo = neighborsMap.get(evData.id);
-    const hasAnyLeftNeighbor = neighborInfo ? (neighborInfo.flags & MASK_FULL_LEFT) !== 0 : false;
-    const hasAnyRightNeighbor = neighborInfo ? (neighborInfo.flags & MASK_FULL_RIGHT) !== 0 : false;
-    const realPaddingLeft = hasAnyLeftNeighbor ? 0 : config.cellPaddingLeft;
-    const realPaddingRight = hasAnyRightNeighbor ? 0 : config.cellPaddingRight;
+    
+    // 🔍 КРИТИЧНО: Всегда используем константные отступы
+    const realPaddingLeft = config.cellPaddingLeft;
+    const realPaddingRight = config.cellPaddingRight;
     
     // 🔍 КРИТИЧНО: Учитываем РАСШИРЕНИЕ события (expandLeft/Right) при рендере!
     // Это предотвращает "прыжок" события при захвате, если оно было расширено
     const expandLeftAmount = (neighborInfo?.expandLeftMultiplier || 0) * config.gap;
     const expandRightAmount = (neighborInfo?.expandRightMultiplier || 0) * config.gap;
-
-    console.log(`🔍 DRAG START для события ${evData.id}:`, {
-      hasFullLeftNeighbor: neighborInfo?.hasFullLeftNeighbor,
-      hasFullRightNeighbor: neighborInfo?.hasFullRightNeighbor,
-      expandLeftMultiplier: neighborInfo?.expandLeftMultiplier,
-      expandRightMultiplier: neighborInfo?.expandRightMultiplier,
-      expandLeftAmount,
-      expandRightAmount,
-      realPaddingLeft,
-      realPaddingRight,
-      'config.cellPaddingLeft': config.cellPaddingLeft,
-      'config.cellPaddingRight': config.cellPaddingRight,
-      startWeek: evData.startWeek,
-      weeksSpan: evData.weeksSpan,
-      unitStart: evData.unitStart,
-      unitsTall: evData.unitsTall
-    });
 
     const initialModel = modelFromGeometry(
       startLeft + config.resourceW,
@@ -186,6 +231,7 @@ export function useEventInteractions({
       id: evData.id,
       pointerId: e.pointerId,
       offsetX,
+      offsetXFromGrid, // ✅ Store grid-based offset
       offsetY,
       offsetUnit, // ✅ Сохраняем offset внутри события
       el,
@@ -194,10 +240,12 @@ export function useEventInteractions({
       lastValidModel: initialModel,
       startLeft,
       startTop,
-      startX: e.clientX, // ✅ Сохраняем начальные координаты курсора
+      startX: e.clientX, // �� Сохраняем начальные координаты курсора
       startY: e.clientY, // ✅ Сохраняем начальные координаты курсора
       currentLeft: startLeft,
       currentTop: startTop,
+      currentWidth: el.offsetWidth, // ✅ Capture initial width for stability
+      currentHeight: el.offsetHeight,
       realPaddingLeft,
       realPaddingRight,
       expandLeftAmount,
@@ -211,34 +259,36 @@ export function useEventInteractions({
     const onMove = (ev: PointerEvent) => {
       if (!pointerStateRef.current || pointerStateRef.current.pointerId !== ev.pointerId) return;
 
-      const desiredLeftAbs = ev.clientX - pointerStateRef.current.tableRect.left - pointerStateRef.current.offsetX;
       const desiredTopAbs = ev.clientY - pointerStateRef.current.tableRect.top - pointerStateRef.current.offsetY;
       const cursorTopAbs = ev.clientY - pointerStateRef.current.tableRect.top;
       
-      // ✅ ИСПРАВЛЕНО v4.0.12: НЕ вычитаем UNIFIED_GRID_OFFSET здесь!
-      // modelFromGeometry уже делает комп��нсацию внутри себя
-      // Двойная компенсация приводит к тому что события не двигаются по вертикали
+      // ✅ FIX JITTER: Use Grid-based offset for snapping
+      // This decouples the snapping logic from the visual expansion
+      const offsetFromGrid = pointerStateRef.current.offsetXFromGrid ?? pointerStateRef.current.offsetX;
+      const desiredGridLeftAbs = ev.clientX - pointerStateRef.current.tableRect.left - offsetFromGrid;
       
       // 🐛 DEBUG: Логируем координаты для диагностики
-      const debugLog = false; // ✅ ВЫКЛЮЧЕНО v4.0.13
-      if (debugLog && pointerStateRef.current.evData.resourceId === pointerStateRef.current.evData.resourceId) {
-        console.log('🐛 DRAG onMove:', {
-          cursorTopAbs: Math.round(cursorTopAbs),
-          eventTopAbs: Math.round(desiredTopAbs),
-          offsetY: Math.round(pointerStateRef.current.offsetY),
-          offsetUnit: pointerStateRef.current.offsetUnit,
-          currentResourceId: pointerStateRef.current.evData.resourceId,
-          currentUnitStart: pointerStateRef.current.evData.unitStart
-        });
-      }
+      // const debugLog = false; // ✅ ВЫКЛЮЧЕНО v4.0.13
+      
+      const debugJitter = false; // 🔍 Включаем для отладки дергания
 
       // 🔍 КРИТИЧНО: Используем РЕАЛЬНЫЕ padding (которые были применены при рендере)
-      const desiredLeftRel = desiredLeftAbs - pointerStateRef.current.realPaddingLeft;
+      const desiredGridLeftRel = desiredGridLeftAbs - pointerStateRef.current.realPaddingLeft;
       const maxLeftRel = Math.max(0, (WEEKS - pointerStateRef.current.evData.weeksSpan) * config.weekPx);
-      const clampedRel = clamp(desiredLeftRel, 0, maxLeftRel);
+      const clampedRel = clamp(desiredGridLeftRel, 0, maxLeftRel);
       const snappedWeek = Math.round(clampedRel / config.weekPx);
       const snappedRel = clamp(snappedWeek * config.weekPx, 0, maxLeftRel);
       const snappedLeftAbs = snappedRel + pointerStateRef.current.realPaddingLeft;
+
+      if (debugJitter) {
+        console.error('🔍 JITTER_DEBUG: Drag Move', {
+           clientX: ev.clientX,
+           desiredGridLeftAbs,
+           snappedWeek,
+           snappedLeftAbs,
+           offsetFromGrid
+        });
+      }
 
       // ✅ Используем реальную позицию курсора для определения ресурса (строки)
       // И ВСЕГДА передаём offsetUnit чтобы точка захвата следовала за курсором
@@ -249,10 +299,14 @@ export function useEventInteractions({
         // desiredTopAbs (верх события) не подходит для межстрочного drag,
         // потому что событие физически ещё находится в старой строке
         // offsetUnit компенсирует разницу между курсором и верхом события
+        // ✅ JITTER FIX: Используем стабильную ширину (без expansion) для логики модели
+        // Это предотвращает обратную связь: модель -> соседи -> expansion -> width -> модель
+        const stableWidth = pointerStateRef.current.evData.weeksSpan * config.weekPx - config.cellPaddingLeft - config.cellPaddingRight;
+        
         newModel = modelFromGeometry(
           snappedLeftAbs + config.resourceW,
           cursorTopAbs, // ✅ ИСПРАВЛЕНО: используем позицию курсора
-          pointerStateRef.current.el.offsetWidth,
+          stableWidth, // ✅ ИСПРАВЛЕНО: используем стабильную ширину вместо el.offsetWidth
           pointerStateRef.current.el.offsetHeight,
           pointerStateRef.current.evData,
           resources,
@@ -294,17 +348,29 @@ export function useEventInteractions({
           };
           
           // Вычисляем соседей для НОВОЙ позиции (без учёта текущего события)
-          const otherEvents = events.filter(e => e.id !== tempEvent.id);
+          // 🔍 КРИТИЧНО: Используем refs для избежания stale closures (иначе соседи считаются по старым данным)
+          const otherEvents = eventsRef.current.filter(e => e.id !== tempEvent.id);
           const tempEvents = [...otherEvents, tempEvent];
-          const neighborsMap = calculateEventNeighbors(tempEvents, projects);
+          
+          let neighborsMap;
+          try {
+            neighborsMap = calculateEventNeighbors(tempEvents, projectsRef.current);
+          } catch (err) {
+            console.error('❌ Error calculating neighbors in onMove:', err);
+            // Fallback: пустая карта, чтобы не зависал интерфейс
+            neighborsMap = new Map();
+          }
+
           const neighborInfo = neighborsMap.get(tempEvent.id);
           
-          const hasAnyLeftNeighbor = neighborInfo ? (neighborInfo.flags & MASK_FULL_LEFT) !== 0 : false;
-          const hasAnyRightNeighbor = neighborInfo ? (neighborInfo.flags & MASK_FULL_RIGHT) !== 0 : false;
-          const newRealPaddingLeft = hasAnyLeftNeighbor ? 0 : config.cellPaddingLeft;
-          const newRealPaddingRight = hasAnyRightNeighbor ? 0 : config.cellPaddingRight;
+          // 🗑️ УБРАНО: Зависимость padding от соседей
+          const newRealPaddingLeft = config.cellPaddingLeft;
+          const newRealPaddingRight = config.cellPaddingRight;
           
-          // 🔍 КРИТИЧНО: Пересчитываем РАСШИРЕНИЕ для НОВОЙ позиции!
+          // ✅ Update Neighbors Styles
+          updateNeighborStyles(neighborsMap);
+
+          // 🔍 КРИТИЧНО: Пере��читываем РАСШИРЕНИЕ для НОВОЙ позиции!
           const newExpandLeftAmount = (neighborInfo?.expandLeftMultiplier || 0) * config.gap;
           const newExpandRightAmount = (neighborInfo?.expandRightMultiplier || 0) * config.gap;
           
@@ -313,83 +379,76 @@ export function useEventInteractions({
           pointerStateRef.current.realPaddingRight = newRealPaddingRight;
           pointerStateRef.current.expandLeftAmount = newExpandLeftAmount;
           pointerStateRef.current.expandRightAmount = newExpandRightAmount;
-          
-          // ✅ ОБНОВЛЕНИЕ DOM: Применяем стили (скругления, отступы, классы) ко всем затронутым соседям
-          neighborsMap.forEach((info, eventId) => {
-             // Find element: dragged element or neighbor in DOM
-             let el: HTMLElement | null = null;
-             if (eventId === pointerStateRef.current.id) {
-                el = pointerStateRef.current.el;
-             } else {
-                el = document.querySelector(`[data-event-id="${eventId}"]`);
-             }
-             
-             if (!el) return;
-             
-             // Get event data (from tempEvents for accuracy)
-             const event = tempEvents.find(e => e.id === eventId);
-             if (!event) return;
-             
-             // 1. Apply Border Radius
-             const r = getBorderRadiusForRowHeight(config.eventRowH);
-             const tl = (info.flags & MASK_ROUND_TL) ? r : 0;
-             const tr = (info.flags & MASK_ROUND_TR) ? r : 0;
-             const br = (info.flags & MASK_ROUND_BR) ? r : 0;
-             const bl = (info.flags & MASK_ROUND_BL) ? r : 0;
-             el.style.borderRadius = `${tl}px ${tr}px ${br}px ${bl}px`;
-             
-             // 2. Apply Inner Colors (CSS variables) & Classes
-             const getCol = (pid?: string) => {
-                if (!pid) return 'transparent';
-                const p = projectsRef.current.find(prj => prj.id === pid);
-                return p?.backgroundColor || 'transparent';
-             };
-             el.style.setProperty('--inner-tl-color', getCol(info.innerTopLeftProjectId));
-             el.style.setProperty('--inner-tr-color', getCol(info.innerTopRightProjectId));
-             el.style.setProperty('--inner-bl-color', getCol(info.innerBottomLeftProjectId));
-             el.style.setProperty('--inner-br-color', getCol(info.innerBottomRightProjectId));
-             
-             // Toggle classes for inner corners (Critical for visibility)
-             el.classList.toggle('inner-tl', !!info.innerTopLeftProjectId);
-             el.classList.toggle('inner-tr', !!info.innerTopRightProjectId);
-             el.classList.toggle('inner-bl', !!info.innerBottomLeftProjectId);
-             el.classList.toggle('inner-br', !!info.innerBottomRightProjectId);
-             
-             // ✅ Fix: Also toggle classes on the wrapper element if it exists
-             // (SchedulerEvent renders bottom corners in a separate wrapper div)
-             const wrapper = el.querySelector('.inner-bottom-wrapper');
-             if (wrapper) {
-                wrapper.classList.toggle('inner-bl', !!info.innerBottomLeftProjectId);
-                wrapper.classList.toggle('inner-br', !!info.innerBottomRightProjectId);
-             }
-             
-             // 3. Apply Geometry Expansion (Visual Padding)
-             const hasFullLeft = (info.flags & MASK_FULL_LEFT) !== 0;
-             const hasFullRight = (info.flags & MASK_FULL_RIGHT) !== 0;
-             
-             const pLeft = hasFullLeft ? 0 : config.cellPaddingLeft;
-             const pRight = hasFullRight ? 0 : config.cellPaddingRight;
-             
-             const expLeft = info.expandLeftMultiplier * config.gap;
-             const expRight = info.expandRightMultiplier * config.gap;
-             
-             // Update WIDTH for both dragged event and neighbors
-             const newWidth = event.weeksSpan * config.weekPx - pLeft - pRight + expLeft + expRight;
-             el.style.width = `${newWidth}px`;
-             
-             // Update LEFT for neighbors ONLY (dragged event is handled by mouse position at end of onMove)
-             if (eventId !== pointerStateRef.current.id) {
-                 const newLeft = event.startWeek * config.weekPx + pLeft - expLeft;
-                 el.style.left = `${newLeft}px`;
-             }
-          });
 
-          // ✅ Обновляем последнюю обработанную позицию (чтобы не пересчитывать повторно для той же позиции)
+          // ✅ Обновляем стили соседей (динамическая склейка)
+          updateNeighborStyles(neighborsMap);
+          
+          // ✅ ОБНОВЛЕНИЕ DOM: Применяем стили ТОЛЬКО к перетаскиваемому событию!
+          // Соседи обновятся автоматически при ре-рендере после onUp
+          // Это предотвращает наслоение из-за применения expansion к событиям которые не касаются
+          const draggedInfo = neighborsMap.get(pointerStateRef.current.id);
+          if (draggedInfo) {
+            const el = pointerStateRef.current.el;
+            const event = tempEvent; // Перетаскиваемое событие
+            
+            // 1. Apply Border Radius
+            const r = getBorderRadiusForRowHeight(config.eventRowH);
+            const tl = (draggedInfo.flags & MASK_ROUND_TL) ? r : 0;
+            const tr = (draggedInfo.flags & MASK_ROUND_TR) ? r : 0;
+            const br = (draggedInfo.flags & MASK_ROUND_BR) ? r : 0;
+            const bl = (draggedInfo.flags & MASK_ROUND_BL) ? r : 0;
+            el.style.borderRadius = `${tl}px ${tr}px ${br}px ${bl}px`;
+            
+            // 2. Apply Inner Colors (CSS variables) & Classes
+            const getCol = (pid?: string) => {
+              if (!pid) return 'transparent';
+              const p = projectsRef.current.find(prj => prj.id === pid);
+              return p?.backgroundColor || 'transparent';
+            };
+            el.style.setProperty('--inner-tl-color', getCol(draggedInfo.innerTopLeftProjectId));
+            el.style.setProperty('--inner-tr-color', getCol(draggedInfo.innerTopRightProjectId));
+            el.style.setProperty('--inner-bl-color', getCol(draggedInfo.innerBottomLeftProjectId));
+            el.style.setProperty('--inner-br-color', getCol(draggedInfo.innerBottomRightProjectId));
+            
+            // Toggle classes for inner corners
+            el.classList.toggle('inner-tl', !!draggedInfo.innerTopLeftProjectId);
+            el.classList.toggle('inner-tr', !!draggedInfo.innerTopRightProjectId);
+            el.classList.toggle('inner-bl', !!draggedInfo.innerBottomLeftProjectId);
+            el.classList.toggle('inner-br', !!draggedInfo.innerBottomRightProjectId);
+            
+            const wrapper = el.querySelector('.inner-bottom-wrapper');
+            if (wrapper) {
+              wrapper.classList.toggle('inner-bl', !!draggedInfo.innerBottomLeftProjectId);
+              wrapper.classList.toggle('inner-br', !!draggedInfo.innerBottomRightProjectId);
+            }
+            
+            // 3. Apply Geometry (БЕЗ expansion для width!)
+            const pLeft = config.cellPaddingLeft;
+            const pRight = config.cellPaddingRight;
+            
+            // ✅ Width С УЧЁТОМ expansion (восстанавливаем визуальную склейку при драге)
+            const newWidth = event.weeksSpan * config.weekPx 
+              - pLeft 
+              - pRight
+              + newExpandLeftAmount
+              + newExpandRightAmount;
+
+            el.style.width = `${newWidth}px`;
+            pointerStateRef.current.currentWidth = newWidth; // Update state
+            
+            // Позиция управляется курсором (в конце onMove)
+          }
+          
+          // ✅ Обновля���� последнюю обработанную позицию
           pointerStateRef.current.lastProcessedResourceId = newModel.resourceId;
           pointerStateRef.current.lastProcessedUnitStart = newModel.unitStart;
           pointerStateRef.current.lastProcessedStartWeek = newModel.startWeek;
-          
-          // pointerStateRef.current.evData.startWeek = newModel.startWeek; // No longer needed, using lastProcessedStartWeek
+        } else {
+          // ✅ Если позиция не изменилась, ГАРАНТИРУЕМ что ширина остаётся корректной
+          // Это защищает от любых внешних изменений (например, ре-рендеров) во время микро-движений
+          if (pointerStateRef.current.currentWidth) {
+             pointerStateRef.current.el.style.width = `${pointerStateRef.current.currentWidth}px`;
+          }
         }
       }
 
@@ -402,13 +461,13 @@ export function useEventInteractions({
           config
         );
         
-        // 🔍 КРИТИЧНО: Пересчитываем snappedLeftAbs с ОБНОВЛЁННЫМ padding И расирением!
-        // При рендере событие смещается влево на expandLeftAmount, поэтому мы тоже должны это учесть
+        // 🔍 Позиция перетаскиваемого события зависит ТОЛЬКО от startWeek и padding
+        // 🔍 Применяем expansion �� перетаскиваемому событию для визуальной стабильности
         const finalSnappedRel = pointerStateRef.current.lastValidModel.startWeek * config.weekPx;
         let finalSnappedLeftAbs = finalSnappedRel + pointerStateRef.current.realPaddingLeft;
         
-        // ⚠️ КРИТИЧНО: Вычитаем expandLeftAmount чтобы событие смещалось влево как при рендере!
-        finalSnappedLeftAbs -= pointerStateRef.current.expandLeftAmount;
+        // Вычитаем расширение влево (аналогично тому, как это делается в SchedulerEvent)
+        finalSnappedLeftAbs -= (pointerStateRef.current.expandLeftAmount || 0);
         
         // ✅ Обновляем текущие координаты в ref
         pointerStateRef.current.currentLeft = finalSnappedLeftAbs;
@@ -429,9 +488,19 @@ export function useEventInteractions({
       );
       const isClick = dist < 3; // Порог 3px
 
-      el.releasePointerCapture(ev.pointerId);
+      // ✅ CLEANUP: Гар��нтированная очистка классов и стилей
+      try {
+        if (el.releasePointerCapture) {
+           el.releasePointerCapture(ev.pointerId);
+        }
+      } catch (err) {
+        console.warn('⚠️ releasePointerCapture failed:', err);
+      }
+      
       document.body.classList.remove('dragging-mode');
+      document.body.classList.remove('resizing-mode'); // 🛡️ Safety cleanup
       el.classList.remove('dragging');
+      el.classList.remove('resizing'); // 🛡️ Safety cleanup
       el.style.zIndex = ''; // 🔧 Сбрасываем z-index
 
       // 🚫 ВКЛЮЧАЕМ polling обратно
@@ -446,13 +515,13 @@ export function useEventInteractions({
         pointerStateRef.current = null;
         window.removeEventListener('pointermove', onMove);
         window.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointercancel', onUp); // ✅ Cleanup cancellation
         return;
       }
 
       // ✅ v3.3.5: БЛОКИРУЕМ Delta Sync на 5 секунд после drag
       // Это предотвращает перезапись локальных изменений данными с сервера
       resetDeltaSyncTimer();
-      console.log('⏸️ Drag завершён: блокировка Delta Sync на 5 сек');
 
       // Сохраняем данные перед очисткой состояния
       const savedState = pointerStateRef.current;
@@ -461,6 +530,7 @@ export function useEventInteractions({
       pointerStateRef.current = null;
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp); // ✅ Cleanup cancellation
 
       if (savedState.lastValidModel) {
         let newStart = savedState.lastValidModel.startWeek;
@@ -491,14 +561,7 @@ export function useEventInteractions({
           unitStart: savedState.lastValidModel.unitStart
         };
 
-        console.log('📍 Перемещение завершено:', { 
-          id: updatedEvent.id, 
-          startWeek: updatedEvent.startWeek, 
-          resourceId: updatedEvent.resourceId,
-          unitStart: updatedEvent.unitStart
-        });
-
-        // 🔍 Проверяем, действительно ли событие изменилось (защита от ложных обновлений)
+        // 🔍 ��роверяем, действительно ли событие изменилось (защита от ложных обновлений)
         // Сравниваем с latestEvent (актуальным состоянием), а не savedState.evData (старым)
         const hasChanged = 
           updatedEvent.startWeek !== latestEvent.startWeek ||
@@ -534,6 +597,26 @@ export function useEventInteractions({
         // ✅ Оптимистичное обновление UI (только если есть изменения)
         onEventsUpdate(prev => prev.map(e => e.id === updatedEvent.id ? updatedEvent : e));
         
+        // 🔧 КРИТИЧНО: Немедленно корректируем DOM стили ПОСЛЕ обновления события
+        // Используем ФИНАЛЬНЫЕ padding и expansion из последнего onMove
+        // Это предотвращает "прыжок" при ре-рендере (который может пересчитать соседей неправильно)
+        const finalWidth = updatedEvent.weeksSpan * config.weekPx 
+          - savedState.realPaddingLeft 
+          - savedState.realPaddingRight
+          + (savedState.expandLeftAmount || 0)
+          + (savedState.expandRightAmount || 0);
+
+        let finalLeft = updatedEvent.startWeek * config.weekPx + savedState.realPaddingLeft;
+        finalLeft -= (savedState.expandLeftAmount || 0);
+        
+        const finalTop = topFor(updatedEvent.resourceId, updatedEvent.unitStart, resources, visibleDepartments, config);
+        const finalHeight = heightFor(updatedEvent.unitsTall, config);
+        
+        savedState.el.style.left = `${finalLeft}px`;
+        savedState.el.style.top = `${finalTop}px`;
+        savedState.el.style.width = `${finalWidth}px`;
+        savedState.el.style.height = `${finalHeight}px`;
+        
         // ✅ Используем snapshot для сохранения истории
         onSaveHistory(
           currentEvents.map(e => e.id === updatedEvent.id ? updatedEvent : e),
@@ -551,11 +634,11 @@ export function useEventInteractions({
 
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp); // ✅ Handle cancellation
 
     // 🚫 Отключаем polling
-    console.log('✅ DRAG START successful, setting isUserInteracting(true)');
     setIsUserInteracting(true);
-  }, [config, resources, visibleDepartments, events, projects, eventZOrder, onEventsUpdate, onEventZOrderUpdate, onSaveHistory, onEventUpdate, eventsContainerRef, setIsUserInteracting, resetDeltaSyncTimer, flushPendingChanges, updateHistoryEventId]); // ✅ v3.3.7: добавили flushPendingChanges и updateHistoryEventId
+  }, [config, resources, visibleDepartments, events, projects, eventZOrder, onEventsUpdate, onEventZOrderUpdate, onSaveHistory, onEventUpdate, eventsContainerRef, setIsUserInteracting, resetDeltaSyncTimer, flushPendingChanges, updateHistoryEventId, updateNeighborStyles]); // ✅ v3.3.7: добавили flushPendingChanges и updateHistoryEventId
 
   // ✅ v3.3.21: Восстанавливаем стили dragged элемента после ре-рендера
   // Это критично для предотвращения залипания курсора, если во время drag
@@ -576,7 +659,7 @@ export function useEventInteractions({
           // Обновляем ref
           pointerStateRef.current.el = newEl;
         } else {
-          console.error('❌ Новый элемент не найден! Drag может сломаться.');
+          console.error('❌ Новый элемент не найден! Drag можт сломаться.');
           return;
         }
       }
@@ -591,11 +674,18 @@ export function useEventInteractions({
         
         // Гарантируем, что z-index и классы на месте
         targetEl.style.zIndex = '1000';
-        if (!targetEl.classList.contains('dragging')) targetEl.classList.add('dragging');
-        document.body.classList.add('dragging-mode');
         
+        // ✅ Correctly apply classes based on interaction type
         if (pointerStateRef.current.type === 'resize') {
-          if (!targetEl.classList.contains('resizing')) targetEl.classList.add('resizing');
+           if (!targetEl.classList.contains('resizing')) targetEl.classList.add('resizing');
+           targetEl.classList.remove('dragging'); // 🛡️ Force remove conflict
+           document.body.classList.add('resizing-mode');
+           document.body.classList.remove('dragging-mode'); // 🛡️ Force remove conflict
+        } else {
+           if (!targetEl.classList.contains('dragging')) targetEl.classList.add('dragging');
+           targetEl.classList.remove('resizing'); // 🛡️ Force remove conflict
+           document.body.classList.add('dragging-mode');
+           document.body.classList.remove('resizing-mode'); // 🛡️ Force remove conflict
         }
       }
     }
@@ -621,24 +711,24 @@ export function useEventInteractions({
     e.stopPropagation();
 
     // ✅ v3.3.7: Flush pending changes ПЕРЕД началом resize
-    // Это гарантирует что все события с временными ID будут соз��аны на сервере
+    // Это гарантирует что все события с временными ID будут созданы на сервере
     // и получат реальные ID ДО того как resize попадёт в историю
-    console.log('🚀 RESIZE: Flush pending операций перед началом resize');
     flushPendingChanges(updateHistoryEventId).catch(err => console.error('❌ Ошибка flush перед resize:', err));
 
-    const target = e.target as HTMLElement;
-    if (target.setPointerCapture) {
-      target.setPointerCapture(e.pointerId);
+    // ✅ ИСПРАВЛЕНО: Используем el (сам элемент события) для захвата курсора, а не target (который может быть ребенком)
+    // Это гарантирует, что el.releasePointerCapture() в onUp сработает корректно
+    if (el.setPointerCapture) {
+      el.setPointerCapture(e.pointerId);
     }
 
-    document.body.classList.add('dragging-mode');
-    el.classList.add('dragging');
-    el.classList.add('resizing'); // Скрываем внутренние скругления во время ресайза
+    document.body.classList.add('resizing-mode');
+    el.classList.add('resizing');
+    // el.classList.add('resizing'); // ❌ УБРАНО: Скрывало внутренние скругления
     
     // 🔧 ВРЕМЕННОЕ РЕШЕНИЕ: меняем z-index напрямую
     el.style.zIndex = '1000';
 
-    // Находим и помечаем соседние события того же проекта
+    // Находим и помечаем соседние события того же проекта (для визуального отклика)
     const affectedNeighbors: HTMLElement[] = [];
     const eventTop = evData.unitStart;
     const eventBottom = evData.unitStart + evData.unitsTall - 1;
@@ -661,7 +751,7 @@ export function useEventInteractions({
       if (isLeftNeighbor || isRightNeighbor) {
         const neighborEl = document.querySelector(`[data-event-id="${e.id}"]`) as HTMLElement;
         if (neighborEl) {
-          neighborEl.classList.add('resizing');
+          // neighborEl.classList.add('resizing'); // ❌ УБРАНО: Скрывало внутренние скругления
           affectedNeighbors.push(neighborEl);
         }
       }
@@ -678,6 +768,12 @@ export function useEventInteractions({
       return;
     }
 
+    // ✅ Add class to body/element to disable transitions
+    document.body.classList.add('resizing-mode');
+    el.classList.add('resizing');
+    // 🔧 ВРЕМЕННОЕ РЕШЕНИЕ: меняем z-index напрямую
+    el.style.zIndex = '1000';
+
     const startLeft = parseFloat(el.style.left || '0');
     const startTop = parseFloat(el.style.top || '0');
     const startWidth = el.offsetWidth;
@@ -687,22 +783,29 @@ export function useEventInteractions({
 
     // 🔍 КРИТИЧНО: Вычисляем РЕАЛЬНЫЕ padding события ПЕРЕД ресайзом
     let neighborsMap;
-    if (eventNeighbors) {
-      // ✅ Оптимизация: используем переданные соседи, если они есть
-      neighborsMap = eventNeighbors;
-    } else {
-      try {
-        neighborsMap = calculateEventNeighbors(events, projects);
-      } catch (err) {
-        console.error('❌ Error calculating neighbors:', err);
-        return;
-      }
+    try {
+      // ✅ КРИТИЧНО: Используем refs для свежих данных
+      neighborsMap = calculateEventNeighbors(eventsRef.current, projectsRef.current);
+    } catch (err) {
+      console.error('❌ Error calculating neighbors:', err);
+      return;
     }
+    
+    // 🔍 КРИТИЧНО: Всегда используем константные отступы (как в SchedulerMain)
+    const realPaddingLeft = config.cellPaddingLeft;
+    const realPaddingRight = config.cellPaddingRight;
+
+    // 🔍 КРИТИЧНО: Учитываем начальное расширение, чтобы корректно добавлять его в onMove
+    // Но теперь мы используем реальный `neighborInfo` который был получен выше
     const neighborInfo = neighborsMap.get(evData.id);
-    const hasAnyLeftNeighbor = neighborInfo?.hasAnyLeftNeighbor || false;
-    const hasAnyRightNeighbor = neighborInfo?.hasAnyRightNeighbor || false;
-    const realPaddingLeft = hasAnyLeftNeighbor ? 0 : config.cellPaddingLeft;
-    const realPaddingRight = hasAnyRightNeighbor ? 0 : config.cellPaddingRight;
+    const initialExpandLeft = (neighborInfo?.expandLeftMultiplier || 0) * config.gap;
+    const initialExpandRight = (neighborInfo?.expandRightMultiplier || 0) * config.gap;
+
+    // ✅ Add class to body/element to disable transitions
+    document.body.classList.add('resizing-mode');
+    el.classList.add('resizing');
+    // 🔧 ВРЕМЕННОЕ РЕШЕНИЕ: меняем z-index напрямую
+    el.style.zIndex = '1000';
 
     pointerStateRef.current = {
       type: 'resize',
@@ -727,7 +830,9 @@ export function useEventInteractions({
       originalUnitStart: evData.unitStart,
       originalUnitsTall: evData.unitsTall,
       realPaddingLeft,
-      realPaddingRight
+      realPaddingRight,
+      initialExpandLeft,  // ✅ Store initial expansion
+      initialExpandRight  // ✅ Store initial expansion
     };
 
     const onMove = (ev: PointerEvent) => {
@@ -765,11 +870,21 @@ export function useEventInteractions({
       // Snap to grid
       if (pointerStateRef.current.edges.left || pointerStateRef.current.edges.right) {
         if (pointerStateRef.current.edges.left) {
+          // 🔍 КРИТИЧНО: Используем РЕАЛЬНЫЕ padding (константные)
+          // Слева ресайз: меняем startWeek и weeksSpan
+          
+          // Вычисляем логическую ширину (без expansion)
+          const logicalWidth = newWidth 
+            - (pointerStateRef.current.initialExpandLeft || 0) 
+            - (pointerStateRef.current.initialExpandRight || 0);
+
+          // Вычисляем deltaWeeks на основе dx
+          // dx включает expansion difference? Нет, dx это mouse move.
+          // Но newWidth меняется на -dx.
+          // Лучше считать deltaWeeks от dx напрямую.
           let deltaWeeks = Math.round(dx / config.weekPx);
 
           // 🔒 Запрещаем уменьшать ширину меньше 1 недели при ресайзе слева
-          // Если мы тянем левый край вправо (dx > 0), deltaWeeks положительный
-          // originalWeeksSpan - deltaWeeks >= 1  =>  deltaWeeks <= originalWeeksSpan - 1
           if (deltaWeeks > pointerStateRef.current.originalWeeksSpan - 1) {
             deltaWeeks = pointerStateRef.current.originalWeeksSpan - 1;
           }
@@ -777,17 +892,44 @@ export function useEventInteractions({
           let newStartWeek = clamp(pointerStateRef.current.originalStartWeek + deltaWeeks, 0, WEEKS - 1);
           let newWeeksSpan = clamp(pointerStateRef.current.originalWeeksSpan - deltaWeeks, 1, WEEKS - newStartWeek);
           if (newStartWeek + newWeeksSpan > WEEKS) newWeeksSpan = WEEKS - newStartWeek;
-          // 🔍 КРИТИЧНО: Используем РЕАЛЬНЫЕ padding (которые были применены при рендере)
+          
+          // Чистая ширина
           newWidth = newWeeksSpan * config.weekPx - pointerStateRef.current.realPaddingLeft - pointerStateRef.current.realPaddingRight;
           newLeft = newStartWeek * config.weekPx + pointerStateRef.current.realPaddingLeft;
+          
+          // Добавляем начальное расширение обратно, чтобы коррекция в конце onMove сработала
+          newWidth = newWidth + (pointerStateRef.current.initialExpandLeft || 0) + (pointerStateRef.current.initialExpandRight || 0);
+          
+          // newLeft также должен быть "базовым" (включающим начальное расширение влево),
+          // потому что коррекция в конце вычитает (current - initial).
+          // FinalLeft = CleanLeft - CurrentExpand.
+          // Formula: NewLeft_Modified = NewLeft - (Current - Initial).
+          // We want NewLeft_Modified = CleanLeft - Current.
+          // So NewLeft must be CleanLeft - Initial.
+          newLeft = newLeft - (pointerStateRef.current.initialExpandLeft || 0);
+
           // ✅ СОХРАНЯЕМ вычисленные значения для использования в onUp
           pointerStateRef.current.currentStartWeek = newStartWeek;
           pointerStateRef.current.currentWeeksSpan = newWeeksSpan;
         } else {
-          // 🔍 КРИТИЧНО: Используем РЕАЛЬНЫЕ padding (которые были применены при рендере)
-          let newWeeksSpan = Math.max(1, Math.round((newWidth + pointerStateRef.current.realPaddingLeft + pointerStateRef.current.realPaddingRight) / config.weekPx));
+          // 🔍 КРИТИЧНО: Используем РЕАЛЬНЫЕ padding (константные)
+          // Для расчета weeksSpan нам нужна "логическая" ширина без расширения
+          // newWidth содержит initialExpandLeft + initialExpandRight (через startWidth) + dx
+          // Поэтому вычитаем начальное расширение
+          const logicalWidth = newWidth 
+            - (pointerStateRef.current.initialExpandLeft || 0) 
+            - (pointerStateRef.current.initialExpandRight || 0);
+
+          let newWeeksSpan = Math.max(1, Math.round((logicalWidth + pointerStateRef.current.realPaddingLeft + pointerStateRef.current.realPaddingRight) / config.weekPx));
           newWeeksSpan = clamp(newWeeksSpan, 1, WEEKS - pointerStateRef.current.originalStartWeek);
+          
+          // Базовая ширина по сетке (без расширений)
+          // Используем её как основу, к которой потом добавится актуальное расширение в конце onMove
           newWidth = newWeeksSpan * config.weekPx - pointerStateRef.current.realPaddingLeft - pointerStateRef.current.realPaddingRight;
+          
+          // Добавляем начальное расширение обратно, чтобы коррекция в конце onMove сработала
+          newWidth = newWidth + (pointerStateRef.current.initialExpandLeft || 0) + (pointerStateRef.current.initialExpandRight || 0);
+          
           // ✅ СОХРАНЯЕМ вычисленные значения для использования в onUp
           pointerStateRef.current.currentWeeksSpan = newWeeksSpan;
         }
@@ -797,23 +939,52 @@ export function useEventInteractions({
 
       if (pointerStateRef.current.edges.top || pointerStateRef.current.edges.bottom) {
         if (pointerStateRef.current.edges.top) {
-          let deltaUnits = Math.round(dy / config.unitStride);
           
-          // 🔒 Запрещаем уменьшать высоту меньше 1 юнита при ресайзе сверху
+          let deltaUnits = Math.round(dy / config.unitStride);
+
+          
+          // 🔒 Запрещаем уменьшать в��соту меньше 1 юнита при ресайзе сверху
           // originalUnitsTall - deltaUnits >= 1 => deltaUnits <= originalUnitsTall - 1
           if (deltaUnits > pointerStateRef.current.originalUnitsTall - 1) {
+
             deltaUnits = pointerStateRef.current.originalUnitsTall - 1;
           }
 
           const newUnitStart = clamp(pointerStateRef.current.originalUnitStart + deltaUnits, 0, UNITS - 1);
           const newUnitsTall = clamp(pointerStateRef.current.originalUnitsTall - deltaUnits, 1, UNITS - newUnitStart);
+          
+
+          
           newHeight = heightFor(newUnitsTall, config);
           newTop = topFor(pointerStateRef.current.evData.resourceId, newUnitStart, resources, visibleDepartments, config);
           currentUnitsTall = newUnitsTall;
+          
+
+          
+          // ✅ СОХРАНЯЕМ вычисленные значения для использования в onUp
+          pointerStateRef.current.currentUnitStart = newUnitStart;
+          pointerStateRef.current.currentUnitsTall = newUnitsTall;
         } else {
-          const newUnitsTall = clamp(pointerStateRef.current.originalUnitsTall + Math.round(dy / config.unitStride), 1, UNITS - pointerStateRef.current.originalUnitStart);
+
+          
+          const deltaUnits = Math.round(dy / config.unitStride);
+
+          
+          const newUnitsTall = clamp(
+            pointerStateRef.current.originalUnitsTall + deltaUnits, 
+            1, 
+            UNITS - pointerStateRef.current.originalUnitStart
+          );
+          
+
+          
           newHeight = heightFor(newUnitsTall, config);
           currentUnitsTall = newUnitsTall;
+          
+
+          
+          // ✅ СОХРАНЯЕМ вычисленные значения для использования в onUp
+          pointerStateRef.current.currentUnitsTall = newUnitsTall;
         }
       }
 
@@ -844,6 +1015,83 @@ export function useEventInteractions({
       }
 
       // ✅ Обновляем текущие координаты в ref
+      // Calculate new neighbors based on current resize state
+      // We need to create a temporary event with current dimensions
+      const tempEvent = {
+        ...pointerStateRef.current.evData,
+        startWeek: pointerStateRef.current.currentStartWeek !== undefined ? pointerStateRef.current.currentStartWeek : pointerStateRef.current.evData.startWeek,
+        weeksSpan: pointerStateRef.current.currentWeeksSpan !== undefined ? pointerStateRef.current.currentWeeksSpan : pointerStateRef.current.evData.weeksSpan,
+        unitStart: pointerStateRef.current.currentUnitStart !== undefined ? pointerStateRef.current.currentUnitStart : pointerStateRef.current.evData.unitStart,
+        unitsTall: pointerStateRef.current.currentUnitsTall !== undefined ? pointerStateRef.current.currentUnitsTall : pointerStateRef.current.evData.unitsTall,
+      };
+
+      // Recalculate neighbors
+      const otherEvents = eventsRef.current.filter(e => e.id !== tempEvent.id);
+      const tempEvents = [...otherEvents, tempEvent];
+      
+      let neighborsMap;
+      try {
+        neighborsMap = calculateEventNeighbors(tempEvents, projectsRef.current);
+      } catch (err) {
+        console.error('❌ Error calculating neighbors during resize:', err);
+      }
+
+      if (neighborsMap) {
+        const resizeInfo = neighborsMap.get(tempEvent.id);
+        if (resizeInfo) {
+             // Update resizing event styles (inner corners, etc.)
+            const el = pointerStateRef.current.el;
+            
+            // 1. Apply Border Radius
+            const r = getBorderRadiusForRowHeight(config.eventRowH);
+            const tl = (resizeInfo.flags & MASK_ROUND_TL) ? r : 0;
+            const tr = (resizeInfo.flags & MASK_ROUND_TR) ? r : 0;
+            const br = (resizeInfo.flags & MASK_ROUND_BR) ? r : 0;
+            const bl = (resizeInfo.flags & MASK_ROUND_BL) ? r : 0;
+            el.style.borderRadius = `${tl}px ${tr}px ${br}px ${bl}px`;
+
+            // 2. Apply Inner Colors & Classes
+            const getCol = (pid?: string) => {
+              if (!pid) return 'transparent';
+              const p = projectsRef.current.find(prj => prj.id === pid);
+              return p?.backgroundColor || 'transparent';
+            };
+            el.style.setProperty('--inner-tl-color', getCol(resizeInfo.innerTopLeftProjectId));
+            el.style.setProperty('--inner-tr-color', getCol(resizeInfo.innerTopRightProjectId));
+            el.style.setProperty('--inner-bl-color', getCol(resizeInfo.innerBottomLeftProjectId));
+            el.style.setProperty('--inner-br-color', getCol(resizeInfo.innerBottomRightProjectId));
+
+            el.classList.toggle('inner-tl', !!resizeInfo.innerTopLeftProjectId);
+            el.classList.toggle('inner-tr', !!resizeInfo.innerTopRightProjectId);
+            el.classList.toggle('inner-bl', !!resizeInfo.innerBottomLeftProjectId);
+            el.classList.toggle('inner-br', !!resizeInfo.innerBottomRightProjectId);
+            
+            const wrapper = el.querySelector('.inner-bottom-wrapper');
+            if (wrapper) {
+              wrapper.classList.toggle('inner-bl', !!resizeInfo.innerBottomLeftProjectId);
+              wrapper.classList.toggle('inner-br', !!resizeInfo.innerBottomRightProjectId);
+            }
+
+          // 🔍 КРИТИЧНО: Корректируем ширину и отступ с учётом склейки!
+            // newWidth = "base" width from mouse drag + expansion difference
+            // newLeft = "base" left from mouse drag - expansion difference (left side)
+            
+            const currentExpandLeft = (resizeInfo.expandLeftMultiplier || 0) * config.gap;
+            const currentExpandRight = (resizeInfo.expandRightMultiplier || 0) * config.gap;
+            const initialExpandLeft = pointerStateRef.current.initialExpandLeft || 0;
+            const initialExpandRight = pointerStateRef.current.initialExpandRight || 0;
+            
+            const diffLeft = currentExpandLeft - initialExpandLeft;
+            const diffRight = currentExpandRight - initialExpandRight;
+            
+            newWidth = newWidth + diffLeft + diffRight;
+            newLeft = newLeft - diffLeft;
+        }
+        
+        // Update neighbors
+        updateNeighborStyles(neighborsMap);
+      }
+
       pointerStateRef.current.currentLeft = newLeft;
       pointerStateRef.current.currentTop = newTop;
       pointerStateRef.current.currentWidth = Math.max(24, newWidth);
@@ -858,10 +1106,19 @@ export function useEventInteractions({
     const onUp = async (ev: PointerEvent) => {
       if (!pointerStateRef.current || pointerStateRef.current.pointerId !== ev.pointerId) return;
 
-      el.releasePointerCapture(ev.pointerId);
-      document.body.classList.remove('dragging-mode');
+      // ✅ CLEANUP: Гарантированная очистка классов и стилей
+      try {
+        if (el.releasePointerCapture) {
+           el.releasePointerCapture(ev.pointerId);
+        }
+      } catch (err) {
+        console.warn('⚠️ releasePointerCapture failed:', err);
+      }
+      
+      document.body.classList.remove('resizing-mode');
+      document.body.classList.remove('dragging-mode'); // ✅ Safety cleanup
       el.classList.remove('dragging');
-      el.classList.remove('resizing'); // Восстанавливаем внутренние скругления после ресайза
+      el.classList.remove('resizing');
       el.style.zIndex = ''; // 🔧 Сбрасываем z-index
 
       // Снимаем метку с соседних событий
@@ -872,13 +1129,20 @@ export function useEventInteractions({
       // 🚫 ВКЛЮЧАЕМ polling обратно
       setIsUserInteracting(false);
 
+      // Сохраняем данные перед очисткой состояния
+      const savedState = pointerStateRef.current;
+
+      // ✅ Немедленно очищаем состояние и удаляем обработчики для мгновенного отклика
+      pointerStateRef.current = null;
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp); // ✅ Cleanup cancellation
+
       // ✅ v3.3.5: БЛОКИРУЕМ Delta Sync на 5 секунд после resize
       // Это предотвращает перезапись локальных изменений данными с сервера
       resetDeltaSyncTimer();
-      console.log('⏸️ Resize завершён: блокировка Delta Sync на 5 сек');
 
-      // Сохраняем данные перед очисткой состояния
-      const savedState = pointerStateRef.current;
+      // (savedState уже сохранен выше)
 
       // ✅ Получаем АБСОЛЮТНО СВЕЖЕЕ состояние из истории
       let currentEvents = eventsRef.current;
@@ -911,30 +1175,18 @@ export function useEventInteractions({
       }
 
       if (savedState.edges.top || savedState.edges.bottom) {
-        const gTop = parseFloat(savedState.el.style.top);
-        const gHeight = parseFloat(savedState.el.style.height);
-
-        const resourceTop = getResourceGlobalTop(updatedEvent.resourceId, resources, visibleDepartments, config);
-        
-        // ✅ ИСПРАВЛЕНО v4.0.6: Убрана компенсация +88px, так как topFor больше не добавляет её
-        const withinRow = gTop - resourceTop - config.rowPaddingTop;
-        
-        updatedEvent.unitStart = clamp(Math.round(withinRow / config.unitStride), 0, UNITS - 1);
-        updatedEvent.unitsTall = clamp(Math.round(gHeight / config.unitStride), 1, UNITS - updatedEvent.unitStart);
+        // ✅ ИСПОЛЬЗУЕМ сохранённые значения из onMove вместо пересчёта из DOM координат!
+        // Это гарантирует, что unitStart/unitsTall будут точно такими же, как были вычислены в onMove
+        // Пересчёт из DOM координат приводит к ошибкам округления
+        if (savedState.currentUnitStart !== undefined) {
+          updatedEvent.unitStart = savedState.currentUnitStart;
+        }
+        if (savedState.currentUnitsTall !== undefined) {
+          updatedEvent.unitsTall = savedState.currentUnitsTall;
+        }
       }
 
-      console.log('📏 Ресайз завершен:', { 
-        id: updatedEvent.id, 
-        startWeek: updatedEvent.startWeek, 
-        weeksSpan: updatedEvent.weeksSpan,
-        unitStart: updatedEvent.unitStart,
-        unitsTall: updatedEvent.unitsTall
-      });
 
-      // ✅ Немедленно очищаем состояние и удаляем обработчики для мгновенного отклика
-      pointerStateRef.current = null;
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
 
       // 🔍 Проверяем, действительно ли событие изменилось (защита от ложных обновлений)
       const hasChanged = 
@@ -974,11 +1226,11 @@ export function useEventInteractions({
 
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp); // ✅ Handle cancellation
 
     // 🚫 Отключаем polling
-    console.log('✅ RESIZE START successful, setting isUserInteracting(true)');
     setIsUserInteracting(true);
-  }, [config, resources, visibleDepartments, events, projects, eventZOrder, onEventsUpdate, onEventZOrderUpdate, onSaveHistory, onEventUpdate, eventsContainerRef, setIsUserInteracting, resetDeltaSyncTimer, flushPendingChanges, updateHistoryEventId]); // ✅ v3.3.7: добавили flushPendingChanges и updateHistoryEventId
+  }, [config, resources, visibleDepartments, events, projects, eventZOrder, onEventsUpdate, onEventZOrderUpdate, onSaveHistory, onEventUpdate, eventsContainerRef, setIsUserInteracting, resetDeltaSyncTimer, flushPendingChanges, updateHistoryEventId, updateNeighborStyles]); // ✅ v3.3.7: добавили flushPendingChanges и updateHistoryEventId
 
   return { startDrag, startResize };
 }

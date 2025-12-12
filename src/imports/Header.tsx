@@ -575,7 +575,7 @@ function Boxheader(props: HeaderProps) {
 export default function Header(props: HeaderProps) {
   return (
     <div
-      className="box-border content-stretch flex flex-col gap-2 items-start py-2 pl-0 pr-2 relative h-full w-full"
+      className="box-border content-stretch flex flex-col gap-2 items-start p-2 relative h-full w-full"
       data-name="header"
     >
       <Boxheader {...props} />

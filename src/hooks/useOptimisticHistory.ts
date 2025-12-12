@@ -85,8 +85,6 @@ export function useOptimisticHistory(initialEvents: SchedulerEvent[], initialPro
     };
     current.future = []; // Clear future on new change
     
-    console.log(`📝 pushState: добавлено в историю (past: ${current.past.length}, present: ${current.present.events.length} событий, ${current.present.projects.length} проектов, ${current.present.eventZOrder.size} z-order)`);
-    
     notifyChange();
   }, [notifyChange]);
 

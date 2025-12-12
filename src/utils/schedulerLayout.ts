@@ -15,6 +15,8 @@ export interface LayoutConfig {
   unitStride: number;
 }
 
+export const EVENTS_TOP_OFFSET = 88; // Дополнительный отступ для Events Layer (чтобы не залезали под шапку)
+
 // Calculate gap based on size (for both row height and cell width)
 export function getGapForSize(size: number): number {
   if (size <= 48) return 1; // Было 0.5, но это создавало дробные пиксели
@@ -113,7 +115,6 @@ export function topFor(
   departments: Department[],
   config: LayoutConfig
 ): number {
-  const EVENTS_TOP_OFFSET = 88; // Дополнительный отступ для Events Layer (чтобы не залезали под шапку)
   return getResourceGlobalTop(resourceId, resources, departments, config) +
     unitStart * config.unitStride +
     config.rowPaddingTop +
@@ -130,7 +131,7 @@ export function findClosestResource(
   departments: Department[],
   config: LayoutConfig
 ): Resource | null {
-  const EVENTS_TOP_OFFSET = 88; // Компенсируем offset для корректного определения ресурса
+  // EVENTS_TOP_OFFSET используется глобально
   let cur = 2 * config.rowH;
 
   // First pass: check if topAbs is inside any resource row bounds
@@ -211,7 +212,6 @@ export function modelFromGeometry(
   const resourceTop = getResourceGlobalTop(closest.id, resources, departments, config);
   
   // ✅ ВАЖНО: Компенсируем EVENTS_TOP_OFFSET, так как topFor теперь добавляет его
-  const EVENTS_TOP_OFFSET = 88;
   const withinRow = topAbs - resourceTop - config.rowPaddingTop - EVENTS_TOP_OFFSET;
   
   // 🐛 DEBUG: Логируем вычисления для диагностики

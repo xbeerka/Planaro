@@ -246,27 +246,18 @@ export function calculateGapResize(
       // Граница между event1 и event2 (weekBoundary)
       const boundary = gap.weekBoundary!;
       
-      console.log(`🔍 Поиск прилипших событий для gap на границе ${boundary}:`, {
-        event1: `${gap.event1.id} (weeks ${gap.event1.startWeek}-${gap.event1.startWeek + gap.event1.weeksSpan})`,
-        event2: `${gap.event2.id} (weeks ${gap.event2.startWeek}-${gap.event2.startWeek + gap.event2.weeksSpan})`,
-        resourceId: gap.resourceId,
-        totalEvents: allEvents.length,
-      });
+      // Находим все события на той же строке (resourceId)
+      const sameRowEvents = allEvents.filter(e => e.resourceId === gap.resourceId);
       
       // Event1 заканчивается на boundary (occupies weeks from event1.startWeek to boundary-1)
       // Event2 начинается на boundary (occupies weeks from boundary onwards)
       
       // Находим ВСЕ события которые касаются границы (независимо от event1/event2):
-      allEvents.forEach(event => {
+      sameRowEvents.forEach(event => {
         // Пропускаем event1 и event2
         if (event.id === gap.event1.id || event.id === gap.event2.id) return;
         
-        // Только события на том же ресурсе
-        if (event.resourceId !== gap.resourceId) return;
-        
         const eventRight = event.startWeek + event.weeksSpan;
-        
-        console.log(`  🔎 Проверка события ${event.id}: weeks ${event.startWeek}-${eventRight}, boundary ${boundary}`);
         
         // СЛУЧАЙ 1: Событие ЗАКАНЧИВАЕТСЯ на границе
         // → Расширяем/сжимаем его weeksSpan (граница двигается → событие тоже)
@@ -275,12 +266,10 @@ export function calculateGapResize(
           
           // FIX: Не даем уменьшить меньше 1 недели
           if (newWeeksSpan < 1) {
-            console.log(`  ⚠️ Невозможно сжать attached событие ${event.id} меньше 1 недели`);
             return; 
           }
           
           attachedUpdates.set(event.id, { weeksSpan: newWeeksSpan });
-          console.log(`  📌 Прилипшее (конец): событие ${event.id} на границе ${boundary}, новый weeksSpan: ${newWeeksSpan}`);
         }
         
         // СЛУЧАЙ 2: Событие НАЧИНАЕТСЯ на границе
@@ -291,7 +280,6 @@ export function calculateGapResize(
           
           // FIX: Не даем уменьшить меньше 1 недели
           if (newWeeksSpan < 1 || newStartWeek < 0) {
-             console.log(`  ⚠️ Невозможно сжать attached событие ${event.id} меньше 1 недели`);
              return;
           }
           
@@ -299,12 +287,10 @@ export function calculateGapResize(
             startWeek: newStartWeek,
             weeksSpan: newWeeksSpan 
           });
-          console.log(`  📌 Прилипшее (начало): событие ${event.id} на границе ${boundary}, новый startWeek: ${newStartWeek}, weeksSpan: ${newWeeksSpan}`);
         }
       });
       
       if (attachedUpdates.size > 0) {
-        console.log(`✅ Найдено ${attachedUpdates.size} прилипших событий для группового resize`);
         result.attachedUpdates = attachedUpdates;
       }
     }

@@ -2445,6 +2445,10 @@
     padding-right: calc(var(--spacing) * .5);
   }
 
+  .pr-1 {
+    padding-right: calc(var(--spacing) * 1);
+  }
+
   .pr-2 {
     padding-right: calc(var(--spacing) * 2);
   }
@@ -3978,7 +3982,7 @@ body.comment-mode .handle-container {
   cursor: move !important;
 }
 
-.scheduler-event.ctrl-move-mode .handle-container, .scheduler-event.resizing.inner-tl:before, .scheduler-event.resizing.inner-tr:after, .scheduler-event.resizing .inner-bottom-wrapper.inner-bl:before, .scheduler-event.resizing .inner-bottom-wrapper.inner-br:after {
+.scheduler-event.ctrl-move-mode .handle-container {
   display: none !important;
 }
 

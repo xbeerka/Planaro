@@ -298,7 +298,6 @@ function AppContent() {
     ); // 10 minutes
 
     return () => {
-      console.log("🛑 Clearing token refresh interval");
       clearInterval(refreshInterval);
     };
   }, [isAuthenticated, accessToken]);

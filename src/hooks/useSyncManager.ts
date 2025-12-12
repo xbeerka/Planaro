@@ -74,8 +74,6 @@ export function useSyncManager({ onSync, delay = 2000 }: SyncManagerOptions) {
     queueRef.current.set(id, newItem);
     setQueueSize(queueRef.current.size);
     scheduleFlush();
-    
-    console.log(`📝 SyncManager: Queued ${op} for ${id}. Queue size: ${queueRef.current.size}`);
   }, [scheduleFlush]);  
   /**
    * Принудительная отправка данных
@@ -83,7 +81,6 @@ export function useSyncManager({ onSync, delay = 2000 }: SyncManagerOptions) {
   const flush = useCallback(async (context?: any) => {
     if (queueRef.current.size === 0) return;
     if (isSyncing) {
-      console.log('⏳ SyncManager: Flush skipped, already syncing... (will retry via timer)');
       // Reschedule flush to ensure these changes are sent
       scheduleFlush();
       return;
@@ -98,12 +95,10 @@ export function useSyncManager({ onSync, delay = 2000 }: SyncManagerOptions) {
     setIsSyncing(true);
     
     try {
-      console.log(`🚀 SyncManager: Flushing ${itemsToSync.size} items...`);
       await onSync(itemsToSync, context);
       
       // 2. Успех
       inFlightRef.current = null;
-      console.log('✅ SyncManager: Sync successful');
     } catch (error) {
       console.error('❌ SyncManager: Sync failed', error);
       

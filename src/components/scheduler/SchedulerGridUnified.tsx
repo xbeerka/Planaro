@@ -739,8 +739,6 @@ export const SchedulerGrid = forwardRef<
 
     // Построение структуры grid (departments + resources) с вычислением offsets
     const gridItems = useMemo(() => {
-      console.log('🔍 SchedulerGrid: isLoading =', isLoading, ', viewportHeight =', viewportHeight);
-      
       const items: Array<{
         type: "department" | "resource" | "skeleton" | "skeleton-department";
         dept?: Department;
@@ -760,8 +758,6 @@ export const SchedulerGrid = forwardRef<
         const availableHeight = viewportHeight - TOTAL_TOP_HEIGHT - DEPARTMENT_ROW_HEIGHT;
         const resourceCount = Math.ceil(availableHeight / RESOURCE_ROW_HEIGHT) + 1;
         
-        console.log(`🎨 Skeleton: ${resourceCount} resources для высоты ${viewportHeight}px`);
-
         // 1 департамент (фиксированно)
         items.push({
           type: "skeleton-department",
@@ -885,11 +881,6 @@ export const SchedulerGrid = forwardRef<
       const visible = gridItems.slice(bufferedStart, bufferedEnd);
       const spacer = gridItems[bufferedStart]?.offset || 0;
 
-      // Логируем только в dev mode
-      if (process.env.NODE_ENV === 'development') {
-        console.log(`🎯 Virtualization: ${visible.length}/${gridItems.length} rows | offset: ${spacer.toFixed(0)}px | total: ${totalContentHeight.toFixed(0)}px`);
-      }
-
       return {
         visibleItems: visible,
         topSpacer: spacer,
@@ -937,7 +928,8 @@ export const SchedulerGrid = forwardRef<
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: `${LEFT_SIDEBAR_WIDTH}px 4px repeat(${WEEKS}, ${config.weekPx}px)`,
+              // 4px spacer on left (Col 3) and right (Last Col)
+              gridTemplateColumns: `${LEFT_SIDEBAR_WIDTH}px 0px 4px repeat(${WEEKS}, ${config.weekPx}px) 4px`,
               minWidth: "max-content",
             }}
           >
@@ -979,12 +971,12 @@ export const SchedulerGrid = forwardRef<
             {/* Header Toolbar (Column 3+) */}
             <div
               style={{
-                gridColumn: "3 / -1",
+                gridColumn: "3 / -1", // Cover all data columns including spacers
                 gridRow: 1,
                 position: "sticky",
-                left: "292px",
+                left: "284px",
                 top: 0,
-                width: "calc(100vw - 292px)",
+                width: "calc(100vw - 300px)",
                 height: `${HEADER_ROW_HEIGHT}px`,
                 backgroundColor: "#fff",
                 zIndex: 300,
@@ -1033,18 +1025,19 @@ export const SchedulerGrid = forwardRef<
               const startCol =
                 months
                   .slice(0, idx)
-                  .reduce((sum, m) => sum + m.weeks, 0) + 3;
+                  .reduce((sum, m) => sum + m.weeks, 0) + 4; // +4 because of Left Spacer (Col 3)
 
               // Определяем паддинг: 8px по краям, 4px между месяцами
+              // С учетом 4px спейсеров, нам нужно добавить еще 4px внутри
               const isFirst = idx === 0;
               const isLast = idx === months.length - 1;
               let paddingClass = "px-0.5"; // 2px с каждой стороны (между месяцами = 4px)
               if (isFirst && isLast) {
-                paddingClass = "px-2"; // Единственный месяц: 8px слева, 8px справа
+                paddingClass = "px-1"; // Единственный месяц: 4px (+4px spacer = 8px)
               } else if (isFirst) {
-                paddingClass = "pl-1 pr-0.5"; // 4px слева, 2px справа
+                paddingClass = "pl-1 pr-0.5"; // 4px слева (+4px spacer = 8px), 2px справа
               } else if (isLast) {
-                paddingClass = "pl-0.5 pr-2"; // 2px слева, 8px справа
+                paddingClass = "pl-0.5 pr-1"; // 2px слева, 4px справа (+4px spacer = 8px)
               }
 
               return (
@@ -1096,7 +1089,7 @@ export const SchedulerGrid = forwardRef<
               <div
                 key={`week-${w}`}
                 style={{
-                  gridColumn: w + 3,
+                  gridColumn: w + 4, // Shifted by 1 due to left spacer (Col 3)
                   gridRow: 3,
                   position: "sticky",
                   top: `${HEADER_ROW_HEIGHT + MONTH_ROW_HEIGHT}px`,
@@ -1106,6 +1099,7 @@ export const SchedulerGrid = forwardRef<
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
+                  // Padding handled by spacers
                 }}
               >
                 <p className="font-normal text-[12px] text-[#868789]">
@@ -1147,8 +1141,8 @@ export const SchedulerGrid = forwardRef<
                         zIndex: 200,
                       }}
                     >
-                      <div className="w-full h-full flex items-center pl-2">
-                        <div className="w-full h-full border-l border-r border-[#f0f0f0]">
+                      <div className="w-full h-full flex items-center">
+                        <div className="w-full h-full border-l border-[#f0f0f0]">
                           <ResourceRowSkeleton />
                         </div>
                       </div>
@@ -1157,7 +1151,7 @@ export const SchedulerGrid = forwardRef<
                     {/* Skeleton Row (52 weeks) */}
                     <div
                       style={{
-                        gridColumn: "3 / -1",
+                        gridColumn: "3 / -1", // Span across spacers (Col 3 to End)
                         gridRow: item.row,
                         height: `${RESOURCE_ROW_HEIGHT}px`,
                         backgroundColor: "#fff",
@@ -1169,7 +1163,7 @@ export const SchedulerGrid = forwardRef<
                           #DFE7EE ${config.weekPx}px
                         )`,
                         backgroundSize: `${config.weekPx}px 100%`,
-                        backgroundPosition: "0 0",
+                        backgroundPosition: "4px 0", // Shift 4px to skip Left Spacer
                         position: "relative",
                       }}
                     >
@@ -1191,8 +1185,8 @@ export const SchedulerGrid = forwardRef<
                             className="animate-pulse"
                             style={{
                               position: "absolute",
-                              left: `${config.cellPaddingLeft}px`,
-                              top: `${config.rowPaddingTop}px`,
+                              left: `${config.cellPaddingLeft + 4}px`, // 4px padding + 4px spacer
+                              top: `${config.rowPaddingTop - 4}px`, // -4px компенсация добавленных 4px к высоте
                               width: `${WEEKS * config.weekPx - config.cellPaddingLeft - config.cellPaddingRight}px`,
                               height: `${skeletonHeight}px`,
                               padding: `${config.cellPaddingLeft}px`,
@@ -1232,7 +1226,7 @@ export const SchedulerGrid = forwardRef<
                     {/* Department Row (52 weeks) */}
                     <div
                       style={{
-                        gridColumn: "3 / -1",
+                        gridColumn: "3 / -1", // Span across spacers
                         gridRow: item.row,
                         position: "sticky",
                         left: 0,
@@ -1275,14 +1269,13 @@ export const SchedulerGrid = forwardRef<
                     {/* Department Row (52 weeks) */}
                     <div
                       style={{
-                        gridColumn: "3 / -1",
+                        gridColumn: "3 / -1", // Span across spacers
                         gridRow: item.row,
                         position: "sticky",
                         left: 0,
                         top: `${HEADER_ROW_HEIGHT + MONTH_ROW_HEIGHT + WEEK_ROW_HEIGHT}px`,
                         height: `${DEPARTMENT_ROW_HEIGHT}px`,
                         backgroundColor: "#fff",
-                        borderRight: "0.5px solid #DFE7EE",
                         zIndex: 150,
                       }}
                     />
@@ -1326,18 +1319,19 @@ export const SchedulerGrid = forwardRef<
                         companies.find(c => c.id === item.resource!.companyId)?.name || ''
                       }`}
                       style={{
-                        gridColumn: "3 / -1", // Spanning all 52 weeks
+                        gridColumn: "3 / -1", // Span across spacers (Col 3 to End)
                         gridRow: item.row,
                         height: `${RESOURCE_ROW_HEIGHT}px`,
+                        width: `${config.weekPx * WEEKS}px`, // Limit width to exactly 52 weeks to avoid extra grid lines
                         backgroundColor: "#fff",
                         cursor: "pointer",
                         // CSS Grid background для визуализации границ недель
                         backgroundImage: `repeating-linear-gradient(
                           to right,
-                          transparent 0,
-                          transparent calc(${config.weekPx}px - 0.5px),
-                          #DFE7EE calc(${config.weekPx}px - 0.5px),
-                          #DFE7EE ${config.weekPx}px
+                          #DFE7EE 0,
+                          #DFE7EE 0.5px,
+                          transparent 0.5px,
+                          transparent ${config.weekPx}px
                         )`,
                         backgroundSize: `${config.weekPx}px 100%`,
                         backgroundPosition: "0 0",
@@ -1433,7 +1427,7 @@ export const SchedulerGrid = forwardRef<
             {/* ========== CHRONO OVERLAY (Current Week Marker) ========== */}
             <div
               style={{
-                gridColumn: "3 / -1",
+                gridColumn: "4 / -2", // Matches weeks exactly
                 gridRow: "4 / -1",
                 position: "sticky",
                 top: `${HEADER_ROW_HEIGHT + MONTH_ROW_HEIGHT + WEEK_ROW_HEIGHT}px`,
@@ -1487,11 +1481,12 @@ export const SchedulerGrid = forwardRef<
             <div
               ref={eventsContainerRef}
               style={{
-                gridColumn: "3 / -1",
+                gridColumn: "4 / -2", // Matches weeks exactly
                 gridRow: "4 / -1",
                 position: "relative",
                 zIndex: 100,
                 pointerEvents: "none",
+                // Padding removed as grid columns handle it
               }}
             >
               <div

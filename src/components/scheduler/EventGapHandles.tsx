@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import type { EventGap, Resource, Department } from '../../types/scheduler';
 import type { LayoutConfig } from '../../utils/schedulerLayout';
-import { getResourceGlobalTop } from '../../utils/schedulerLayout';
+import { getResourceGlobalTop, EVENTS_TOP_OFFSET } from '../../utils/schedulerLayout';
 
 interface EventGapHandlesProps {
   gaps: EventGap[];
@@ -70,7 +70,8 @@ export const EventGapHandles: React.FC<EventGapHandlesProps> = React.memo(({
           const left = config.cellPaddingLeft + (centerWeek * config.weekPx);
           
           // Позиция по вертикали - СМЕЩАЕМ ВНИЗ на 0.5 gap (в центр промежутка)
-          const top = resourceTop + config.rowPaddingTop + (gap.unitBoundary! * config.unitStride) - config.gap / 2;
+          // ✅ FIX: Добавляем EVENTS_TOP_OFFSET (88px) чтобы соответствовать рендерингу событий
+          const top = resourceTop + config.rowPaddingTop + (gap.unitBoundary! * config.unitStride) - config.gap / 2 + EVENTS_TOP_OFFSET;
           
           // Высота зоны клика = минимум из unitsTall обоих событий (НЕ пересечение недель!)
           // Вертикальный gap - это промежуток по вертикали, размер = меньшая высота событий
@@ -139,7 +140,8 @@ export const EventGapHandles: React.FC<EventGapHandlesProps> = React.memo(({
           const overlapUnitEnd = Math.min(event1UnitEnd, event2UnitEnd);
           const overlapUnits = overlapUnitEnd - overlapUnitStart;
           const centerUnit = overlapUnitStart + overlapUnits / 2;
-          const top = resourceTop + config.rowPaddingTop + (centerUnit * config.unitStride);
+          // ✅ FIX: Добавляем EVENTS_TOP_OFFSET (88px) чтобы соответствовать рендерингу событий
+          const top = resourceTop + config.rowPaddingTop + (centerUnit * config.unitStride) + EVENTS_TOP_OFFSET;
           
           // Позиция по горизонтали - СМЕЩАЕМ ВЛЕВО на 1 gap
           const left = config.cellPaddingLeft + (gap.weekBoundary! * config.weekPx) - config.gap;

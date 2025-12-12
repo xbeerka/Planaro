@@ -167,17 +167,9 @@ export function useGapInteractions({
     const hasChanges = delta !== 0;
     
     if (!hasChanges) {
-      console.log('⚠️ Gap drag завершён без изменений');
       setIsUserInteracting(false);
       return;
     }
-    
-    console.log('✅ Gap drag завершён с изменениями:', {
-      delta,
-      event1: result.event1Update,
-      event2: result.event2Update,
-      attachedCount: result.attachedUpdates?.size || 0,
-    });
     
     const { event1Update, event2Update, attachedUpdates } = result;
     
@@ -225,11 +217,9 @@ export function useGapInteractions({
     // ✅ БЛОКИРУЕМ Delta Sync на 5 секунд (как в обычном drag/resize)
     // Это предотвращает перезапись локальных изменений данными с сервера
     resetDeltaSyncTimer();
-    console.log('⏸️ Gap drag завершён: блокировка Delta Sync на 5 сек');
     
     // 🔥 КРИТИЧНО: Добавляем все обновления в pending queue
     // ВАЖНО: AWAIT каждого вызова чтобы гарантировать добавление в pending queue!
-    console.log('📦 Добавление gap изменений в pending queue...');
     await onEventUpdate(gap.event1.id, event1Update);
     await onEventUpdate(gap.event2.id, event2Update);
     
@@ -240,8 +230,6 @@ export function useGapInteractions({
       }
     }
     
-    console.log('📦 Все gap изменения добавлены в pending queue, запуск flush...');
-    
     // ✅ КРИТИЧНО: Устанавливаем флаг что идёт flush
     isFlushingRef.current = true;
     
@@ -249,10 +237,6 @@ export function useGapInteractions({
     // Это гарантирует что ВСЕ изменения отправятся на сервер БЕЗ debounce задержки
     try {
       await flushPendingChangesRef.current();
-      console.log('✅ Gap изменения сохранены на сервер через flush:', {
-        mainEvents: 2,
-        attachedEvents: attachedUpdates?.size || 0,
-      });
     } catch (error) {
       console.error('❌ Ошибка flush gap изменений:', error);
     } finally {
@@ -279,23 +263,15 @@ export function useGapInteractions({
     // ✅ КРИТИЧНО: Блокируем Delta Sync СРАЗУ при начале gap drag!
     // Это предотвращает перезапись локальных изменений между gap drag операциями
     resetDeltaSyncTimer();
-    console.log('⏸️ Gap drag начат: блокировка Delta Sync на 5 сек');
     
     // ✅ v3.3.7 (UPDATED): Flush pending changes ПЕРЕД началом gap drag
     // Мы НЕ должны делать flush если есть просто pending обновления, только если есть create
     // Так как flush блокирует следующий flush, который должен отправить gap resize
-    // console.log('🚀 GAP DRAG: Flush pending операций перед начало�� gap drag');
+    // console.log('🚀 GAP DRAG: Flush pending операций перед начало gap drag');
     // flushPendingChangesRef.current(updateHistoryEventId).catch(err => console.error('❌ Ошибка flush перед gap drag:', err));
     
     const target = e.currentTarget as HTMLElement;
     target.setPointerCapture(e.pointerId);
-    
-    console.log('🎯 Gap drag начат:', {
-      type: gap.type,
-      event1: gap.event1.id,
-      event2: gap.event2.id,
-      boundary: gap.type === 'vertical' ? gap.unitBoundary : gap.weekBoundary,
-    });
     
     gapPointerStateRef.current = {
       gap,

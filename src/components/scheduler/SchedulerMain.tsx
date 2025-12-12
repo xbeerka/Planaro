@@ -250,15 +250,7 @@ export function SchedulerMain({
     [workspace.timeline_year],
   );
 
-  // 🐛 DEBUG: Log current week marker state
-  useEffect(() => {
-    console.log('🐛 Хроно оверлей DEBUG:', {
-      showCurrentWeekMarker,
-      currentYear,
-      workspaceYear: workspace.timeline_year,
-      currentWeekIndex: getCurrentWeekIndex(workspace.timeline_year),
-    });
-  }, [showCurrentWeekMarker, workspace.timeline_year]);
+
 
   // Get current user info from token (memoized to prevent unnecessary re-renders)
   const currentUserEmail = useMemo(() => {
@@ -369,7 +361,7 @@ export function SchedulerMain({
   }, [setHistoryIdUpdater, updateHistoryEventId]);
 
   useEffect(() => {
-    console.log('🔍 SchedulerMain: getSnapshot is', typeof getSnapshot);
+    // getSnapshot initialized
   }, [getSnapshot]);
   const historyInitializedRef = useRef(false);
 
@@ -606,14 +598,12 @@ export function SchedulerMain({
 
   // Вычисляем соседей для каждо��о события (для соединения одинаковых проектов)
 
-  // ✅ Step 4: UI + State separate (useState + useEffect)
-  // This ensures calculation happens after render, preventing UI blocking
-  const [eventNeighbors, setEventNeighbors] = useState<Map<string, EventNeighborsInfo>>(new Map());
-
-  useEffect(() => {
-    // Only recalculate if data really changed
-    const result = calculateEventNeighbors(sortedEventsWithZOrder, projects);
-    setEventNeighbors(result);
+  // ✅ FIX: Use useMemo to prevent visual jump on drop
+  // Previously this was a useEffect, causing a 1-frame delay where events rendered unglued
+  // causing a 4px jump when neighbors were applied in the next render.
+  // With v8.0 optimization, calculation is fast enough for main thread.
+  const eventNeighbors = useMemo(() => {
+    return calculateEventNeighbors(sortedEventsWithZOrder, projects);
   }, [sortedEventsWithZOrder, projects]);
 
   // Event interactions
@@ -634,7 +624,7 @@ export function SchedulerMain({
     flushPendingChanges, // ✅ v3.3.7: Flush pending перед drag/resize для сохранения всех изменений
     updateHistoryEventId, // ✅ Для обновления истории после flush
     getEvents: getSnapshot, // ✅ Pass getSnapshot
-    eventNeighbors, // ✅ v3.3.23: Передаем вычисленные соседи для оптимизации drag
+    eventNeighbors, // ✅ v3.3.23: Передаем в��численные соседи для оптимизации drag
   });
   
   // ✨ Gap interactions - двусторонний resize границ между событиями
@@ -838,18 +828,7 @@ export function SchedulerMain({
         unitIndex,
         visibleEvents,
       );
-      console.log('🔍 handleCellClick:', {
-        resourceId,
-        week,
-        unitIndex,
-        free,
-        visibleEventsCount: visibleEvents.length,
-        eventsInCell: visibleEvents.filter(ev =>
-          ev.resourceId === resourceId &&
-          week >= ev.startWeek &&
-          week < ev.startWeek + ev.weeksSpan
-        )
-      });
+      
       if (free === 0) {
         showToast({
           type: "warning",
@@ -1656,7 +1635,7 @@ export function SchedulerMain({
     cutEventByBoundary,
     scrollTop,
     scrollLeft,
-    isLoadingResources, // ✅ Блокировка рендера событий пока не загрузятся ресурсы
+    isLoadingResources, // ✅ Блокировка рендер�� событий пока не загрузятся ресурсы
   ]);
 
   // Auto scroll to current week on mount (only if current year matches workspace year)
@@ -1684,15 +1663,6 @@ export function SchedulerMain({
           0,
           maxScrollLeft,
         );
-        
-        console.log('🎯 Автоскролл к текущей неделе:', {
-          currentWeek,
-          currentWeekLeft,
-          desiredScrollLeft,
-          actualScrollLeft: gridRef.current.scrollContainer.scrollLeft,
-          viewportWidth,
-          maxScrollLeft,
-        });
       }
     }, 0); // Откладываем до следующего тика
     
@@ -1831,7 +1801,7 @@ export function SchedulerMain({
       workspaceId: workspace.id,
     });
 
-    // Очищаем кэш воркспейсов чтобы при возврате загрузилось актуальное название
+    // Очищаем кэш воркспе��сов чтобы при возврате загрузилось актуальное название
     try {
       const { removeStorageItem } = await import('../../utils/storage');
       await removeStorageItem('cache_workspaces_list');

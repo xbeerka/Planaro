@@ -242,8 +242,6 @@ export function ProjectsManagementModal({
       // Step 3: Update existing projects
       const updatePromises: Promise<void>[] = [];
       
-      console.log('🔍 Начало сохранения изменений. Всего проектов для проверки:', Object.keys(editingProjects).length);
-      
       for (const projectId in editingProjects) {
         // Skip if project is marked for deletion
         if (deletedProjectIds.includes(projectId)) continue;

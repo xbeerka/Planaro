@@ -4,7 +4,11 @@ import { apiRequest, apiRequestNoResponse } from './base';
 export const eventsApi = {
   getAll: (token?: string, workspaceId?: string) => {
     const endpoint = workspaceId ? `/events?workspace_id=${workspaceId}` : '/events';
-    return apiRequest<SchedulerEvent[]>(endpoint, { token });
+    // ⏱️ Увеличенный timeout для начальной загрузки (может быть много событий)
+    return apiRequest<SchedulerEvent[]>(endpoint, { 
+      token,
+      timeout: 20000 // 20 секунд максимум
+    });
   },
   
   // ✨ Get only changed events (delta sync) - БОЛЕЕ ЭФФЕКТИВНО!
@@ -13,10 +17,10 @@ export const eventsApi = {
     const endpoint = since 
       ? `/events/changes?workspace_id=${workspaceId}&since=${encodeURIComponent(since)}`
       : `/events/changes?workspace_id=${workspaceId}`;
-    // ⏱️ Короткий timeout для Delta Sync (10 секунд)
+    // ⏱️ Timeout для Delta Sync (20 секунд)
     return apiRequest<{ events: SchedulerEvent[]; timestamp: string }>(endpoint, { 
       token,
-      timeout: 10000 // 10 секунд максимум
+      timeout: 20000 // 20 секунд максимум
     });
   },
     

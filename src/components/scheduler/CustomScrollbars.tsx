@@ -96,8 +96,6 @@ export function CustomScrollbars({
     const track = trackHRef.current;
     if (!wrap || !thumb || !track) return;
 
-    console.log('🎯 HORIZONTAL drag start');
-
     // Захват указателя
     thumb.setPointerCapture(ev.pointerId);
 
@@ -155,8 +153,6 @@ export function CustomScrollbars({
     const thumb = thumbVRef.current;
     const track = trackVRef.current;
     if (!wrap || !thumb || !track) return;
-
-    console.log('🎯 VERTICAL drag start');
 
     thumb.setPointerCapture(ev.pointerId);
 

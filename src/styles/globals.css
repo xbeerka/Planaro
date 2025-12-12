@@ -427,7 +427,8 @@ body.comment-mode .handle-container {
 }
 
 /* Resizing mode - скрываем внутренние скругления во время ресайза */
-.scheduler-event.resizing.inner-tl::before,
+/* УДАЛЕНО: Внутренние скругления теперь должны оставаться видимыми при ресайзе (v5.0.0) */
+/* .scheduler-event.resizing.inner-tl::before,
 .scheduler-event.resizing.inner-tr::after {
   display: none !important;
 }
@@ -435,7 +436,7 @@ body.comment-mode .handle-container {
 .scheduler-event.resizing .inner-bottom-wrapper.inner-bl::before,
 .scheduler-event.resizing .inner-bottom-wrapper.inner-br::after {
   display: none !important;
-}
+} */
 
 .scissor-guide {
   position: absolute;

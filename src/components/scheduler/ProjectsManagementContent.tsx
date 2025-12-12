@@ -232,12 +232,6 @@ export function ProjectsManagementContent({
 
   const handleSave = async () => {
     try {
-      console.log('🔍 DEBUG: Начало сохранения', {
-        editingProjects,
-        localNewProjects,
-        deletedProjectIds
-      });
-
       // Step 1: Delete projects
       if (deletedProjectIds.length > 0) {
         console.log(`🗑️ Удаление ${deletedProjectIds.length} проектов...`);

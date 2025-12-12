@@ -36,11 +36,6 @@ class RequestThrottleManager {
     // 2. Проверка: не выполняется ли уже такой же запрос (НЕ завершённый)
     const pending = this.pendingRequests.get(requestId);
     if (pending && !pending.completed) {
-      const elapsed = now - pending.timestamp;
-      // Игнорируем дубликаты < 1000ms (debounce effect)
-      if (elapsed > 1000) {
-        console.log(`ℹ️ Throttle: Пропуск дубликата "${requestId}" (уже выполняется ${elapsed}ms)`);
-      }
       return false;
     }
     
@@ -174,11 +169,6 @@ export async function throttledRequest<T>(
   // 2. Проверка дубликата (АТОМАРНО)
   const pending = requestThrottle['pendingRequests'].get(requestId);
   if (pending && !pending.completed) {
-    const elapsed = now - pending.timestamp;
-    // Игнорируем дубликаты < 1000ms (debounce effect)
-    if (elapsed > 1000) {
-      console.log(`ℹ️ Throttle: Пропуск дубликата "${requestId}" (уже выполняется ${elapsed}ms)`);
-    }
     return null;
   }
   
