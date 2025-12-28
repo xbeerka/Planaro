@@ -4,7 +4,6 @@ import { SimpleButton } from '../ui/simple-button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/simple-dialog';
 import { SimpleLabel } from '../ui/simple-label';
 import { SimpleInput } from '../ui/simple-input';
-import { WEEKS } from '../../utils/scheduler';
 import { getSortedProjectsByUsage, trackProjectUsage } from '../../utils/projectUsageTracking';
 import { smartSearch, getMatchScore } from '../../utils/search';
 import { highlightMatch } from '../../utils/highlightMatch';
@@ -23,13 +22,14 @@ interface EventModalProps {
     startWeek?: number;
     workspaceId?: string; // ✨ Добавлено для tracking
   };
+  weeksInYear: number; // ✅ Динамическое количество недель (52 или 53)
 }
 
-export function SimpleEventModal({ isOpen, onClose, onSave, projects, mode, initialData }: EventModalProps) {
+export function SimpleEventModal({ isOpen, onClose, onSave, projects, mode, initialData, weeksInYear }: EventModalProps) {
   // ✨ Локальный state для принудительного обновления сортировки
   const [sortTrigger, setSortTrigger] = useState(0);
   
-  // ✨ Сортиру��м проекты по последнему использованию
+  // ✨ Сортирум проекты по последнему использованию
   const sortedProjects = useMemo(() => {
     if (!initialData?.workspaceId) return projects;
     return getSortedProjectsByUsage(initialData.workspaceId, projects);
@@ -47,8 +47,8 @@ export function SimpleEventModal({ isOpen, onClose, onSave, projects, mode, init
 
   // Вычисляем максимальное количество недель на основе недели начала (0-based индексация)
   const maxWeeks = initialData?.startWeek 
-    ? WEEKS - initialData.startWeek 
-    : WEEKS;
+    ? weeksInYear - initialData.startWeek 
+    : weeksInYear;
 
   useEffect(() => {
     if (isOpen) {
@@ -60,8 +60,8 @@ export function SimpleEventModal({ isOpen, onClose, onSave, projects, mode, init
       
       // Вычисляем максимум недель для валидации (0-based индексация)
       const maxWeeksCalc = initialData?.startWeek 
-        ? WEEKS - initialData.startWeek 
-        : WEEKS;
+        ? weeksInYear - initialData.startWeek 
+        : weeksInYear;
       
       // Устанавливаем weeksSpan, но не больше maxWeeks
       const initialWeeks = initialData?.weeksSpan || 1;
@@ -82,7 +82,7 @@ export function SimpleEventModal({ isOpen, onClose, onSave, projects, mode, init
         setShowDropdown(false);
       }
     }
-  }, [isOpen, initialData, projects, mode]); // ✅ Убрали sortedProjects из зависимостей!
+  }, [isOpen, initialData, projects, mode, weeksInYear]); // ✅ Убрали sortedProjects из зависимостей!
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -290,7 +290,7 @@ export function SimpleEventModal({ isOpen, onClose, onSave, projects, mode, init
           <div className="grid grid-cols-2 gap-4">
             <div className="flex flex-col gap-2">
               <SimpleLabel htmlFor="weeks">
-                Недели {initialData?.startWeek && maxWeeks < WEEKS && (
+                Недели {initialData?.startWeek && maxWeeks < weeksInYear && (
                   <span className="text-xs text-muted-foreground">(макс. {maxWeeks})</span>
                 )}
               </SimpleLabel>

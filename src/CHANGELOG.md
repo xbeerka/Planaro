@@ -8,6 +8,101 @@
 
 ## [Unreleased]
 
+## [8.1.0] - 2025-12-23
+
+### ✨ Features
+- **Drag & Drop сортировка Грейдов и Компаний - ГОТОВО** (2025-12-23):
+  - ✅ Добавлена колонка `sort_order` в таблицы `grades` и `companies` в БД.
+  - ✅ Созданы индексы для оптимизации: `grades_ws_sort_order_idx`, `companies_ws_sort_order_idx`.
+  - ✅ Backend: GET запросы теперь сортируют по `sort_order` вместо `id`.
+  - ✅ Backend: POST запросы автоматически вычисляют `sort_order = MAX(sort_order) + 1`.
+  - ✅ Backend: PATCH `/grades/sort-order` и `/companies/sort-order` разблокированы и работают.
+  - ✅ TypeScript: `Grade.sort_order` и `Company.sort_order` теперь обязательные поля (не optional).
+  - ✅ Frontend: Исправлена ссылка на `g.sort_order` в логах WorkspaceManagementModal.
+  - ✅ UI: Drag & Drop с HTML5 API, batch обновление при сохранении.
+  - ✅ Логи: `[SORT_GRADE]` префикс для диагностики, детальное логирование batch операций.
+  - ✅ Документация: `/SORT_ORDER_READY.md`, `/QUICK_TEST_SORT_ORDER.md`.
+  - ✅ **Файлы**: `/supabase/functions/server/index.tsx`, `/types/scheduler.ts`, `/components/scheduler/WorkspaceManagementModal.tsx`.
+
+### 🐛 Bug Fixes
+- **Custom Scrollbars - Complete Fix**:
+  - ✅ Исправлен расчет `thumbWidth` - теперь использует `trackWidth` вместо `clientWidth`.
+  - ✅ Добавлен `effectiveScrollWidth` с учетом `horizontalLeftOffset`.
+  - ✅ Скроллбар корректно работает при изменении ширины недели (L → M/S/XS).
+  - ✅ Позиция и длина прогресс-бара точно соответствуют контенту.
+  - ✅ Добавлена зависимость `config.weekPx` в useEffect для обновления размеров.
+  - ✅ Скроллбары скрываются во время загрузки скелетонов (`!isLoading`).
+  - ✅ Плавные transition для изменения размера и позиции (0.2s ease).
+  - ✅ Исправлена ошибка `ReferenceError: weekWidth is not defined`.
+  - ✅ Исправлен баг с hover состоянием - теперь используется state вместо inline-стилей.
+  - ✅ Добавлены `isHoveringV` и `isHoveringH` state для правильного управления цветами.
+  - ✅ Цвет корректно сбрасывается при уходе курсора.
+  - ✅ Исправлен баг с драгом - добавлены `onPointerCancel` и `onLostPointerCapture`.
+  - ✅ Драг корректно останавливается при быстром выводе курсора и отпускании кнопки.
+  - ✅ Hover состояние сбрасывается при завершении драга.
+  - ✅ Z-index скроллбаров уменьшен до `4999` - теперь ниже модальных окон (`z-[5000]`).
+  - ✅ Скроллбары не перекрывают попапы и оверлеи.
+  - ✅ Добавлена блокировка взаимодействия со скроллбарами при открытом модальном окне.
+  - ✅ При открытии модального окна: `pointer-events: none` + `opacity: 0.3` на скроллбарах.
+  - ✅ Новый проп `isModalOpen` передается из SchedulerMain через SchedulerGrid в CustomScrollbars.
+  - ✅ Проверка всех модальных окон: event, comment, management, shortcuts, profile, settings, workspace.
+  - ✅ Исправлен z-index всех кастомных модальных окон с `z-[999]` на `z-[5000]`.
+  - ✅ Обновлены компоненты: DepartmentsManagementModal, ProjectsManagementModal, UnifiedManagementModal, UsersManagementModal, WorkspaceManagementModal.
+  - ✅ Теперь все модальные окна корректно перекрывают скроллбары (z-index: modal 5000 > scrollbar 4999).
+  - ✅ **Файлы**: `/components/scheduler/CustomScrollbars.tsx`, `/components/scheduler/SchedulerGridUnified.tsx`, `/components/scheduler/SchedulerMain.tsx`, все модальные компоненты.
+
+### ✨ Improvements
+- **Search Input States**:
+  - ✅ **Default**: Светло-серый фон `rgba(0,0,0,0.03)`.
+  - ✅ **Hover**: Фон светлеет до `rgba(0,0,0,0.015)`.
+  - ✅ **Focus**: Прозрачный фон + тонкая светло-серая граница `1px solid #f0f0f0`.
+  - ✅ **Плавные переходы**: `transition-all duration-200`.
+  - ✅ **Файлы**: `/components/scheduler/SchedulerGridUnified.tsx`.
+
+### 🧹 Cleanup
+- **Removed Legacy OnlineUsers Component**:
+  - ✅ **Удален**: Старый компонент `OnlineUsers` в левом нижнем углу (рудимент старого дизайна).
+  - ✅ **Причина**: Онлайн пользователи теперь отображаются в хедере через `HeaderOnlineUsers` (новый красивый дизайн).
+  - ✅ **Файлы**: `/components/scheduler/SchedulerGridUnified.tsx`.
+
+### 🐛 Bug Fixes
+- **Resource Skeleton Padding Fix**:
+  - ✅ **Проблема**: У скелетонов ресурсов отсутствовал левый отступ, из-за чего обводка контейнера смещалась влево относительно обычных ресурсов.
+  - ✅ **Причина**: Контейнер скелетона не имел `pl-2` (8px padding), а внутренний контейнер - `border-r` и `px-4`.
+  - ✅ **Решение**: 
+    - Добавлен `pl-2` в контейнер скелетона в `SchedulerGridUnified.tsx`.
+    - Добавлены `border-r` и `px-4` во внутренний контейнер.
+    - Скорректированы позиции элементов в `ResourceRowSkeleton.tsx`: `left-[24px]` → `left-[8px]`, `left-[72px]` → `left-[56px]`.
+  - ✅ **Результат**: Скелетоны выглядят идентично обычным ресурсам с правильными отступами и границами.
+  - ✅ **Файлы**: `/components/scheduler/SchedulerGridUnified.tsx`, `/components/scheduler/ResourceRowSkeleton.tsx`.
+
+### ✨ UX Improvements
+- **Auto-reload Resources After Company Delete**:
+  - ✅ **Проблема**: При удалении компании сотрудники переназначались на сервере, но интерфейс НЕ обновлялся автоматически.
+  - ✅ **Решение**: Добавлена автоматическая перезагрузка списка сотрудников через `loadResources()` после удаления компаний.
+  - ✅ **Цепочка**: `onDeleteCompany()` → `onCompaniesUpdated()` → `onResourcesUpdated()` → `loadResources()`.
+  - ✅ **Результат**: Изменения видны мгновенно без перезагрузки страницы.
+  - ✅ **Файлы**: `SchedulerMain.tsx`, `SchedulerModals.tsx`, `WorkspaceManagementModal.tsx`.
+  - ✅ **Документация**: `/COMPANY_DELETE_RESOURCE_RELOAD_SUMMARY.md`, `/QUICK_TEST_COMPANY_DELETE_RESOURCE_RELOAD.md`.
+
+### 🔧 Database Fixes
+- **Sequence Fix for Grades & Companies**:
+  - ✅ **Проблема**: `duplicate key value violates unique constraint "grades_pkey"` при создании грейдов.
+  - ✅ **Причина**: Sequence для автогенерации ID отстал от реальных ID в таблице (например, sequence=10, max_id=14).
+  - ✅ **Решение**: SQL скрипты для сброса sequence на `MAX(id) + 1`.
+  - ✅ **Файлы**: `/supabase/migrations/fix_grades_sequence.sql`, `/supabase/migrations/fix_companies_sequence.sql`, `/supabase/migrations/fix_all_sequences.sql`.
+  - ✅ **Документация**: `/FIX_DUPLICATE_KEY_ERROR.md`, `/QUICK_FIX_SEQUENCE.md`, `/SEQUENCE_FIX_SUMMARY.md`.
+  - ✅ **Время исправления**: ~2 минуты (выполнить SQL в Supabase Dashboard).
+
+### 🎯 Features
+- **Companies Workspace Isolation**:
+  - ✅ Компании теперь изолированы по воркспейсам (аналогично грейдам).
+  - ✅ Добавлена колонка `workspace_id` в таблицу `companies`.
+  - ✅ API обновлен: `GET /companies?workspace_id=X`, `POST /companies` с workspace_id, `PUT /companies/:id` с workspace_id.
+  - ✅ Frontend обновлен: все вызовы передают `workspaceId`.
+  - ✅ Кэширование: `cache_companies_${workspaceId}` в IndexedDB.
+  - ✅ Документация: `/COMPANIES_WORKSPACE_MIGRATION.md`, `/QUICK_TEST_COMPANIES_WORKSPACE.md`, `/COMPANIES_WORKSPACE_SUMMARY.md`.
+
 ## [8.0.3] - 2025-12-12
 ### 🐛 Bug Fixes
 - **Visual Regression (Inner Corners during Resize)**:
@@ -263,7 +358,7 @@
   - **Документация**: `/UNDO_REDO_TRYFINALLY_FIX_v3.3.17.md`
 
 - **v3.3.16**: Залипание флага isUndoRedoInProgressRef (КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ)
-  - **Проблема**: Undo/Redo перестаёт работать с ошибкой "Undo уже выполняется"
+  - **Проблема**: Undo/Redo перестаёт работать с ошибкой "Undo уже выполняетс��"
     - Сценарий: Выполнил Undo → ошибка синхронизации → флаг не сбросился → **Undo заблокирован навсегда**
     - **Причина 1**: Флаг `isUndoRedoInProgressRef` НЕ сбрасывался при критических ошибках
     - **Причина 2**: После сброса флага код продолжал выполнение и **снова устанавливал флаг в `true`** → бесконечный цикл
@@ -444,7 +539,7 @@
   - **Сценарий воспроизведения**:
     1. `createEvent()` создаёт событие на сервере
     2. Если CREATE завершился с ошибкой → событие НЕ в loadedEventIds
-    3. При drag → batch отправляет `op: 'update'` → сервер: "событие не найдено"
+    3. При drag → batch отправляет `op: 'update'` → се��вер: "событие не найдено"
   - **Результат**:
     - Корректное определение create vs update
     - Нет ошибок "событие не найдено в БД"
@@ -515,7 +610,7 @@
 
 #### Результат
 
-- ✅ Быстрое редактирование двух событий за одно действие
+- ✅ Б��строе редактирование двух событий за одно действие
 - ✅ Интуитивно - граница двигается туда куда курсор
 - ✅ Визуально понятно - синие пипки только при Cmd
 - ✅ Undo/Redo поддерживается
@@ -651,7 +746,7 @@
 
 ## [3.4.0-clean] - 2025-11-18
 
-### 🧹 Очистка кода Supabase Realtime
+### 🧹 Очистка ��ода Supabase Realtime
 
 **Полное удаление Realtime кода - пакет недоступен в Figma Make**
 
@@ -764,7 +859,7 @@ virtual-fs:file:///utils/supabase/client.ts:28:34: ERROR: [plugin: npm] Failed t
 
 **Решение**: Создана заглушка в `/utils/supabase/client.ts` - всегда в��звращает `null`
 
-#### Итоговый вердикт
+#### Итоговый в��рдикт
 ✅ **v3.4.0 ГОТОВО К ИСПОЛЬЗОВАНИЮ** (без Realtime)
 
 **Что работает**:
@@ -849,7 +944,7 @@ const operations: BatchOperation[] = [
 
 #### Изменения
 - ✅ `syncRestoredEventsToServer()` теперь синхронизирует **ВСЕ** восстановленные события (CREATE + UPDATE)
-- ✅ Batch операции: один запрос вместо последовательных UPDATE
+- ✅ Batch операции: один запрос вместо последовате��ьных UPDATE
 - ✅ Детальное логирование: `📦 BATCH: 2 create + 5 update`
 - ✅ Защита от race condition: блокировка Delta Sync на 5 секунд
 
@@ -882,7 +977,7 @@ const operations: BatchOperation[] = [
 #### Проблема
 - Пользователь делал resize/drag события
 - Событие визуально изменялось
-- Через несколько секунд событие "откатывалось" к старому состоянию
+- Через несколько секунд событие "откатывалось" к с��арому состоянию
 - Delta/Full Sync перезаписывал локальные изменения данными с сервера
 
 **Корневая причина**: Гонка условий (race condition)
@@ -1000,7 +1095,7 @@ t=500ms  : Debounced save отправляет данные на сервер
 - Удалённое событие **возвращалось** (не было удалено на сервере) ��
 
 #### Решение
-1. **Новая функция `syncDeletedEventsToServer`**:
+1. **Нов��я функция `syncDeletedEventsToServer`**:
    - Сравнивает текущие события с предыдущими (до Undo/Redo)
    - Находит удалённые события: `previousEvents.filter(e => !currentIds.has(e.id))`
    - Помечает их в `deletedEventIdsRef` (защита от Full Sync)
@@ -1283,7 +1378,7 @@ eventsToRestore.forEach(event => {
 - ✅ **Undo удаления → событие создаётся заново в БД**
   - Событие получает новый ID (старый уже удалён)
   - Все параметры сохраняются (проект, длина, высота, позиция)
-  - Локальный state автоматически обновляется с новым ID
+  - Локальный state автоматически обновляе��ся с новым ID
   - Следующий Redo будет работать с новым ID
 - ✅ **Redo удаления → событие снова создаётся**
   - Аналогично Undo - создание с новым ID
@@ -1295,7 +1390,7 @@ eventsToRestore.forEach(event => {
 - `"История: Undo восстанавливает событие e456 (было удалено)"`
 - `"✅ Со��ытие восстановлено с новым ID: e456 → e789"`
 - `"История: Redo восстанавливает событие e123 (было удалено)"`
-- Все логи имеют префикс `"История:"` для удобной фильтрации
+- Все логи имеют префикс `"История:"` для удобной ��ильтрации
 
 ---
 
@@ -1446,7 +1541,7 @@ function analyzeNeighborCoverage(neighbors, event, projectIndex): { ... } { ... 
 
 ### 🎯 FIX: Откусывание только при двойном gap в ПРОХОДЕ 5 v5.23 (2025-11-17)
 
-**Исправлен баг в алгоритме вклинивания - откусывание теперь срабатывает только для событий с двойным расширение��**
+**Исправлен баг в алгоритме вклинивания - откусывание теперь срабатывает только для событий с двойным расши��ение��**
 
 #### Проблема
 - ❌ ПРОХОД 5 (откусывание) срабатывал при `expandRightMultiplier > 0` (ЛЮБОЕ расширение)
@@ -1509,7 +1604,7 @@ if (otherInfo && otherInfo.expandRightMultiplier >= 2) {
 #### Проблема
 - ❌ ПРОХОД 3 (поджатие событий) искал соседей на неделе `event.startWeek` для `roundBottomRight`
 - ❌ Для длинных событий (например, Проект1 на 6-7 неделях) это работало случайно
-- ❌ Для коротких событий (например, Проект2 на 7 неделе длиной 1 неделя) поджатие НЕ срабатывало
+- ❌ Для коротких событий (например, Проект2 на 7 н��деле длиной 1 неделя) поджатие НЕ срабатывало
 - ❌ Проект1(6-7) не поджимался вправо, когда Проект2(7) был коротким
 - ❌ Проект1(8) не расширялся влево к поджатому соседу
 
@@ -1601,7 +1696,7 @@ if (neighborInfo.roundBottomRight) {
 - ✅ **Никаких пересчётов**: Используем значения, которые были ДО начала ресайза
 - ✅ **Pixel-perfect**: Событие остаётся на месте без смещений
 
-#### Техническая реализация
+#### Техническая реали��ация
 
 **В `startResize`**:
 ```typescript
@@ -1824,7 +1919,7 @@ Event unit 3: top = 33px ✅
 10. ✅ handleCellMouseLeave → ��Е убирает hover если меню открыто (правильная логика)
 
 **Обновлённые файлы**:
-- `/components/scheduler/SchedulerMain.tsx` - добавлено скрытие hover во всех местах закрытия контекстных меню
+- `/components/scheduler/SchedulerMain.tsx` - добавлено скрытие hover во всех мест��х закрытия контекстных меню
 
 ---
 
@@ -1842,7 +1937,7 @@ Event unit 3: top = 33px ✅
 - ✅ **Автоматическая пагинация**: цикл while загружает по 1000 записей
 - ✅ **Определение последней страницы**: `hasMore = pageEvents.length === PAGE_SIZE`
 - ✅ **Защита от переполнения**: максимум 100 страниц (100,000 событий)
-- ✅ **Детальное логирование**: каждая страница + общее время
+- ✅ **Детальное логирование**: каждая с��раница + общее время
 - ✅ **Поддержка любого количества**: от 1 до 100,000 событий
 
 #### Пример работы
@@ -1878,7 +1973,7 @@ Event unit 3: top = 33px ✅
 - ✅ Batch upload работал корректно - проблема была в ГЕНЕРАЦИИ
 
 #### Решение
-- ✅ **Убрали искусственное ограничение** `targetEventCount` (1-8 событи��)
+- ✅ **Убрали искусст��енное ограничение** `targetEventCount` (1-8 событи��)
 - ✅ **3-фазная стратегия заполнения**:
   - Фаза 1 (0-40%): разнообразные средние события (1-20 недель)
   - Фаза 2 (40-80%): короткие события (1-10 недель) для заполнения пустот
@@ -2015,7 +2110,7 @@ Event unit 3: top = 33px ✅
 
 **Улучшения генерации**:
 - ✅ **Прогресс-бар в реальном времени** - видно сколько сотрудников обработано
-- ✅ **Сокращено максимальное количество событий**: с 12 до 8
+- ✅ **Сокращено максимал��ное количество событий**: с 12 до 8
 - ✅ **Confirm обновлен**: теперь упоминает 1-8 событий
 - ✅ **Визуальная обратная связь**: модальное окно с прогрессом генерации
 - ✅ **Неболь��ая задержка** (10ms) между сотрудниками для визуального обновления
@@ -2042,7 +2137,7 @@ Event unit 3: top = 33px ✅
 
 **Новые тестовые кнопки в Toolbar**:
 - ✅ **"Сгенерировать эвенты"** (зеленая) - полное заполнение календаря
-- ✅ **"Очистить все эвенты"** (красная) - удаляет все события одним запросом
+- ✅ **"Очистить ��се эвенты"** (красная) - удаляет все события одним запросом
 
 **Генерация с ПОЛНЫМ заполнением (1-8 событий на сотрудника)**:
 - **100% заполнение БЕЗ ПУСТОТ** - все 208 ячеек заполнены
@@ -2060,7 +2155,7 @@ Event unit 3: top = 33px ✅
 **Оптимизи����ванная очистка**:
 - Новый endpoint: `DELETE /events/clear/:workspaceId`
 - Удаление всех событий одним SQL запросом
-- Подсчет удален��ых событий
+- Подсчет удален��ых ��обытий
 - Обновление workspace summary
 - Быстро даже для т��сяч событий
 
@@ -2199,7 +2294,7 @@ Event unit 3: top = 33px ✅
 **Realtime Database Changes через Supabase**:
 - ✅ WebSocket подключение с задержкой 100-300ms
 - ✅ Подписка на изменения в таблице `events` (INSERT/UPDATE/DELETE)
-- ✅ Фильтрация по `workspace_id` - получаем только релевантные изменения
+- ✅ Фильтрация по `workspace_id` - получае�� только релевантные изменения
 - ✅ Защита от дубликатов через регистрацию локальных изменений
 - ✅ Автоматический реконнект при обрыве соединения
 
@@ -2390,7 +2485,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE events;
 - **Frontend**: `/components/scheduler/CursorPresence.tsx` (WebSocket client + render)
 - **Integration**: `/components/scheduler/SchedulerMain.tsx` (использование компонента)
 - **Docs**: `/docs/COLLABORATIVE_CURSORS.md` (полная документация)
-- **Deploy**: `/WEBSOCKET_CURSORS_READY.md` (инструкции по деплою)
+- **Deploy**: `/WEBSOCKET_CURSORS_READY.md` (и��струкции по деплою)
 
 ---
 
@@ -2436,7 +2531,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE events;
 ### 🐛 Фикс таймаута OnlineUsers
 
 #### Проблема: "⚠️ OnlineUsers: таймаут запроса (10 секунд)"
-- **Симптом**: При загрузке онлайн пользователей запрос прерывался по таймауту
+- **Симптом**: ��ри загрузке онлайн пользователей запрос прерывался по таймауту
 - **Причины**:
   1. **Дубликат endpoint'а** - `/presence/online/:workspaceId` был определен ДВАЖДЫ (строки 3122 и 3355)
   2. Второе определение перезаписывало первое в Hono
@@ -2462,7 +2557,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE events;
 
 ## [Unreleased]
 
-### 🐛 Критический фикс модальных окон
+### 🐛 Критический фикс мо��альных окон
 
 #### Проблема "Not Found" при клике на кнопки (ИСПРАВЛЕНО)
 - **Симптом**: При клике на кнопки внутри модалок → выброс на страницу "Not Found" → требуется обновление
@@ -2476,7 +2571,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE events;
   - ✅ **UsersManagementModal** - Отмена, Сохранить
 - **Дополнительно**:
   - ✅ Убран избыточный toast "Изображение оптимизировано" в ProfileModal (остались логи)
-- **Результат**: Все модалки работают плавно, никаких редиректов, кнопки работают корректно
+- **Результат**: Все модалки работают плавно, никаких р��директов, кнопки работают корректно
 
 ### ✨ Оптимизация аватарок
 
@@ -2528,7 +2623,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE events;
 
 - **Решение (двухуровневое)**:
   1. **Очистка кэша** (v1):
-     - `handleBackToWorkspaces()` в App.tsx мгновенно очищает текущего пользователя из `cache_online_users_batch`
+     - `handleBackToWorkspaces()` в App.tsx мгновенно очищает текущег�� пользователя из `cache_online_users_batch`
      - WorkspaceListScreen мо��тируется с уже очищенным кэшем
      
   2. **Временная блокировка** (v2 - защита от быстрых переходов):
@@ -2695,11 +2790,11 @@ ALTER PUBLICATION supabase_realtime ADD TABLE events;
   
 - **🚨 КРИТИЧНО: Исправлен парсинг batch response в WorkspaceListScreen**:
   - **Проблема**: Сервер возвращает `{ workspaces: {...} }`, код парсил `data` напрямую → `NaN пользователей`
-  - **Решение**: Поддержка обоих форматов `data.workspaces || data` для обратной совместимости
-  - Теперь онлайн пользователи корректно отображаются в списке воркспейсов
+  - **Решение**: Поддержка обоих форматов `data.workspaces || data` для обратной совме��тимости
+  - Теперь онлайн пользовател�� корректно отображаются в списке воркспейсов
 
 - **Правил��ная логика отображения онлайн пользователей**:
-  - **В списке воркспейсов**: показываются ТОЛЬКО пользователи из presence (т.е. те кто ВНУТРИ воркспейса)
+  - **В списке воркспейсов**: показ��ваются ТОЛЬКО пользователи из presence (т.е. те кто ВНУТРИ воркспейса)
   - **Внутри календаря**: текущий пользователь показывается ВСЕГДА сразу из токена (не ждёт presence)
   - **Детальное логирование для диагностики**:
     - Batch effect: логирование вызова, workspaces count, IDs
@@ -2803,7 +2898,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE events;
 ## [1.8.2] - 2025-10-21
 
 ### 🐛 Исправлено
-- **URL роутинг**: Окончательно исправлена ошибка "Воркспейс не найден" при навигации
+- **URL роутинг**: Окончате��ьно исправлена ошибка "Воркспейс не найден" при навигации
   - Проблема: useEffect восстановления срабатывал при программной навигации через handleSelectWorkspace
   - Решение: Добавлен флаг `isProgrammaticNavigation` (useRef) для разделения типов навигации
   - Программная навигация (клик по ворксп��йсу) → устанавливает флаг → пропускает восстановление
@@ -2851,7 +2946,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE events;
 - **App.tsx**: handleBackToWorkspaces обновляет URL и добавляет в историю
 - **App.tsx**: Автоматическое восстановление воркспейса при прямом переходе по URL
 - **App.tsx**: Динамическое обновление document.title в зависимости от выбранного воркспейса
-- **OnlineUsers**: Рефакторинг - currentUser вычисляется отдельно (из токена), объединяется с onlineUsers
+- **OnlineUsers**: Рефакторинг - currentUser ��ычисляется отдельно (из токена), объединяется с onlineUsers
 - **OnlineUsers**: Добавлен лог при создании текущего пользователя для отладки
 - **WorkspaceListScreen**: Оптимизированы логи batch запросов (убраны избыточные детали)
 
@@ -2882,7 +2977,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE events;
 
 ### ⚡ Производительность
 - **Оптимизация OnlineUsers компонента**
-  - Добавлена мемоизация с `React.memo` - компонент больше не ре-рендерится при hover на ячейках календаря
+  - Добавлена мемоизация с `React.memo` - компонент бол��ше не ре-рендерится при hover на ячейках календаря
   - Мемоизирован `currentUserEmail` в SchedulerMain через `useMemo` для стабильности пропсов
   - Убраны избыточные console.log при каждом рендере (были логи при каждом движении мыши)
   - Умное обновление состояния - `setOnlineUsers` теперь сравнивает данные и обновляет только при изменениях
@@ -2965,7 +3060,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE events;
   - Периодическая проверка сессии на клиенте изменена с 50 минут на 10 минут (сервер сам обновляет токены)
 
 ### 🔄 Изменено
-- **Улучшенная логика /auth/session endpoint**
+- **Улучшенная ��огика /auth/session endpoint**
   - Сохранение refresh_token и expires_at в KV store
   - Автоматический вызов supabaseAuth.auth.refreshSession() при истекшем access_token
   - Обновление sessionData в KV store после refresh
@@ -2989,7 +3084,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE events;
 
 ### 🔄 Изменено
 - **Унифицирован DepartmentsManagementModal** по ��аттерну ProjectsManagementModal и UsersManagementModal
-  - Убран старый подход с `isCreating` и `newDeptName`
+  - Убран с��арый подход с `isCreating` и `newDeptName`
   - Добавлен массив `localNewDepartments` для множественного добавления департаментов
   - Теперь все три модалки работают идентично
 
@@ -3032,7 +3127,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE events;
   - Модалка создания воркспейса (CreateWorkspaceModal)
   - Кэширование списка воркспейсов в IndexedDB
   - Автоскролл к текущей неделе только для воркспейсов текущего года
-  - Breadcrumb навигация: Воркспейсы → Департаменты
+  - Breadcrumb нави��ация: Воркспейсы → Департаменты
   - API endpoints: GET/POST `/workspaces`, GET `/workspaces/summary`
 
 ### 🔄 Изменено
@@ -3057,7 +3152,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE events;
 - **Sticky названия проектов** при горизонтальном скролле
   - `position: sticky` на `.ev-name`
   - `background: inherit` для корректного отображения
-- **Спиннер загрузки событий** использует `textColor` проекта из БД
+- **Спиннер загрузки ��обытий** использует `textColor` проекта из БД
   - Размер 10px, border-color с opacity 20% и 100%
 
 ### 🔄 Изменено
@@ -3164,7 +3259,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE events;
 ### 🔄 Изменено
 - **Улучшена производительность**
   - GPU acceleration (`translateZ(0)`) для событий
-  - `will-change` только для анимируемых свойств
+  - `will-change` только дл�� анимируемых свойств
   - Debounced updates при drag & drop
 - **Оптимизирован Resize**
   - Плавная анимация с `cubic-bezier(0.25, 0.1, 0.25, 1)`

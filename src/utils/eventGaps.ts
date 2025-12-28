@@ -16,7 +16,13 @@ export function findEventGaps(
   // Получаем список видимых ресурсов
   const visibleResourceIds = new Set(
     resources
-      .filter(r => visibleDepartments.some(d => d.id === r.departmentId))
+      .filter(r => visibleDepartments.some(d => 
+        // For virtual "NO_DEPT" department, include resources without department_id
+        // For real departments, match by exact department ID
+        d.id === 'NO_DEPT' 
+          ? !r.departmentId 
+          : d.id === r.departmentId
+      ))
       .map(r => r.id)
   );
   

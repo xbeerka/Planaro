@@ -52,7 +52,8 @@ export async function uploadAvatar(file: File): Promise<string> {
   }
 
   const data = await response.json();
-  return data.avatarUrl;
+  console.log('📦 Ответ сервера upload-avatar:', data);
+  return data.avatarUrl || data.avatar_url; // Support both cases for robustness
 }
 
 export async function updateProfile(payload: UpdateProfilePayload): Promise<void> {

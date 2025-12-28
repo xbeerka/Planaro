@@ -2,6 +2,7 @@ import React from "react";
 import { SimpleEventModal } from "./SimpleEventModal";
 import { CommentModal } from "./CommentModal";
 import { UnifiedManagementModal, TabType } from "./UnifiedManagementModal";
+import { WorkspaceManagementModal } from "./WorkspaceManagementModal";
 import { KeyboardShortcutsModal } from "./KeyboardShortcutsModal";
 import { SettingsModal } from "./SettingsModal";
 import { ProfileModal } from "../auth/ProfileModal";
@@ -20,6 +21,7 @@ interface SchedulerModalsProps {
   projects: Project[];
   resources: SchedulerResource[];
   events: SchedulerEvent[]; // Added for projects modal
+  weeksInYear: number; // ✅ Динамическое количество недель (52 или 53)
   
   // Comment Modal
   commentModalOpen: boolean;
@@ -27,10 +29,20 @@ interface SchedulerModalsProps {
   setPendingComment: (comment: any) => void;
   handleCommentSave: (text: string) => Promise<void>;
 
-  // Unified Management Modal (replaces 3 separate modals)
+  // Unified Management Modal (Настройки: Сотрудники, Департаменты, Проекты)
   managementModalOpen: boolean;
   setManagementModalOpen: (open: boolean) => void;
   managementModalTab?: TabType; // Optional: which tab to open by default
+  
+  // Workspace Management Modal (Управление воркспейсом)
+  workspaceManagementModalOpen?: boolean;
+  setWorkspaceManagementModalOpen?: (open: boolean) => void;
+  
+  // Workspace props
+  workspaceName: string;
+  workspaceYear: number;
+  updateWorkspaceName: (name: string) => Promise<void>;
+  updateWorkspaceYear: (year: number) => Promise<void>;
   
   // Users props
   departments: Department[];
@@ -39,8 +51,24 @@ interface SchedulerModalsProps {
   createResource: (resource: Omit<SchedulerResource, "id">) => Promise<SchedulerResource>;
   updateResource: (id: string, data: Partial<SchedulerResource>) => Promise<void>;
   deleteResource: (id: string) => Promise<void>;
+  toggleUserVisibility?: (id: string) => Promise<void>;
   uploadUserAvatar: (userId: string, file: File) => Promise<string>;
   highlightUserId?: string;
+  
+  // Grades props
+  createGrade: (name: string) => Promise<void>;
+  updateGrade: (gradeId: string, name: string) => Promise<void>;
+  deleteGrade: (gradeId: string) => Promise<void>;
+  onGradesUpdated?: () => Promise<void>;
+  updateGradesSortOrder?: (updates: Array<{ id: string; sortOrder: number }>) => Promise<void>;
+  
+  // Companies props
+  createCompany: (name: string) => Promise<void>;
+  updateCompany: (companyId: string, name: string) => Promise<void>;
+  deleteCompany: (companyId: string) => Promise<void>;
+  onCompaniesUpdated?: () => Promise<void>;
+  updateCompaniesSortOrder?: (updates: Array<{ id: string; sortOrder: number }>) => Promise<void>;
+  onResourcesUpdated?: () => Promise<void>; // ✅ Reload resources after company operations
 
   // Projects props
   eventPatterns: EventPattern[];
@@ -87,6 +115,7 @@ export const SchedulerModals = React.memo<SchedulerModalsProps>((props) => {
     projects,
     resources,
     events,
+    weeksInYear,
     commentModalOpen,
     setCommentModalOpen,
     setPendingComment,
@@ -97,6 +126,16 @@ export const SchedulerModals = React.memo<SchedulerModalsProps>((props) => {
     setManagementModalOpen,
     managementModalTab = 'users',
     
+    // Workspace Management Modal
+    workspaceManagementModalOpen,
+    setWorkspaceManagementModalOpen,
+    
+    // Workspace
+    workspaceName,
+    workspaceYear,
+    updateWorkspaceName,
+    updateWorkspaceYear,
+    
     // Users
     departments,
     companies,
@@ -104,8 +143,24 @@ export const SchedulerModals = React.memo<SchedulerModalsProps>((props) => {
     createResource,
     updateResource,
     deleteResource,
+    toggleUserVisibility,
     uploadUserAvatar,
     highlightUserId,
+    
+    // Grades
+    createGrade,
+    updateGrade,
+    deleteGrade,
+    onGradesUpdated,
+    updateGradesSortOrder,
+    
+    // Companies
+    createCompany,
+    updateCompany,
+    deleteCompany,
+    onCompaniesUpdated,
+    updateCompaniesSortOrder,
+    onResourcesUpdated, // ✅ Reload resources after company operations
     
     // Projects
     eventPatterns,
@@ -149,6 +204,7 @@ export const SchedulerModals = React.memo<SchedulerModalsProps>((props) => {
         onSave={handleModalSave}
         projects={projects}
         resources={resources}
+        weeksInYear={weeksInYear} // ✅ Динамическое количество недель (52 или 53)
         pendingResource={
           pendingEvent
             ? resources.find((r) => r.id === pendingEvent.resourceId)
@@ -170,6 +226,12 @@ export const SchedulerModals = React.memo<SchedulerModalsProps>((props) => {
         onClose={() => setManagementModalOpen(false)}
         defaultTab={managementModalTab}
         
+        // Workspace props
+        workspaceName={workspaceName}
+        workspaceYear={workspaceYear}
+        onUpdateWorkspaceName={updateWorkspaceName}
+        onUpdateWorkspaceYear={updateWorkspaceYear}
+        
         // Users props
         resources={resources}
         departments={departments}
@@ -178,8 +240,23 @@ export const SchedulerModals = React.memo<SchedulerModalsProps>((props) => {
         onUpdateUser={updateResource}
         onCreateUser={createResource}
         onDeleteUser={deleteResource}
+        onToggleUserVisibility={toggleUserVisibility}
         onUploadUserAvatar={uploadUserAvatar}
         highlightedUserId={highlightUserId}
+        
+        // Grades props
+        onCreateGrade={createGrade}
+        onUpdateGrade={updateGrade}
+        onDeleteGrade={deleteGrade}
+        onGradesUpdated={onGradesUpdated}
+        updateGradesSortOrder={updateGradesSortOrder}
+        
+        // Companies props
+        onCreateCompany={createCompany}
+        onUpdateCompany={updateCompany}
+        onDeleteCompany={deleteCompany}
+        onCompaniesUpdated={onCompaniesUpdated}
+        updateCompaniesSortOrder={updateCompaniesSortOrder}
         
         // Departments props
         onRenameDepartment={renameDepartment}
@@ -197,6 +274,35 @@ export const SchedulerModals = React.memo<SchedulerModalsProps>((props) => {
         onUpdateProject={updateProject}
         onDeleteProject={handleDeleteProject}
         onResetHistory={resetHistory}
+      />
+
+      <WorkspaceManagementModal
+        isOpen={workspaceManagementModalOpen ?? false}
+        onClose={() => setWorkspaceManagementModalOpen?.(false)}
+        
+        // Workspace props
+        workspaceName={workspaceName}
+        workspaceYear={workspaceYear}
+        onUpdateWorkspaceName={updateWorkspaceName}
+        onUpdateWorkspaceYear={updateWorkspaceYear}
+        resources={resources}
+        
+        // Grades props
+        grades={grades}
+        onCreateGrade={createGrade}
+        onUpdateGrade={updateGrade}
+        onDeleteGrade={deleteGrade}
+        onGradesUpdated={onGradesUpdated}
+        onUpdateGradesSortOrder={updateGradesSortOrder}
+        
+        // Companies props
+        companies={companies}
+        onCreateCompany={createCompany}
+        onUpdateCompany={updateCompany}
+        onDeleteCompany={deleteCompany}
+        onCompaniesUpdated={onCompaniesUpdated}
+        onUpdateCompaniesSortOrder={updateCompaniesSortOrder}
+        onResourcesUpdated={onResourcesUpdated} // ✅ Reload resources after company delete
       />
 
       <KeyboardShortcutsModal

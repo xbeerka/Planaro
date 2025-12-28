@@ -12,20 +12,22 @@ import { useHistory } from "../../hooks/useHistory";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import { usePanning } from "../../hooks/usePanning";
 import { useEventInteractions } from "../../hooks/useEventInteractions";
-import { useGapInteractions } from "../../hooks/useGapInteractions"; // ✨ Gap handles
-import { useSchedulerUI } from "../../hooks/useSchedulerUI"; // ✨ UI State Hook
+import { useGapInteractions } from "../../hooks/useGapInteractions";
+import { useUI } from "../../contexts/UIContext";
+import { useSchedulerEventActions } from "../../hooks/useSchedulerEventActions";
 import { useToast } from "../ui/ToastContext";
 import { SchedulerEvent as SchedulerEventComponent } from "./SchedulerEvent";
-import { Toolbar } from "./Toolbar";
 import { RealtimeCursors } from "./RealtimeCursors";
 import { SchedulerModals } from "./SchedulerModals";
 import { SchedulerContextMenus } from "./SchedulerContextMenus";
-import { SchedulerGrid } from "./SchedulerGridUnified"; // ✅ UNIFIED CSS GRID - один контейнер!
-import { EventGapHandles } from "./EventGapHandles"; // ✨ Gap handles компонент
+import { SchedulerToolbar } from "./SchedulerToolbar";
+import { SchedulerGrid } from "./SchedulerGrid";
+import { EventGapHandles } from "./EventGapHandles";
 import {
   SchedulerEvent,
   Workspace,
-  Project,
+  Department,
+  Project, // Ensure Project is imported
 } from "../../types/scheduler";
 import {
   getEmailFromToken,
@@ -34,36 +36,32 @@ import {
 } from "../../utils/jwt";
 import {
   projectId,
-  publicAnonKey,
 } from "../../utils/supabase/info";
-import { MessageSquarePlus } from "lucide-react";
 import {
   generateMonths,
   getCurrentWeekIndex,
-  WEEKS,
-  UNITS,
+  getWeeksInYear,
   clamp,
   sortEvents,
   getLastWeeksOfMonths,
+  UNITS,
 } from "../../utils/scheduler";
 import {
   calculateEventNeighbors,
-  EventNeighborsInfo,
   MASK_ROUND_TL,
   MASK_ROUND_TR,
   MASK_ROUND_BL,
   MASK_ROUND_BR,
   MASK_HIDE_NAME,
 } from "../../utils/eventNeighbors";
-import { findEventGaps } from "../../utils/eventGaps"; // ✨ Gap поиск
+import { findEventGaps } from "../../utils/eventGaps";
 import {
   createLayoutConfig,
   topFor,
   heightFor,
   getAvailableFreeSpace,
-  getBorderRadiusForRowHeight,
 } from "../../utils/schedulerLayout";
-import { smartSearch } from "../../utils/search"; // ✨ Import smart search logic
+import { smartSearch } from "../../utils/search";
 
 interface SchedulerMainProps {
   accessToken: string | null;
@@ -103,11 +101,9 @@ export function SchedulerMain({
     grades,
     eventPatterns,
     companies,
-    isLoading,
-    isLoadingResources, // ✅ Для блокировки рендера событий
     visibleDepartments,
     visibleEvents,
-    createEvent,
+    createEvent, // Still needed for useEventInteractions? No, moved to hook? No, hook uses context functions.
     updateEvent,
     deleteEvent,
     setEvents,
@@ -116,10 +112,11 @@ export function SchedulerMain({
     isUserInteractingRef,
     setIsUserInteracting,
     resetDeltaSyncTimer,
-    resetProjectsSyncTimer, // ✅ Для блокировки синхронизации проектов после Undo/Redo
+    resetProjectsSyncTimer,
     createResource,
     updateResource,
     deleteResource,
+    toggleUserVisibility,
     uploadUserAvatar,
     createProject,
     updateProject,
@@ -132,11 +129,21 @@ export function SchedulerMain({
     reorderDepartments,
     toggleDepartmentVisibility,
     loadedEventIds,
-    queueChange, // ✅ Import queueChange
-    setHistoryIdUpdater, // ✅ Import history registration
+    queueChange,
+    setHistoryIdUpdater,
+    createGrade,
+    updateGrade,
+    deleteGrade,
+    loadGrades,
+    updateGradesSortOrder,
+    createCompany,
+    updateCompany,
+    deleteCompany,
+    loadCompanies,
+    updateCompaniesSortOrder,
+    loadResources,
   } = useScheduler();
 
-  // Ensure departments are sorted by queue
   const sortedDepartments = useMemo(() => {
     return [...departments].sort((a, b) => (a.queue || 0) - (b.queue || 0));
   }, [departments]);
@@ -145,11 +152,19 @@ export function SchedulerMain({
     enabledCompanies,
     enabledDepartments,
     enabledProjects,
-    setEnabledProjects,
   } = useFilters();
 
-  // ✨ UI State Hook - manage all UI states here
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, []);
+
   const {
+    isLoading,
+    isLoadingResources,
+    
     scissorsMode,
     commentMode,
     handleToggleScissors,
@@ -158,17 +173,17 @@ export function SchedulerMain({
     setCommentMode,
 
     pendingEventIds,
-    setPendingEventIds,
+    // setPendingEventIds, // Removed as unused directly here (used in hook)
 
     copiedEvent,
-    setCopiedEvent,
+    // setCopiedEvent, // Removed
 
     modalOpen,
     setModalOpen,
     modalMode,
-    setModalMode,
+    // setModalMode, // Removed
     modalInitialData,
-    setModalInitialData,
+    // setModalInitialData, // Removed
     pendingEvent,
     setPendingEvent,
 
@@ -187,6 +202,8 @@ export function SchedulerMain({
     setProfileModalOpen,
     settingsModalOpen,
     setSettingsModalOpen,
+    workspaceManagementModalOpen,
+    setWorkspaceManagementModalOpen,
 
     contextMenu,
     setContextMenu,
@@ -196,10 +213,10 @@ export function SchedulerMain({
     hoverHighlight,
     setHoverHighlight,
     ghost,
-    setGhost,
+    // setGhost, // Removed
 
-    closeAllModals, // Replaces handleEscape logic
-  } = useSchedulerUI();
+    closeAllModals,
+  } = useUI();
 
   const [eventZOrder, setEventZOrder] = useState<
     Map<string, number>
@@ -210,10 +227,10 @@ export function SchedulerMain({
     scrollContainer: HTMLDivElement | null;
     showRowHover?: (resourceId: string) => void;
     hideRowHover?: () => void;
+    hideHoverHighlight?: () => void;
   } | null>(null);
   const eventsContainerRef = useRef<HTMLDivElement>(null);
   
-  // Extract scroll container ref for usePanning
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (gridRef.current?.scrollContainer) {
@@ -221,18 +238,9 @@ export function SchedulerMain({
     }
   }, [gridRef.current?.scrollContainer]);
 
-  // Track scroll position for canvas sticky headers
-  const [scrollTop, setScrollTop] = useState(0);
-  const [scrollLeft, setScrollLeft] = useState(0);
-
-  // Search query for filtering resources (moved from SchedulerGrid to sync with events)
   const [searchQuery, setSearchQuery] = useState("");
-
-  // State for row hover highlight
-  const [hoveredResourceId, setHoveredResourceId] = useState<string | null>(null);
-
-  // State for highlighting user in Users Management Modal
   const [highlightUserId, setHighlightUserId] = useState<string | undefined>(undefined);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const months = useMemo(
     () => generateMonths(workspace.timeline_year),
@@ -243,16 +251,17 @@ export function SchedulerMain({
     [months],
   );
 
-  // Show current week marker only if current year matches workspace year
+  const weeksInYear = useMemo(
+    () => getWeeksInYear(workspace.timeline_year),
+    [workspace.timeline_year],
+  );
+
   const currentYear = new Date().getFullYear();
   const showCurrentWeekMarker = useMemo(
     () => currentYear === workspace.timeline_year,
     [workspace.timeline_year],
   );
 
-
-
-  // Get current user info from token (memoized to prevent unnecessary re-renders)
   const currentUserEmail = useMemo(() => {
     if (!accessToken) return undefined;
     return getEmailFromToken(accessToken);
@@ -269,25 +278,26 @@ export function SchedulerMain({
       ?.avatar_url;
   }, [accessToken]);
 
-  // Apply filters to resources
   const filteredResources = useMemo(() => {
     let filtered = resources;
 
-    // Filter by companies
     if (enabledCompanies.size > 0) {
       filtered = filtered.filter(
         (r) => r.companyId && enabledCompanies.has(r.companyId),
       );
     }
 
-    // Filter by departments
+    filtered = filtered.filter(r => r.visible !== false && (r as any).isVisible !== false);
+
     if (enabledDepartments.size > 0) {
-      filtered = filtered.filter((r) =>
-        enabledDepartments.has(r.departmentId),
-      );
+      filtered = filtered.filter((r) => {
+        if (!r.departmentId && enabledDepartments.has('NO_DEPT')) {
+          return true;
+        }
+        return enabledDepartments.has(r.departmentId);
+      });
     }
 
-    // Filter by projects (show only people with events from selected projects)
     if (enabledProjects.size > 0) {
       const resourcesWithSelectedProjects = new Set<string>();
       events.forEach((event) => {
@@ -300,13 +310,12 @@ export function SchedulerMain({
       );
     }
 
-    // Filter by search query
     if (searchQuery) {
       filtered = filtered.filter((r) => {
         const targetText = [
           r.fullName,
           r.position
-        ].filter(Boolean).join(" "); // Join all searchable fields
+        ].filter(Boolean).join(" ");
         
         return smartSearch(searchQuery, targetText);
       });
@@ -322,17 +331,31 @@ export function SchedulerMain({
     searchQuery,
   ]);
 
-  // Filter departments to show only those with visible resources
   const filteredDepartments = useMemo(() => {
     const departmentIds = new Set(
       filteredResources.map((r) => r.departmentId),
     );
-    return visibleDepartments.filter((d) =>
+    
+    const realDepartments = visibleDepartments.filter((d) =>
       departmentIds.has(d.id),
     );
+    
+    const hasUsersWithoutDept = filteredResources.some((r) => !r.departmentId);
+    
+    if (hasUsersWithoutDept) {
+      const virtualDept: Department = {
+        id: 'NO_DEPT',
+        name: 'Без департамента',
+        queue: 9999,
+        visible: true,
+        workspaceId: realDepartments[0]?.workspaceId || '',
+      };
+      return [...realDepartments, virtualDept];
+    }
+    
+    return realDepartments;
   }, [visibleDepartments, filteredResources]);
 
-  // Кэшируем config для предотвращения лишних пересчётов и ре-рендеров
   const config = useMemo(
     () =>
       createLayoutConfig(
@@ -351,127 +374,82 @@ export function SchedulerMain({
     canRedo,
     resetHistory,
     updateHistoryEventId,
-    updateHistoryProjectId,
-    getSnapshot, // ✅ Получаем getSnapshot
-  } = useHistory([], []); // events, projects
+    getSnapshot,
+  } = useHistory([], []);
 
-  // ✅ Register history ID updater for background syncs (SyncManager)
   useEffect(() => {
     setHistoryIdUpdater(updateHistoryEventId);
   }, [setHistoryIdUpdater, updateHistoryEventId]);
 
-  useEffect(() => {
-    // getSnapshot initialized
-  }, [getSnapshot]);
   const historyInitializedRef = useRef(false);
 
-  // Инициализация истории после загрузки событий и проектов
   React.useEffect(() => {
     const snapshot = getSnapshot();
     const historyEventsCount = snapshot.events.length;
     const historyProjectsCount = snapshot.projects.length;
     
-    // Проверка на рассинхронизацию: если в пропсах есть данные, а в истории пусто
     const isEventsDesync = events.length > 0 && historyEventsCount === 0;
     const isProjectsDesync = projects.length > 0 && historyProjectsCount === 0;
     const needsReinitialization = historyInitializedRef.current && !isLoading && (isEventsDesync || isProjectsDesync);
 
-    // ✅ 1. Первичная инициализация
-    // Ждём когда загрузятся И события И проекты (но не блокируем если одного нет долго)
     if (!isLoading && !historyInitializedRef.current) {
-      // ✅ Инициализируем историю СИНХРОННО
       resetHistory(events, eventZOrder, projects);
       historyInitializedRef.current = true;
     }
-    // ✅ 2. Ре-инициализация при рассинхроне (защита от late arrival или потери состояния)
     else if (needsReinitialization) {
        resetHistory(events, eventZOrder, projects);
     }
-    
-    // ❌ УБРАЛИ: сброс флага при events.length === 0
-    // Это приводило к реинициализации истории с пустым состоянием при Undo
   }, [isLoading, events.length, projects.length, eventZOrder, resetHistory, getSnapshot]);
   
-  // Сбрасываем флаг при размонтировании компонента
   React.useEffect(() => {
     return () => {
       historyInitializedRef.current = false;
     };
   }, []);
 
-  // Автосохранение истории при изменении проектов (для undo/redo удаления проектов)
   const prevProjectsRef = useRef<Project[]>([]);
-  const isUserProjectChangeRef = useRef<boolean>(false); // ✅ Флаг для отслеживания пользовательских изменений
+  const isUserProjectChangeRef = useRef<boolean>(false);
   
   React.useEffect(() => {
-    // Пропускаем первую инициализацию
     if (!historyInitializedRef.current) {
       prevProjectsRef.current = projects;
       return;
     }
     
-    // Если проекты изменились - проверяем это ли пользовательское изменение
     if (JSON.stringify(prevProjectsRef.current) !== JSON.stringify(projects)) {
-      // ✅ Сохраняем историю ТОЛЬКО для пользовательских изменений
       if (isUserProjectChangeRef.current) {
-        console.log('📝 Автосохранение истории после пользовательского изменения проектов');
-        
-        // ✅ КРИТИЧЕСКАЯ ПРОВЕРКА: НЕ сохраняем если есть события но НЕТ проектов
-        // Это может произойти из-за race condition между загрузкой events и projects
         if (events.length > 0 && projects.length === 0) {
-          console.warn('⚠️ История: пропуск сохранения - events загружены, но projects ещё нет');
-          console.warn('⚠️ История: ожидаем следующего цикла когда оба массива будут синхронизированы');
+          console.warn('⚠️ History: skip save - events loaded but projects missing');
           isUserProjectChangeRef.current = false;
           prevProjectsRef.current = projects;
           return;
         }
-        
         saveHistory(events, eventZOrder, projects);
-        isUserProjectChangeRef.current = false; // Сбрасываем флаг
-      } else {
-        console.log('⏭️ Пропуск автосохранения: изменение от polling');
+        isUserProjectChangeRef.current = false;
       }
       prevProjectsRef.current = projects;
     }
-  }, [projects, events, eventZOrder, saveHistory, events.length, projects.length]);
+  }, [projects, events, eventZOrder, saveHistory]);
 
-  // ✅ Дополнительная защита: мониторинг состояния для раннего обнаружения проблем
   React.useEffect(() => {
-    // Пропускаем проверку пока не инициализировали историю
     if (!historyInitializedRef.current) return;
-    
-    // КРИТИЧЕСКОЕ ПРЕДУПРЕЖДЕНИЕ: если есть события но нет проектов
-    // Это ненормальное состояние которое приведёт к проблемам с Undo/Redo
     if (events.length > 0 && projects.length === 0) {
-      console.error('🚨 КРИТИЧЕСКОЕ СОСТОЯНИЕ: обнаружены события БЕЗ проектов!');
-      console.error(`🚨 events.length = ${events.length}, projects.length = ${projects.length}`);
-      console.error('🚨 Это может привести к ошибкам в системе Undo/Redo');
-      console.error('🚨 Проверьте последовательность загрузки данных и асинхронные операции');
+      console.error('🚨 CRITICAL STATE: Events without Projects detected!');
     }
   }, [events.length, projects.length]);
 
-  // Keyboard shortcuts
   const handleUndo = useCallback(() => {
     const state = historyUndo();
-    if (!state) {
-      console.log('🔄 UNDO: ��стория пуста');
-      return;
-    }
+    if (!state) return;
 
-    console.log('🔄 UNDO: Мгновенное восстановление...');
-
-    // Capture current state for diffing
     const currentEvents = events;
 
-    // 1. Instant UI Update
     setEvents(state.events);
     setProjects(state.projects);
     setEventZOrder(state.eventZOrder);
 
-    // 2. Diff & Queue Changes to SyncManager
     const restoredIds = new Set(state.events.map(e => e.id));
 
-    // Find DELETED events (present in current, missing in restored)
     currentEvents.forEach(event => {
       if (!restoredIds.has(event.id)) {
          cancelPendingChange(event.id);
@@ -479,10 +457,8 @@ export function SchedulerMain({
       }
     });
 
-    // Find CREATED/UPDATED events (present in restored)
     state.events.forEach(restoredEvent => {
        const current = currentEvents.find(e => e.id === restoredEvent.id);
-       
        if (!current) {
           queueChange(restoredEvent.id, 'create', restoredEvent);
        } else {
@@ -492,7 +468,6 @@ export function SchedulerMain({
        }
     });
 
-    // 3. Block incoming syncs
     resetDeltaSyncTimer();
     resetProjectsSyncTimer();
 
@@ -500,25 +475,16 @@ export function SchedulerMain({
 
   const handleRedo = useCallback(() => {
     const state = historyRedo();
-    if (!state) {
-      console.log('🔄 REDO: История пуста');
-      return;
-    }
+    if (!state) return;
 
-    console.log('🔄 REDO: Мгновенное восстановление...');
-
-    // Capture current state for diffing
     const currentEvents = events;
 
-    // 1. Instant UI Update
     setEvents(state.events);
     setProjects(state.projects);
     setEventZOrder(state.eventZOrder);
 
-    // 2. Diff & Queue Changes to SyncManager
     const restoredIds = new Set(state.events.map(e => e.id));
 
-    // Find DELETED events
     currentEvents.forEach(event => {
       if (!restoredIds.has(event.id)) {
          cancelPendingChange(event.id);
@@ -526,10 +492,8 @@ export function SchedulerMain({
       }
     });
 
-    // Find CREATED/UPDATED events
     state.events.forEach(restoredEvent => {
        const current = currentEvents.find(e => e.id === restoredEvent.id);
-       
        if (!current) {
           queueChange(restoredEvent.id, 'create', restoredEvent);
        } else {
@@ -539,16 +503,13 @@ export function SchedulerMain({
        }
     });
 
-    // 3. Block incoming syncs
     resetDeltaSyncTimer();
     resetProjectsSyncTimer();
 
   }, [historyRedo, events, setEvents, setProjects, setEventZOrder, queueChange, cancelPendingChange, resetDeltaSyncTimer, resetProjectsSyncTimer]);
 
-  // ✅ Обёртка для deleteProject с флагом пользовательского изменения
   const handleDeleteProject = useCallback(async (id: string) => {
-    console.log('🗑️ Пользовательское удаление проекта:', id);
-    isUserProjectChangeRef.current = true; // Помечаем как пользовательское изменение
+    isUserProjectChangeRef.current = true;
     await deleteProject(id);
   }, [deleteProject]);
 
@@ -556,21 +517,18 @@ export function SchedulerMain({
     useKeyboardShortcuts({
       onUndo: handleUndo,
       onRedo: handleRedo,
-      onEscape: closeAllModals, // ✅ Use closeAllModals from hook
+      onEscape: closeAllModals,
       onShowShortcuts: () => setShortcutsModalOpen(true),
       schedulerRef,
     });
 
-  // Use scrollContainerRef which points to the scrollable right panel
   usePanning(scrollContainerRef, isSpacePressed);
 
-  // Reset scissors mode when component mounts (new workspace opened)
   useEffect(() => {
     setScissorsMode(false);
     setCommentMode(false);
   }, [workspace.id, setScissorsMode, setCommentMode]);
 
-  // Кэшируем отфильтрованные события для оптимизации
   const sortedEventsWithZOrder = useMemo(() => {
     const filteredResourceIds = new Set(
       filteredResources.map((r) => r.id),
@@ -596,17 +554,21 @@ export function SchedulerMain({
     return eventsWithZOrder;
   }, [visibleEvents, filteredResources, eventZOrder]);
 
-  // Вычисляем соседей для каждо��о события (для соединения одинаковых проектов)
-
-  // ✅ FIX: Use useMemo to prevent visual jump on drop
-  // Previously this was a useEffect, causing a 1-frame delay where events rendered unglued
-  // causing a 4px jump when neighbors were applied in the next render.
-  // With v8.0 optimization, calculation is fast enough for main thread.
   const eventNeighbors = useMemo(() => {
     return calculateEventNeighbors(sortedEventsWithZOrder, projects);
   }, [sortedEventsWithZOrder, projects]);
 
-  // Event interactions
+  const eventsByResource = useMemo(() => {
+    const map = new Map<string, SchedulerEvent[]>();
+    sortedEventsWithZOrder.forEach(event => {
+      if (!map.has(event.resourceId)) {
+        map.set(event.resourceId, []);
+      }
+      map.get(event.resourceId)!.push(event);
+    });
+    return map;
+  }, [sortedEventsWithZOrder]);
+
   const { startDrag, startResize } = useEventInteractions({
     config,
     resources: filteredResources,
@@ -620,14 +582,14 @@ export function SchedulerMain({
     onEventUpdate: updateEvent,
     eventsContainerRef,
     setIsUserInteracting,
-    resetDeltaSyncTimer, // ✅ v3.3.5: Блокировка Delta Sync после drag/resize
-    flushPendingChanges, // ✅ v3.3.7: Flush pending перед drag/resize для сохранения всех изменений
-    updateHistoryEventId, // ✅ Для обновления истории после flush
-    getEvents: getSnapshot, // ✅ Pass getSnapshot
-    eventNeighbors, // ✅ v3.3.23: Передаем в��численные соседи для оптимизации drag
+    resetDeltaSyncTimer,
+    flushPendingChanges,
+    updateHistoryEventId,
+    getEvents: getSnapshot,
+    eventNeighbors,
+    weeksInYear,
   });
   
-  // ✨ Gap interactions - двусторонний resize границ между событиями
   const { startGapDrag } = useGapInteractions({
     config,
     onEventsUpdate: setEvents,
@@ -637,708 +599,102 @@ export function SchedulerMain({
     projects,
     setIsUserInteracting,
     resetDeltaSyncTimer,
-    flushPendingChanges, // ✅ v3.3.7: Flush pending перед gap drag
-    updateHistoryEventId, // ✅ Для обновления истории после flush
-    events, // ← ДОБАВЛЕНО: передаём текущие события
+    flushPendingChanges,
+    updateHistoryEventId,
+    events,
   });
   
-  // ✨ Находим gaps между событиями (только при зажатой Cmd/Ctrl)
   const eventGaps = useMemo(() => {
     if (!isCtrlPressed) return [];
     return findEventGaps(visibleEvents, filteredResources, filteredDepartments);
   }, [isCtrlPressed, visibleEvents, filteredResources, filteredDepartments]);
 
-  // Scissors - cut event (оптимистичное обновление UI)
-  const cutEventByBoundary = useCallback(
-    (evId: string, boundaryWeek: number) => {
-      // ⛔ ВАЖНО: Запрещаем резать события, которые находятся в процессе сохранения
-      if (pendingEventIds.has(evId)) {
-        showToast({
-          type: "warning",
-          message: "Подождите",
-          description: "Событие сохраняется в базу данных",
-        });
-        return;
-      }
+  const {
+    cutEventByBoundary,
+    handleCellClick,
+    handleEventClick,
+    handleEventContextMenu,
+    handleContextEdit,
+    handleContextDelete,
+    handleContextCopy,
+    handleCellContextMenu,
+    handlePaste,
+    handleModalSave,
+    handleCommentSave
+  } = useSchedulerEventActions({
+    workspace,
+    config,
+    events,
+    visibleEvents,
+    filteredResources,
+    filteredDepartments,
+    sortedEventsWithZOrder,
+    projects,
+    eventZOrder,
+    setEventZOrder,
+    saveHistory,
+    weeksInYear,
+    updateHistoryEventId,
+  });
 
-      // ✂️ Используем функциональное обновление для получения актуального state
-      setEvents((currentEvents) => {
-        const ev = currentEvents.find((x) => x.id === evId);
-        if (!ev) {
-          console.warn(
-            "⚠️ Событие для резки не найдено:",
-            evId,
-          );
-          return currentEvents;
-        }
+  const handleCellMouseMove = useCallback(
+    (e: React.MouseEvent, resourceId: string, week: number, explicitUnitIndex?: number) => {
+      if (scissorsMode || contextMenu.isVisible || emptyCellContextMenu.isVisible || isUserInteractingRef.current) return;
 
-        if (
-          boundaryWeek <= ev.startWeek ||
-          boundaryWeek >= ev.startWeek + ev.weeksSpan
-        ) {
-          console.warn("⚠️ Некорректная граница разреза:", {
-            evId,
-            boundaryWeek,
-            startWeek: ev.startWeek,
-            weeksSpan: ev.weeksSpan,
-          });
-          return currentEvents;
-        }
+      let unitIndex: number;
 
-        const leftSpan = boundaryWeek - ev.startWeek;
-        const rightSpan = ev.weeksSpan - leftSpan;
-
-        if (leftSpan < 1 || rightSpan < 1) {
-          console.warn(
-            "⚠️ Неверная длина частей после разреза:",
-            { leftSpan, rightSpan },
-          );
-          return currentEvents;
-        }
-
-        // ✂️ Создаем обновленное событие для левой чати (только меняем weeksSpan)
-        const updatedEvent: SchedulerEvent = {
-          ...ev,
-          weeksSpan: leftSpan,
-        };
-
-        // ✂️ Создаем новое событие для правой части с уникальным временным ID
-        const tempId = `ev_temp_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
-        const newEv: SchedulerEvent = {
-          id: tempId,
-          resourceId: ev.resourceId,
-          startWeek: boundaryWeek,
-          weeksSpan: rightSpan,
-          unitStart: ev.unitStart,
-          unitsTall: ev.unitsTall,
-          projectId: ev.projectId,
-        };
-
-        // ✂️ Мгновенно обновляем UI - обе колбаски появляются сразу
-        const newEvents = currentEvents.map((e) =>
-          e.id === evId ? updatedEvent : e,
+      if (explicitUnitIndex !== undefined) {
+        unitIndex = explicitUnitIndex;
+      } else {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const y = e.clientY - rect.top;
+        const rawUnitIndex = Math.floor(
+          (y - config.rowPaddingTop) / config.unitStride,
         );
-        const updatedEventsArray = [...newEvents, newEv];
-
-        // 🔄 Фоноое сохранение на сервер (не блокируем UI)
-        // Пропускаем только если это временное событие
-        if (!ev.id.startsWith("ev_temp_")) {
-          // ✅ Добавляем события в список pending
-          setPendingEventIds((prev) => {
-            const next = new Set(prev);
-            next.add(ev.id);
-            next.add(tempId);
-            return next;
-          });
-
-          (async () => {
-            try {
-              // ✅ ВАЖНО: Передаем только измененное поле weeksSpan, а не весь объект события
-              await updateEvent(ev.id, { weeksSpan: leftSpan });
-
-              // Затем создаем новое событи (правая часть)
-              // createEvent автоматически замент временный ID на реальный ID из БД
-              const createdEvent = await createEvent(newEv);
-
-              // ✅ Обновляем историю: заменяем временный ID на реальный
-              updateHistoryEventId(tempId, createdEvent.id);
-              console.log(`📝 История: обновлен ID ${tempId} → ${createdEvent.id} (scissor split)`);
-
-              // ✅ Убираем из pending (важно убрать и tempId, и новый ID)
-              setPendingEventIds((prev) => {
-                const next = new Set(prev);
-                next.delete(ev.id);
-                next.delete(tempId);
-                next.delete(createdEvent.id);
-                return next;
-              });
-            } catch (error) {
-              console.error(
-                "❌ Ошибка сохранения разреза:",
-                error,
-              );
-
-              // ✅ Убираем из pending даже при ошибке
-              setPendingEventIds((prev) => {
-                const next = new Set(prev);
-                next.delete(ev.id);
-                next.delete(tempId);
-                return next;
-              });
-
-              // При ошибке откатываем изменения к состоянию Д разрза
-              setEvents(currentEvents);
-
-              showToast({
-                type: "error",
-                message: "Ошибка разрезания события",
-                description: "Не удалось сохранить изменения",
-              });
-            }
-          })();
-        }
-
-        // Сохрняем в историю для undo/redo
-        saveHistory(updatedEventsArray, eventZOrder, projects);
-
-        return updatedEventsArray;
-      });
-    },
-    [
-      eventZOrder,
-      saveHistory,
-      updateEvent,
-      createEvent,
-      showToast,
-      pendingEventIds,
-      projects,
-    ],
-  );
-
-  // Event handlers (мемоизирован для оптимизации)
-  const handleCellClick = useCallback(
-    (resourceId: string, week: number, unitIndex: number) => {
-      // Если контекстное меню открыто, игнорируем клик
-      if (contextMenu.isVisible) {
-        return;
+        // Clamp to valid units (0-3) to prevent selecting padding
+        unitIndex = Math.max(0, Math.min(rawUnitIndex, 3));
       }
 
-      // В режиме комментирования открываем CommentModal вместо создания события
+      // In comment mode, we want to allow hovering over events
       if (commentMode) {
-        setPendingComment({ resourceId, week });
-        setCommentModalOpen(true);
-        return;
-      }
-
-      // Обычный режим: создание события
-      // Проверяем наличие проектов
-      if (projects.length === 0) {
-        showToast({
-          type: "error",
-          message: "Невозможно создать событие",
-          description:
-            'Сначала создайте хотя бы один проект через меню "Проекты"',
-        });
-        return;
-      }
-
-      const free = getAvailableFreeSpace(
-        resourceId,
-        week,
-        unitIndex,
-        visibleEvents,
-      );
-      
-      if (free === 0) {
-        showToast({
-          type: "warning",
-          message: "Нет свободного места",
-          description:
-            "В этой ячейке нет места для нового события",
-        });
-        return;
-      }
-
-      setPendingEvent({ week, resourceId, unitIndex });
-      setModalMode("create");
-      setModalInitialData({ 
-        maxUnits: free, 
-        startWeek: week,
-        workspaceId: String(workspace.id) // ✨ Добавлено для tracking использования проектов
-      });
-      setModalOpen(true);
-    },
-    [
-      contextMenu.isVisible,
-      commentMode,
-      projects.length,
-      visibleEvents,
-      showToast,
-    ],
-  );
-
-  const handleEventClick = useCallback(
-    (e: React.MouseEvent, event: SchedulerEvent) => {
-      e.stopPropagation();
-      if (scissorsMode) return;
-
-      const maxZ = Math.max(
-        ...Array.from(eventZOrder.values()),
-        0,
-      );
-      setEventZOrder((prev) =>
-        new Map(prev).set(event.id, maxZ + 1),
-      );
-    },
-    [scissorsMode, eventZOrder],
-  );
-
-  const handleEventContextMenu = useCallback(
-    (e: React.MouseEvent, event: SchedulerEvent) => {
-      // Закрываем контекстное меню пустой ячейки если оно было открыто
-      setEmptyCellContextMenu({
-        isVisible: false,
-        x: 0,
-        y: 0,
-        resourceId: null,
-        week: null,
-        unitIndex: null,
-      });
-      // Убираем hover при закрытии контекстного ��еню пустой ячейки
-      setHoverHighlight((prev) => ({
-        ...prev,
-        visible: false,
-        }));
-      
-      setContextMenu({
-        isVisible: true,
-        x: e.clientX,
-        y: e.clientY,
-        event,
-      });
-    },
-    [],
-  );
-
-  const handleContextEdit = () => {
-    if (!contextMenu.event) return;
-    
-    // ✅ БЛОКИРОВКА v3.3.9: временные события нельзя редактировать
-    if (contextMenu.event.id.startsWith('ev_temp_')) {
-      showToast('Событие ещё создаётся на сервере, подождите...', 'warning');
-      return;
-    }
-    
-    setModalMode("edit");
-    setModalInitialData({
-      projectId: contextMenu.event.projectId,
-      weeksSpan: contextMenu.event.weeksSpan,
-      unitsTall: contextMenu.event.unitsTall,
-      maxUnits: UNITS,
-      startWeek: contextMenu.event.startWeek,
-      workspaceId: String(workspace.id) // ✨ Добавлено для tracking использования п��оектов
-    });
-    setPendingEvent(contextMenu.event);
-    setModalOpen(true);
-    setContextMenu({
-      isVisible: false,
-      x: 0,
-      y: 0,
-      event: null,
-    });
-  };
-
-  const handleContextDelete = () => {
-    if (!contextMenu.event) return;
-
-    // ✅ БЛОКИРОВКА v3.3.9: временные события нельзя удалять
-    if (contextMenu.event.id.startsWith('ev_temp_')) {
-      showToast('Событие ещё создаётся на сервере, подождите...', 'warning');
-      return;
-    }
-
-    const eventId = contextMenu.event.id;
-    const zOrderToRestore = eventZOrder.get(eventId);
-
-    // 🗑️ Мгновенно удаляем z-order и закрываем меню
-    const newEventZOrder = new Map(eventZOrder);
-    newEventZOrder.delete(eventId);
-    const newEvents = events.filter((e) => e.id !== eventId);
-
-    setEventZOrder(newEventZOrder);
-    setContextMenu({
-      isVisible: false,
-      x: 0,
-      y: 0,
-      event: null,
-    });
-
-    // Для временных событий просто удаляем из state
-    if (eventId.startsWith("ev_temp_")) {
-      setEvents(newEvents);
-      saveHistory(newEvents, newEventZOrder, projects);
-    } else {
-      // ✅ КРТИЧНО: Сохраняем историю ПЕРЕД ��далением на сервере (синхронно!)
-      // Это гарантирует что при быстром удалении нескольих событий
-      // все промежуточные состояния сохранятся в истории
-      saveHistory(newEvents, newEventZOrder, projects);
-      console.log('📝 История сохрнена перед удалением события:', eventId);
-      
-      // Для реальных событий: deleteEvent делает оптимистичное удаление из state
-      (async () => {
-        try {
-          await deleteEvent(eventId); // deleteEvent сам удаляет из state и откатывает при ошибке
-          console.log('✅ Событие успешно удалено:', eventId);
-        } catch (error) {
-          console.error(
-            "❌ Ошибка удаления события из БД:",
-            error,
-          );
-          // deleteEvent уже откатил изменения в events, восстанавливаем z-order
-          if (zOrderToRestore !== undefined) {
-            setEventZOrder((prev) =>
-              new Map(prev).set(eventId, zOrderToRestore),
-            );
-          }
-          // ❌ ОТКАТЫВАЕМ историю (делаем Undo при ошибке)
-          historyUndo();
-          console.log('↩️ История откачена из-за ошибки удаления');
-        }
-      })();
-    }
-  };
-
-  const handleContextCopy = () => {
-    if (!contextMenu.event) return;
-    
-    // ✅ БЛОКИРОВКА v3.3.9: временные события нельзя копировать
-    if (contextMenu.event.id.startsWith('ev_temp_')) {
-      showToast('Событие ещё создаётся на сервере, подождите...', 'warning');
-      return;
-    }
-    
-    setCopiedEvent(contextMenu.event);
-    setContextMenu({
-      isVisible: false,
-      x: 0,
-      y: 0,
-      event: null,
-    });
-  };
-
-  const handleCellContextMenu = useCallback(
-    (e: React.MouseEvent, resourceId: string, week: number) => {
-      e.preventDefault();
-      
-      // Закрываем контекстное меню события если оно было открыто
-      setContextMenu({
-        isVisible: false,
-        x: 0,
-        y: 0,
-        event: null,
-      });
-      
-      // Вычисляем unitIndex из позиции клика
-      const rect = e.currentTarget.getBoundingClientRect();
-      const y = e.clientY - rect.top;
-      const unitIndex = Math.floor(
-        (y - config.rowPaddingTop) / config.unitStride,
-      );
-      
-      // Обновляем hover highlight на позицию клика
-      const free = getAvailableFreeSpace(
-        resourceId,
-        week,
-        unitIndex,
-        visibleEvents,
-      );
-      if (free > 0 && unitIndex >= 0 && unitIndex < UNITS) {
-        const left =
-          week * config.weekPx +
-          config.cellPaddingLeft;
+        // Gap is usually config.cellPaddingLeft (based on layout config)
+        const gap = config.gap;
+        const left = week * config.weekPx + (gap * 0.5);
         const top = topFor(
           resourceId,
-          unitIndex,
+          0,
           filteredResources,
           filteredDepartments,
           config,
+        ) - config.rowPaddingTop + gap;
+        setHoverHighlight({
+          visible: true,
+          left,
+          top,
+          width: config.weekPx - gap,
+          height: 28,
+        });
+        return;
+      }
+
+      const isOccupied = visibleEvents.some((ev) => {
+        return (
+          ev.resourceId === resourceId &&
+          ev.startWeek <= week &&
+          ev.startWeek + ev.weeksSpan > week &&
+          ev.unitStart <= unitIndex &&
+          ev.unitStart + ev.unitsTall > unitIndex
         );
-        setHoverHighlight({
-          visible: true,
-          left,
-          top,
-          width:
-            config.weekPx -
-            config.cellPaddingLeft -
-            config.cellPaddingRight,
-          height: heightFor(free, config),
-        });
-      }
-      
-      // Открываем контекстное меню для пустой ячейки
-      setEmptyCellContextMenu({
-        isVisible: true,
-        x: e.clientX,
-        y: e.clientY,
-        resourceId,
-        week,
-        unitIndex,
       });
-    },
-    [config, visibleEvents, filteredResources, filteredDepartments],
-  );
 
-  const handlePaste = useCallback(async () => {
-    if (!copiedEvent || !emptyCellContextMenu.resourceId || emptyCellContextMenu.week === null || emptyCellContextMenu.unitIndex === null) {
-      return;
-    }
-
-    const { resourceId, week, unitIndex } = emptyCellContextMenu;
-    
-    // Проверяем, есть ли свободное место для вставки
-    const free = getAvailableFreeSpace(
-      resourceId,
-      week,
-      unitIndex,
-      visibleEvents,
-    );
-    
-    if (free < copiedEvent.unitsTall) {
-      showToast({
-        type: "warning",
-        message: "Недостаточно места",
-        description: `Для вставки требуется ${copiedEvent.unitsTall} юнит${copiedEvent.unitsTall > 1 ? 'а' : ''}`,
-      });
-      setEmptyCellContextMenu({
-        isVisible: false,
-        x: 0,
-        y: 0,
-        resourceId: null,
-        week: null,
-        unitIndex: null,
-      });
-      // Убираем hover при закрытии контекстного меню
-      setHoverHighlight((prev) => ({
-        ...prev,
-        visible: false,
+      if (isOccupied) {
+        setHoverHighlight((prev) => ({
+          ...prev,
+          visible: false,
         }));
-      return;
-    }
-    
-    // Вычисляем максимум недель для события
-    const maxWeeks = WEEKS - week;
-    const validWeeksSpan = Math.min(copiedEvent.weeksSpan, maxWeeks);
-    
-    if (validWeeksSpan < 1) {
-      showToast({
-        type: "warning",
-        message: "Недостаточно недель",
-        description: "Событие не помещается в оставшиеся недели",
-      });
-      setEmptyCellContextMenu({
-        isVisible: false,
-        x: 0,
-        y: 0,
-        resourceId: null,
-        week: null,
-        unitIndex: null,
-      });
-      // Убираем hover при закрытии контекстного меню
-      setHoverHighlight((prev) => ({
-        ...prev,
-        visible: false,
-        }));
-      return;
-    }
-    
-    // Создаем новое событие (копию) с теми же параметрами
-    const tempEvent: SchedulerEvent = {
-      id: `ev_temp_${Date.now()}`,
-      resourceId,
-      startWeek: week,
-      weeksSpan: validWeeksSpan,
-      unitStart: unitIndex,
-      unitsTall: copiedEvent.unitsTall,
-      projectId: copiedEvent.projectId,
-    };
-    
-    // Закрываем меню
-    setEmptyCellContextMenu({
-      isVisible: false,
-      x: 0,
-      y: 0,
-      resourceId: null,
-      week: null,
-      unitIndex: null,
-    });
-    // Убираем hover при закрытии контекстного меню
-    setHoverHighlight((prev) => ({
-      ...prev,
-      visible: false,
-      }));
-    
-    // v3.3.7: УБРАЛИ IIFE - теперь handlePaste сама async и дожидается завершения
-    try {
-      const createdEvent = await createEvent(tempEvent);
-      
-      // ✨ Отслеживаем использование проекта при вставке
-      const { trackProjectUsage } = await import('../../utils/projectUsageTracking');
-      trackProjectUsage(String(workspace.id), copiedEvent.projectId);
-      
-      // Обновляем историю: заменяем временный ID на реальный
-      updateHistoryEventId(tempEvent.id, createdEvent.id);
-      console.log(`📝 История: обновлен ID ${tempEvent.id} → ${createdEvent.id} (paste)`);
-      
-      // v3.3.7: КРИТИЧНО - сохраняем историю СИНХРОННО через Promise
-      // Это гарантирует что история сохранится ДО того как пользователь начнёт drag
-      await new Promise<void>(resolve => {
-        setEvents(currentEvents => {
-          console.log('📝 История: сохранение после вставки события (paste)');
-          saveHistory(currentEvents, eventZOrder, projects);
-          resolve();
-          return currentEvents;
-        });
-      });
-    } catch (error) {
-      console.error("❌ Ошибка вставки события:", error);
-    }
-  }, [
-    copiedEvent,
-    emptyCellContextMenu,
-    visibleEvents,
-    createEvent,
-    showToast,
-    saveHistory,
-    eventZOrder,
-    setEvents,
-    workspace.id, // ✨ Добавлено для tracking
-  ]);
-
-  const handleModalSave = async (
-    data: Partial<SchedulerEvent>,
-  ) => {
-    if (modalMode === "create" && pendingEvent) {
-      // Вычисляем максимум недель для события (0-based индексация)
-      const maxWeeks = WEEKS - pendingEvent.week;
-      const validWeeksSpan = Math.max(
-        1,
-        Math.min(data.weeksSpan || 1, maxWeeks),
-      );
-
-      const tempEvent: SchedulerEvent = {
-        id: `ev_temp_${Date.now()}`,
-        resourceId: pendingEvent.resourceId,
-        startWeek: pendingEvent.week,
-        weeksSpan: validWeeksSpan,
-        unitStart: Math.min(pendingEvent.unitIndex, UNITS - 1),
-        unitsTall: data.unitsTall || 1,
-        projectId: data.projectId || projects[0].id,
-      };
-
-      if (tempEvent.unitStart + tempEvent.unitsTall > UNITS) {
-        tempEvent.unitStart = UNITS - tempEvent.unitsTall;
+        return;
       }
 
-      try {
-        // ✅ createEvent добавляет временное событие в стейт, создаёт на сервере и замняет на реальное
-        const createdEvent = await createEvent(tempEvent);
-
-        // ✅ Обновляем историю: заменяем временный ID на реальный во ВСЕХ предыдущих состояниях
-        updateHistoryEventId(tempEvent.id, createdEvent.id);
-        console.log(`📝 История: обновлен ID ${tempEvent.id} → ${createdEvent.id} (create from modal)`);
-
-        // v3.3.7: КРИТИЧНО - сохраняем историю СИНХРОННО через Promise
-        // Это гарантирует что история сохранится ДО того как пользователь начнт drag
-        await new Promise<void>(resolve => {
-          setEvents(currentEvents => {
-            // ✅ ВАЖНО: Принудительно используем createdEvent с реальным ID для сохранения истории
-            // Это защищает от race condition, если стейт context еще не обновился
-            const fixedEvents = currentEvents.map(e => e.id === tempEvent.id ? createdEvent : e);
-            
-            console.log('📝 История: сохранение после создания события (модалка)');
-            saveHistory(fixedEvents, eventZOrder, projects);
-            resolve();
-            return fixedEvents;
-          });
-        });
-      } catch (error) {
-        console.error("��� Ошибка создания события:", error);
-      }
-    } else if (modalMode === "edit" && pendingEvent) {
-      // Вычисляем максимум недель для события
-      const maxWeeks = WEEKS - pendingEvent.startWeek + 1;
-      const validWeeksSpan = Math.max(
-        1,
-        Math.min(
-          data.weeksSpan || pendingEvent.weeksSpan,
-          maxWeeks,
-        ),
-      );
-
-      const updatedEvent = {
-        ...pendingEvent,
-        projectId: data.projectId || pendingEvent.projectId,
-        weeksSpan: validWeeksSpan,
-        unitsTall: data.unitsTall || pendingEvent.unitsTall,
-      };
-
-      const updatedEvents = events.map((e) =>
-        e.id === pendingEvent.id ? updatedEvent : e,
-      );
-      setEvents(updatedEvents);
-      saveHistory(updatedEvents, eventZOrder, projects);
-
-      if (loadedEventIds.has(updatedEvent.id)) {
-        await updateEvent(updatedEvent.id, updatedEvent);
-      }
-    }
-
-    setPendingEvent(null);
-  };
-
-  const handleCommentSave = async (text: string) => {
-    if (!pendingComment || !currentUserEmail) return;
-
-    console.log("💬 Сохранение комментария:", {
-      resourceId: pendingComment.resourceId,
-      week: pendingComment.week,
-      text,
-      createdBy: currentUserEmail,
-    });
-
-    // TODO: Здесь будет вызов API для сохранения комментария
-    showToast({
-      type: "success",
-      message: "Комментарий сохранён",
-      description: `Комментарий добавлен на неделю ${pendingComment.week + 1}`,
-    });
-
-    setPendingComment(null);
-  };
-
-  const handleCellMouseMove = useCallback(
-    (e: React.MouseEvent, resourceId: string, week: number) => {
-      // Не показываем ховеры если открыто контекстное меню (любое) или пользователь взаимодействует (drag/resize)
-      if (scissorsMode || contextMenu.isVisible || emptyCellContextMenu.isVisible || isUserInteractingRef.current) return;
-
-      const rect = e.currentTarget.getBoundingClientRect();
-      const y = e.clientY - rect.top;
-      const unitIndex = Math.floor(
-        (y - config.rowPaddingTop) / config.unitStride,
-      );
-
-      // В режиме комментирования: фиксированный размер 1 неделя × 4 юнита, ВСЕГДА с 0-го юнита
-      if (commentMode) {
-        // Показываем ховер независимо от положения курсора, всегда с unitStart = 0
-        // Уменьшаем зону на 8px со всех сторон для визуального отступа
-        const COMMENT_INSET = 8;
-        const left =
-          week * config.weekPx +
-          config.cellPaddingLeft +
-          COMMENT_INSET;
-        const top =
-          topFor(
-            resourceId,
-            0,
-            filteredResources,
-            filteredDepartments,
-            config,
-          ) + COMMENT_INSET;
-        setHoverHighlight({
-          visible: true,
-          left,
-          top,
-          width:
-            config.weekPx -
-            config.cellPaddingLeft -
-            config.cellPaddingRight -
-            COMMENT_INSET * 2,
-          height: heightFor(4, config) - COMMENT_INSET * 2,
-        });
-        return; // ВАЖНО: ранний выход, обыч��ые ховеры не работают в режиме комментирования
-      }
-
-      // ����бычный режим: показываем доступное свободное место
       const free = getAvailableFreeSpace(
         resourceId,
         week,
@@ -1382,33 +738,30 @@ export function SchedulerMain({
       filteredDepartments,
       contextMenu.isVisible,
       emptyCellContextMenu.isVisible,
+      isUserInteractingRef,
+      setHoverHighlight
     ],
   );
 
   const handleCellMouseLeave = useCallback(() => {
-    // Не убираем hover если открыто контекстное меню пустой ячейки или модальное окно создания события или пользователь взаимодействует
     if (!scissorsMode && !emptyCellContextMenu.isVisible && !modalOpen && !isUserInteractingRef.current) {
+      gridRef.current?.hideHoverHighlight?.();
       setHoverHighlight((prev) => ({
         ...prev,
         visible: false,
         }));
     }
-  }, [scissorsMode, emptyCellContextMenu.isVisible, modalOpen]);
+  }, [scissorsMode, emptyCellContextMenu.isVisible, modalOpen, isUserInteractingRef, setHoverHighlight]);
 
-  // Мемоизируем позиции событий чтобы избежать пересчёта при каждом рендере
   const eventPositions = useMemo(() => {
     const positions = new Map<string, { left: number; top: number; width: number; height: number }>();
     
     sortedEventsWithZOrder.forEach(event => {
       const neighborInfo = eventNeighbors.get(event.id);
       
-      // В режиме производительности отключаем логику склейки
-      // В новой логике v9.0 padding НЕ убирается, а компенсируется через expandMultiplier
-      // Расширение добавляет gap к ширине, который компенсирует убранный padding
       const paddingLeft = showGaps ? config.cellPaddingLeft : 0;
       const paddingRight = showGaps ? config.cellPaddingRight : 0;
       
-      // Вычисляем базовые координаты
       let left =
         event.startWeek * config.weekPx +
         paddingLeft;
@@ -1425,7 +778,6 @@ export function SchedulerMain({
         paddingRight;
       const height = heightFor(event.unitsTall, config);
       
-      // Применяем расширение на основе множителей (новая логика v3.0)
       if (neighborInfo?.expandLeftMultiplier) {
         const expandAmount = config.gap * neighborInfo.expandLeftMultiplier;
         left -= expandAmount;
@@ -1442,14 +794,11 @@ export function SchedulerMain({
     return positions;
   }, [sortedEventsWithZOrder, eventNeighbors, showGaps, config, filteredResources, filteredDepartments]);
 
-  const renderEvents = useCallback(() => {
-    // 🚫 НЕ показываем события пока не загрузятся ресурсы
-    // Skeleton события показываются вместо реальных
+  const renderEvents = useCallback((visibleResourceIds?: Set<string>) => {
     if (isLoadingResources) {
       return null;
     }
 
-    // Viewport culling с большим буфером для плавной подгрузки при быстром скролле
     const scheduler = schedulerRef.current;
     let viewportLeft = 0;
     let viewportTop = 0;
@@ -1463,7 +812,6 @@ export function SchedulerMain({
       viewportHeight = scheduler.clientHeight;
     }
 
-    // Большой буфер: 3x viewport в каждую сторону (события загружаются заранее)
     const BUFFER_MULTIPLIER = 3;
     const bufferX = viewportWidth * BUFFER_MULTIPLIER;
     const bufferY = viewportHeight * BUFFER_MULTIPLIER;
@@ -1473,18 +821,24 @@ export function SchedulerMain({
     const cullTop = viewportTop - bufferY;
     const cullBottom = viewportTop + viewportHeight + bufferY;
 
-    // ✅ Вычисляем currentWeekIndex для визуального эффекта прошедших частей
     const currentWeekIndex = getCurrentWeekIndex(workspace.timeline_year);
 
-    return sortedEventsWithZOrder
+    let eventsToRender: SchedulerEvent[] = [];
+    if (visibleResourceIds && visibleResourceIds.size > 0) {
+      visibleResourceIds.forEach(rId => {
+        const evs = eventsByResource.get(rId);
+        if (evs) eventsToRender.push(...evs);
+      });
+    } else {
+      eventsToRender = sortedEventsWithZOrder;
+    }
+
+    return eventsToRender
       .map((event) => {
-        // Determine if event should be dimmed (shown at 50% opacity)
-        // Dimmed when: project filter is active AND this event's project is NOT in the filter
         const isDimmed =
           enabledProjects.size > 0 &&
           !enabledProjects.has(event.projectId);
         
-        // Получаем информацию о соседях для корректировки padding (новая логика v3.0)
         const neighborInfo = eventNeighbors.get(event.id);
         const neighbors = neighborInfo || {
           flags: MASK_ROUND_TL | MASK_ROUND_TR | MASK_ROUND_BL | MASK_ROUND_BR,
@@ -1492,28 +846,24 @@ export function SchedulerMain({
           expandRightMultiplier: 0,
         };
 
-        // Helper to resolve inner corner color with dimming support
         const getInnerColor = (projectId?: string) => {
           if (!projectId) return 'transparent';
           
-          // Check dimming (if filter is active and project is not selected)
           if (enabledProjects.size > 0 && !enabledProjects.has(projectId)) {
-             return '#AAA'; // Matches dimmed event background color
+             return '#AAA';
           }
           
           const project = projects.find(p => p.id === projectId);
           return project?.backgroundColor || 'transparent';
         };
         
-        // Получаем мемоизированные позиции (вычисляются только при изменении eventNeighbors)
         const position = eventPositions.get(event.id);
         if (!position) {
-          console.error('❌ Позиция не найдена для события', event.id);
+          console.error('❌ Position not found for event', event.id);
           return null;
         }
         const { left, top, width, height } = position;
 
-        // Viewport culling - не рендерим события вне расширенного viewport
         if (
           left + width < cullLeft ||
           left > cullRight ||
@@ -1523,13 +873,8 @@ export function SchedulerMain({
           return null;
         }
 
-        // Проверяем, находится ли событие в процессе сохранения
         const isPending = pendingEventIds.has(event.id);
-
-        // ✅ БЛОКИРОВКА ВЗАИМОДЕЙСТВИЙ v3.3.9: временные события нельзя трогать до создания на сервере
         const isBlocked = event.id.startsWith('ev_temp_');
-
-        // Проверяем, открыто ли контекстное меню на этом событии
         const isContextMenuOpen = contextMenu.isVisible && contextMenu.event?.id === event.id;
 
         return (
@@ -1550,27 +895,22 @@ export function SchedulerMain({
             showProjectWeight={showProjectWeight}
             isContextMenuOpen={isContextMenuOpen}
             currentWeekIndex={currentWeekIndex}
-            // Упрощённая логика v3.1: round* флаги (позитивная логика)
             roundTopLeft={!!(neighbors.flags & MASK_ROUND_TL)}
             roundTopRight={!!(neighbors.flags & MASK_ROUND_TR)}
             roundBottomLeft={!!(neighbors.flags & MASK_ROUND_BL)}
             roundBottomRight={!!(neighbors.flags & MASK_ROUND_BR)}
-            // Цвета соседей для внутренних скруглений ::before/::after
             innerTopLeftColor={getInnerColor(neighbors.innerTopLeftProjectId)}
             innerBottomLeftColor={getInnerColor(neighbors.innerBottomLeftProjectId)}
             innerTopRightColor={getInnerColor(neighbors.innerTopRightProjectId)}
             innerBottomRightColor={getInnerColor(neighbors.innerBottomRightProjectId)}
-            // Скрытие названия проекта для уменьшения визуального шума
             hideProjectName={!!(neighbors.flags & MASK_HIDE_NAME)}
             onContextMenu={handleEventContextMenu}
             onPointerDown={(e, ev) => {
-              // ✅ БЛОКИРОВКА v3.3.9: заблокированные и pending события нельзя перетаскивать
               if (isPending || isBlocked) return;
               const target = e.currentTarget as HTMLElement;
               startDrag(e, target, ev);
             }}
             onHandlePointerDown={(e, ev, edge) => {
-              // ✅ БЛОКИРОВКА v3.3.9: заблокирован��ые и pending события нельзя ресайзить
               if (isPending || isBlocked) return;
               const eventEl = (
                 e.currentTarget as HTMLElement
@@ -1587,15 +927,12 @@ export function SchedulerMain({
             onClick={handleEventClick}
             onScissorClick={cutEventByBoundary}
             onMouseEnter={() => {
-              // Вызываем showRowHover через ref (БЕЗ ре-рендера!)
               if (gridRef.current?.showRowHover) {
                 gridRef.current.showRowHover(event.resourceId);
               }
-              // Сбрасываем пунктирную рамку при hover на событие
               handleCellMouseLeave();
             }}
             onMouseLeave={() => {
-              // Скрываем hover строки при уходе с события
               if (gridRef.current?.hideRowHover) {
                 gridRef.current.hideRowHover();
               }
@@ -1609,11 +946,12 @@ export function SchedulerMain({
           />
         );
       })
-      .filter(Boolean); // Убираем null элементы (события вне viewport)
+      .filter(Boolean);
   }, [
     sortedEventsWithZOrder,
+    eventsByResource,
     eventNeighbors,
-    eventPositions, // КРИТИЧНО: мемоизированные позиции
+    eventPositions,
     config,
     projects,
     eventPatterns,
@@ -1633,25 +971,25 @@ export function SchedulerMain({
     startResize,
     handleEventClick,
     cutEventByBoundary,
-    scrollTop,
-    scrollLeft,
-    isLoadingResources, // ✅ Блокировка рендер�� событий пока не загрузятся ресурсы
+    isLoadingResources,
+    handleCellMouseLeave
   ]);
 
-  // Auto scroll to current week on mount (only if current year matches workspace year)
   React.useEffect(() => {
-    // Небольшая задержка, чтобы дождаться полной инициализации grid
     const timeoutId = setTimeout(() => {
+      const currentYear = new Date().getFullYear();
+      const workspaceYear = workspace.timeline_year;
+      
       if (
         gridRef.current?.scrollContainer &&
-        showCurrentWeekMarker
+        showCurrentWeekMarker &&
+        currentYear === workspaceYear &&
+        workspace.id !== 'loading'
       ) {
         const currentWeek = getCurrentWeekIndex(
           workspace.timeline_year,
         );
-        // Позиция текущей недели (левый край)
         const currentWeekLeft = currentWeek * config.weekPx;
-        // Отступ: 2 недели влево от текущей недели, чтобы был виден контекст
         const desiredScrollLeft = currentWeekLeft - (config.weekPx * 2);
         const viewportWidth = gridRef.current.scrollContainer.clientWidth;
         const maxScrollLeft = Math.max(
@@ -1663,18 +1001,20 @@ export function SchedulerMain({
           0,
           maxScrollLeft,
         );
+        
+        console.log(`📍 Auto-scroll to week ${currentWeek}`);
       }
-    }, 0); // Откладываем до следующего тика
+    }, 0);
     
     return () => clearTimeout(timeoutId);
   }, [
     config.weekPx,
     workspace.timeline_year,
+    workspace.id,
     showCurrentWeekMarker,
   ]);
 
-  // Manage body classes for special modes
-  React.useEffect(() => {
+  useEffect(() => {
     if (scissorsMode) {
       document.body.classList.add("scissors-mode");
     } else {
@@ -1693,8 +1033,7 @@ export function SchedulerMain({
     };
   }, [scissorsMode, commentMode]);
 
-  // Close context menus on click outside
-  React.useEffect(() => {
+  useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       if (
@@ -1715,7 +1054,6 @@ export function SchedulerMain({
           week: null,
           unitIndex: null,
         });
-        // Убираем hover при закрытии через клик вне меню
         setHoverHighlight((prev) => ({
           ...prev,
           visible: false,
@@ -1726,55 +1064,20 @@ export function SchedulerMain({
     document.addEventListener("click", handleClickOutside);
     return () =>
       document.removeEventListener("click", handleClickOutside);
-  }, []);
+  }, [setContextMenu, setEmptyCellContextMenu, setHoverHighlight]);
 
-  // Track scroll position for viewport culling (throttled для производительности)
-  useEffect(() => {
-    let rafId: number | null = null;
-    let isScheduled = false;
-
-    const handleScroll = () => {
-      if (!isScheduled) {
-        isScheduled = true;
-        rafId = requestAnimationFrame(() => {
-          if (schedulerRef.current) {
-            setScrollTop(schedulerRef.current.scrollTop);
-            setScrollLeft(schedulerRef.current.scrollLeft);
-          }
-          isScheduled = false;
-        });
-      }
-    };
-
-    const scheduler = schedulerRef.current;
-    if (scheduler) {
-      scheduler.addEventListener("scroll", handleScroll, { passive: true });
-      // Initialize values
-      setScrollTop(scheduler.scrollTop);
-      setScrollLeft(scheduler.scrollLeft);
-    }
-
-    return () => {
-      if (scheduler) {
-        scheduler.removeEventListener("scroll", handleScroll);
-      }
-      if (rafId) {
-        cancelAnimationFrame(rafId);
-      }
-    };
-  }, []);
-
-  const handleOpenProfileModal = useCallback(() => setProfileModalOpen(true), []);
-  const handleOpenSettingsModal = useCallback(() => setSettingsModalOpen(true), []);
+  const handleOpenProfileModal = useCallback(() => setProfileModalOpen(true), [setProfileModalOpen]);
+  const handleOpenSettingsModal = useCallback(() => setManagementModalOpen(true), [setManagementModalOpen]);
+  const handleOpenWorkspaceManagementModal = useCallback(() => setWorkspaceManagementModalOpen(true), [setWorkspaceManagementModalOpen]);
 
   const handleRenameWorkspace = useCallback(async (newName: string) => {
     if (!accessToken || !workspace) {
-      console.warn('⚠️ Нет accessToken или workspace');
+      console.warn('⚠️ Missing accessToken or workspace');
       return;
     }
     
     if (!projectId) {
-      console.error('❌ projectId не определен!');
+      console.error('❌ projectId not defined!');
       showToast({
         type: 'error',
         message: 'Ошибка конфигурации',
@@ -1783,33 +1086,28 @@ export function SchedulerMain({
       return;
     }
     
-    // 🎯 Оптимистичное обновление - мгновенно меняем UI
     const oldName = workspace.name;
     const updatedWorkspace = { ...workspace, name: newName };
     
-    // Обновляем локально
     if (onWorkspaceUpdate) {
       onWorkspaceUpdate(updatedWorkspace);
     }
     
-    // Обновляем title
     document.title = `${newName} - Planaro`;
     
-    console.log('📝 Переименование воркспейса (оптимистичное):', {
+    console.log('📝 Rename workspace (optimistic):', {
       oldName,
       newName,
       workspaceId: workspace.id,
     });
 
-    // Очищаем кэш воркспе��сов чтобы при возврате загрузилось актуальное название
     try {
       const { removeStorageItem } = await import('../../utils/storage');
       await removeStorageItem('cache_workspaces_list');
     } catch (err) {
-      console.warn('⚠️ Не удалось очистить кэш воркспейсов:', err);
+      console.warn('⚠️ Failed to clear workspaces cache:', err);
     }
 
-    // Silent update в БД
     try {
       const url = `https://${projectId}.supabase.co/functions/v1/make-server-73d66528/workspaces/${workspace.id}`;
       
@@ -1824,9 +1122,8 @@ export function SchedulerMain({
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-        console.error('❌ Ошибка сохранения:', errorData);
+        console.error('❌ Save error:', errorData);
         
-        // Откатываем изменения при ошибке
         if (onWorkspaceUpdate) {
           onWorkspaceUpdate(workspace);
         }
@@ -1838,12 +1135,11 @@ export function SchedulerMain({
           description: errorData.error || 'Неизвестная ошибка',
         });
       } else {
-        console.log('✅ Воркспейс сохранен на сервере');
+        console.log('✅ Workspace saved');
       }
     } catch (error) {
-      console.error('❌ Ошибка сети:', error);
+      console.error('❌ Network error:', error);
       
-      // Откатываем изменения при ошибке
       if (onWorkspaceUpdate) {
         onWorkspaceUpdate(workspace);
       }
@@ -1855,7 +1151,7 @@ export function SchedulerMain({
         description: error instanceof Error ? error.message : 'Неизвестная ошибка',
       });
     }
-  }, [accessToken, workspace, showToast, onWorkspaceUpdate]);
+  }, [accessToken, workspace, showToast, onWorkspaceUpdate, projectId]);
 
   const gridChildren = useMemo(() => (
     <EventGapHandles
@@ -1868,50 +1164,63 @@ export function SchedulerMain({
     />
   ), [eventGaps, config, filteredResources, filteredDepartments, isCtrlPressed, startGapDrag]);
 
+  const isAnyModalOpen = useMemo(() => {
+    return modalOpen || 
+           commentModalOpen || 
+           managementModalOpen || 
+           shortcutsModalOpen || 
+           profileModalOpen || 
+           settingsModalOpen || 
+           workspaceManagementModalOpen;
+  }, [
+    modalOpen,
+    commentModalOpen,
+    managementModalOpen,
+    shortcutsModalOpen,
+    profileModalOpen,
+    settingsModalOpen,
+    workspaceManagementModalOpen
+  ]);
+
   return (
-    <div className="flex flex-col h-screen overflow-hidden bg-white text-slate-900">
-      {/* Header with settings */}
-      <Toolbar
-        canUndo={canUndo}
-        canRedo={canRedo}
-        scissorsMode={scissorsMode}
-        commentMode={commentMode}
-        weekPx={weekPx}
-        eventRowH={eventRowH}
-        onUndo={handleUndo}
-        onRedo={handleRedo}
-        onToggleScissors={handleToggleScissors}
-        onToggleComment={handleToggleComment}
-        onWeekPxChange={setWeekPx}
-        onEventRowHChange={setEventRowH}
-        onOpenUsersModal={() => {
-          setManagementModalTab('users');
-          setManagementModalOpen(true);
-        }}
-        onOpenProjectsModal={() => {
-          setManagementModalTab('projects');
-          setManagementModalOpen(true);
-        }}
-        onOpenDepartmentsModal={() => {
-          setManagementModalTab('departments');
-          setManagementModalOpen(true);
-        }}
-      />
-      
-      {/* Realtime Cursors - Collaborative presence */}
+    <div 
+      className="flex flex-col w-full bg-white text-slate-900 select-none relative" 
+      style={{ height: '100vh', overflow: 'hidden' }}
+    >
       <RealtimeCursors />
 
-      {/* Main scheduler area */}
-      <div className="flex-1 relative scheduler-container overflow-hidden">
+      <SchedulerToolbar
+        workspace={workspace}
+        onBackToWorkspaces={onBackToWorkspaces}
+        onRenameWorkspace={handleRenameWorkspace}
+        onOpenSettingsModal={handleOpenSettingsModal}
+        onOpenWorkspaceManagementModal={handleOpenWorkspaceManagementModal}
+        onSignOut={onSignOut}
+        accessToken={accessToken}
+        scissorsMode={scissorsMode}
+        commentMode={commentMode}
+        onToggleScissors={handleToggleScissors}
+        onToggleComment={handleToggleComment}
+        companies={companies}
+        departments={departments}
+        projects={projects}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        sidebarCollapsed={sidebarCollapsed}
+      />
+
+      <div className="flex-1 relative scheduler-container min-h-0">
         <SchedulerGrid
           ref={gridRef}
-          scrollRef={schedulerRef} // ✨ Pass ref to SchedulerGrid for panning hook
+          scrollRef={schedulerRef}
           config={config}
           accessToken={accessToken}
           months={months}
           resources={filteredResources}
-          departments={sortedDepartments} // Pass all departments to preserve order
-          visibleDepartments={visibleDepartments}
+          departments={sortedDepartments}
+          visibleDepartments={filteredDepartments}
           lastWeeks={lastWeeks}
           currentWeekIndex={getCurrentWeekIndex(workspace.timeline_year)}
           showCurrentWeekMarker={showCurrentWeekMarker}
@@ -1923,27 +1232,10 @@ export function SchedulerMain({
           hoverHighlight={hoverHighlight}
           ghost={ghost}
           eventsContainerRef={eventsContainerRef}
-          grades={grades} // Pass grades
-          companies={companies} // Pass companies
-          // Search props
+          grades={grades}
+          companies={companies}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
-          // Mode props
-          scissorsMode={scissorsMode}
-          commentMode={commentMode}
-          onToggleScissors={handleToggleScissors}
-          onToggleComment={handleToggleComment}
-          // Header props
-          workspace={workspace}
-          onBackToWorkspaces={onBackToWorkspaces}
-          onSignOut={onSignOut}
-          onOpenProfileModal={handleOpenProfileModal}
-          onOpenSettingsModal={handleOpenSettingsModal}
-          onRenameWorkspace={handleRenameWorkspace}
-          currentUserDisplayName={currentUserDisplayName}
-          currentUserEmail={currentUserEmail}
-          currentUserAvatarUrl={currentUserAvatarUrl}
-          // User actions
           onEditUser={(userId) => {
             setHighlightUserId(userId);
             setManagementModalTab('users');
@@ -1957,20 +1249,18 @@ export function SchedulerMain({
                 `⚠️ ВНИМАНИЕ: Все события этого сотрудника также будут удалены!`
               );
               if (confirmed) {
-                handleDeleteUser(userId);
+                deleteResource(userId);
               }
             }
           }}
           isLoading={isLoadingResources}
+          onSidebarCollapsedChange={setSidebarCollapsed}
         >
-          {/* ✨ Gap Handles - ручки для ресайза границ между событиями */}
           {gridChildren}
         </SchedulerGrid>
       </div>
 
-      {/* Modals */}
       <SchedulerModals
-        // Event Modal
         modalOpen={modalOpen}
         setModalOpen={setModalOpen}
         modalMode={modalMode}
@@ -1981,39 +1271,58 @@ export function SchedulerMain({
         projects={projects}
         resources={resources}
         events={events}
+        weeksInYear={weeksInYear}
 
-        // Comment Modal
         commentModalOpen={commentModalOpen}
         setCommentModalOpen={setCommentModalOpen}
         setPendingComment={setPendingComment}
         handleCommentSave={handleCommentSave}
 
-        // Unified Management Modal
         managementModalOpen={managementModalOpen}
         setManagementModalOpen={(open) => {
-          if (!open) setHighlightUserId(undefined); // Reset highlight when closing
+          if (!open) setHighlightUserId(undefined);
           setManagementModalOpen(open);
         }}
         managementModalTab={managementModalTab}
         
-        // Users props
+        workspaceName={workspace?.name || ''}
+        workspaceYear={workspace?.year || new Date().getFullYear()}
+        updateWorkspaceName={async (name: string) => {
+          console.log('🔧 TODO: Update workspace name:', name);
+        }}
+        updateWorkspaceYear={async (year: number) => {
+          console.log('🔧 TODO: Update workspace year:', year);
+        }}
+        
         departments={departments}
         companies={companies}
         grades={grades}
         createResource={createResource}
         updateResource={updateResource}
         deleteResource={deleteResource}
+        toggleUserVisibility={toggleUserVisibility}
         uploadUserAvatar={uploadUserAvatar}
         highlightUserId={highlightUserId}
+        
+        createGrade={createGrade}
+        updateGrade={updateGrade}
+        deleteGrade={deleteGrade}
+        onGradesUpdated={loadGrades}
+        updateGradesSortOrder={updateGradesSortOrder}
+        
+        createCompany={createCompany}
+        updateCompany={updateCompany}
+        deleteCompany={deleteCompany}
+        onCompaniesUpdated={loadCompanies}
+        updateCompaniesSortOrder={updateCompaniesSortOrder}
+        onResourcesUpdated={loadResources}
 
-        // Projects props
         eventPatterns={eventPatterns}
         createProject={createProject}
         updateProject={updateProject}
         handleDeleteProject={handleDeleteProject}
         resetHistory={resetHistory}
 
-        // Departments props
         createDepartment={createDepartment}
         deleteDepartment={deleteDepartment}
         getDepartmentUsersCount={getDepartmentUsersCount}
@@ -2021,11 +1330,9 @@ export function SchedulerMain({
         reorderDepartments={reorderDepartments}
         toggleDepartmentVisibility={toggleDepartmentVisibility}
 
-        // Shortcuts Modal
         shortcutsModalOpen={shortcutsModalOpen}
         setShortcutsModalOpen={setShortcutsModalOpen}
 
-        // Profile Modal
         profileModalOpen={profileModalOpen}
         setProfileModalOpen={setProfileModalOpen}
         currentUserEmail={currentUserEmail}
@@ -2034,12 +1341,13 @@ export function SchedulerMain({
         accessToken={accessToken}
         onTokenRefresh={onTokenRefresh}
 
-        // Settings Modal
         settingsModalOpen={settingsModalOpen}
         setSettingsModalOpen={setSettingsModalOpen}
+
+        workspaceManagementModalOpen={workspaceManagementModalOpen}
+        setWorkspaceManagementModalOpen={setWorkspaceManagementModalOpen}
       />
 
-      {/* Context Menus */}
       <SchedulerContextMenus
         contextMenu={contextMenu}
         onContextMenuClose={() =>

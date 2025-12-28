@@ -25,8 +25,8 @@
 - `projects` - проекты с цветами (backgroundColor, textColor) и workspace_id
 - `events` - события с привязкой к сотруднику, проекту, паттерну
 - `event_patterns` - паттерны событий (vacation, bench, etc.)
-- `grades` - грейды сотрудников (junior, middle, senior, lead)
-- `companies` - компании
+- `grades` - грейды сотрудников с привязкой к воркспейсу (workspace_id)
+- `companies` - компании с привязкой к воркспейсу (workspace_id)
 
 ### Правила работы с БД
 - **Не создавай миграции** - используй существующую схему
@@ -78,7 +78,7 @@
 - **Sticky названия проектов** - при горизонтальном скролле название события остается видимым (position: sticky на .ev-name, background: inherit)
 - **Спиннер загрузки** - использует textColor проекта из БД, размер 10px, с border-color opacity 20% и border-top-color 100%
 
-### Мо��альные окна
+### Модальные окна
 - **Сохранение только по кнопке в футере** - никаких onChange автосохранений, никаких встроенных кнопок в формах
 - **Единообразный UX** - при нажатии "Добавить" появляется новая строка в списке (можно добавить хоть 10 пустых)
 - **Локальное состояние для новых** - новые элементы хранятся в массиве localNew* до сохранения, не создаются в БД сразу
@@ -116,7 +116,7 @@
 - **30-дневные сессии** - при входе создается session_id со сроком действия 30 дней
 - **Автоматическое обновление токенов** - сервер использует refresh_token для обновления access_token (живет 1 час)
 - **Периодическая проверка** - каждые 10 минут клиент проверяет сессию, сервер автоматически обновляет токены
-- **IndexedDB** для ханения access_token и session_id на клиенте
+- **IndexedDB** для хранения access_token и session_id на клиенте
 - **KV Store** для хранения session_id, access_token, refresh_token, expires_at на сервере
 - **Server-side валидация** - каждый защищённый endpoint проверяет Authorization header
 - **Проверка email домена** - только @kode.ru
@@ -182,7 +182,7 @@ const userId = getUserIdFromToken(accessToken);
 ```
 /supabase/functions/server
   - index.tsx - Hono сервер со всеми routes
-  - kv_store.tsx - утилиты для KV тблицы (НЕ ИЗМЕНЯТЬ)
+  - kv_store.tsx - утилиты для KV таблицы (НЕ ИЗМЕНЯТЬ)
 ```
 
 ## ⚡ Производительность
@@ -195,7 +195,7 @@ const userId = getUserIdFromToken(accessToken);
 - **Параллельные запросы** - Promise.all() для batch операций
 - **Умное кэширование** - workspaces list в IndexedDB
 - **React.memo** - для компонентов, которые могут ре-рендериться часто (OnlineUsers, SchedulerEvent)
-- **useMemo/useCallback** - для стабильности пропсов и предотвращения лишних ре-рендеов
+- **useMemo/useCallback** - для стабильности пропсов и предотвращения лишних ре-рендеров
 - **Режим производительности** - отключает отступы (`gap = 0`, `cellPadding = 0`), паттерны и скругления для максимальной производительности
 
 ### Избегай
@@ -203,7 +203,7 @@ const userId = getUserIdFromToken(accessToken);
 - ❌ Лишние ре-рендеры - memo для тяжёлых компонентов
 - ❌ Inline функции в map() - определяй заранее
 - ❌ IIFE в пропсах - вычисляй значения через useMemo/useCallback
-- ❌ Избыточные console.log в рендер-функциях - логируй только пр�� изменениях
+- ❌ Избыточные console.log в рендер-функциях - логируй только при изменениях
 
 ## 🎹 Клавиатурные сокращения
 
@@ -212,7 +212,7 @@ const userId = getUserIdFromToken(accessToken);
 - `Space + drag` - Панорамирование
 - `Ctrl/Cmd + scroll` - Зум
 - `Esc` - Закрытие модалок
-- `?` - Справка п�� хоткеям
+- `?` - Справка по хоткеям
 - `Ctrl/Cmd + hold` - Режим перемещения (скрывает ручки resize)
 
 ## ↩️ Система Undo/Redo
@@ -251,7 +251,7 @@ const userId = getUserIdFromToken(accessToken);
   ```typescript
   // ✅ Правильно - флашим pending ПЕРЕД undo/redo
   const handleUndo = async () => {
-    await flushPendingChanges(); // Сохр��няем все изменения!
+    await flushPendingChanges(); // Сохраняем все изменения!
     
     const hasPendingEvents = events.some(e => e.id.startsWith('ev_temp_'));
     if (hasPendingEvents) {
@@ -309,7 +309,7 @@ const userId = getUserIdFromToken(accessToken);
     });
   }
   
-  // ��� НЕПРАВИЛЬНО - история остаётся с временными ID
+  // ❌ НЕПРАВИЛЬНО - история остаётся с временными ID
   // Redo восстанавливает событие с ev_temp_XXX → блокировка → toast висит навсегда
   ```
 
@@ -505,7 +505,7 @@ console.log('✅ Событие создано:', eventId);
 
 ### DON'T ❌
 - Не создавай новые таблицы БД
-- Н�� делай автосохранение в модал��ах
+- Не делай автосохранение в модалках
 - Не меняй защищённые файлы
 - Не используй alert() - используй toast
 - Не делай последовательные await в циклах
@@ -514,468 +514,89 @@ console.log('✅ Событие создано:', eventId);
 
 ---
 
-**Версия документа**: 1.8.6 (2025-10-21)
+**Версия документа**: 8.11.0 (2025-12-22)
+**Статус**: STABLE (Event Pointer Events)
 **Последнее обновление**: 
-- **Профиль пользователя с аватаркой**:
-  - Профильное меню в хедере с аватаркой, displayName и dropdown
-  - Модальное окно редактирования профиля (displayName + аватарка)
-  - Загрузка аватарки при регистрации (необязательно)
-  - Публичный bucket `make-73d66528-avatars` в Supabase Storage
-  - Серверные endpoints: `/profile/upload-avatar`, `/profile/update`
-  - Обновлённый `/auth/signup` с поддержкой multipart/form-data
-- **Кириллица**: Исправлена декодировка JWT токенов с русскими именами (TextDecoder UTF-8)
-- **URL Роутинг (упрощённый)**: Нативная навигация через History API без сложных флагов
-  - "/" - список воркспейсов
-  - "/workspace/:id" - календарь конкретного воркспейса
-  - Кнопка "назад" в браузере работает корректно
-  - Поддержка прямых ссылок и обновления страницы
-  - URL как единственный источник истины (убраны флаги isProgrammaticNavigation и state currentPath)
-- **Кэширование онлайн пользователей**: TTL 45 секунд, мгновенное отображение при загрузке страницы
-- **Presence система** - отслеживание онлайн пользователей:
-  - **Как работает**:
-    1. Пользователь открывает календарь воркспейса (SchedulerMain)
-    2. OnlineUsers компонент отправляет heartbeat каждые 30 секунд
-    3. Сервер извлекает `displayName` и `avatarUrl` из `user.user_metadata` (из токена):
-       ```typescript
-       const presenceData = {
-         userId: user.id,
-         email: user.email,
-         displayName: user.user_metadata?.display_name || user.user_metadata?.name,
-         avatarUrl: user.user_metadata?.avatar_url, // ← КРИТИЧНО! Без этого нет аватарок
-         lastSeen: new Date().toISOString()
-       };
-       ```
-    4. Presence сохраняется в KV Store с TTL **60 секунд** (автоматически удаляется если нет heartbeat)
-    5. **При закрытии календаря** OnlineUsers отправляет explicit `DELETE /presence/leave/:workspaceId` → мгновенное удаление
-    6. WorkspaceListScreen делает batch запрос каждые 15 секунд для всех воркспейсов
-  - **Отображение в карточках воркспейсов** (WorkspaceUsers):
-    - Показываются ТОЛЬКО пользователи ВНУТРИ воркспейса (отправляют heartbeat, есть в presence)
-    - Текущий пользователь показывается ТОЛЬКО если он внутри этого воркспейса
-    - Текущий пользователь выделяется зеленым градиентом с меткой "(вы)"
-    - Другие пользователи - синий градиент
-    - Аватарки для ВСЕХ приходят из presence данных (включая текущего пользователя)
-  - **Отображение внутри календаря** (OnlineUsers):
-    - **КРИТИЧНО**: Текущий ползователь ВСЕГДА берется ИЗ ТОКЕНА (не из presence!)
-    - Логика объединения: `[currentUser (токен), ...otherUsers (presence без текущего)]`
-    - Это гарантирует что avatarUrl текущего пользователя всегда актуальная
-    - Другие пользователи подгружаются из кэша (мгновенно), затем обновляются с сервера
-    - Если текущий пользователь пришел с сервера - он ФИЛЬТРУЕТСЯ и заменяется данными из токена
-    - **Оптимизация загрузки**:
-      1. При входе в календарь → читаем кэш `cache_online_users_batch` (загруженный WorkspaceListScreen)
-      2. Если кэш валиден (TTL 45 сек) → показываем данные мгновенно (0ms задержка)
-      3. В фоне делаем запрос к `/presence/online/:workspaceId` → обновляем данные
-      4. Периодическое обновление каждые 15 секунд (без кэша, прямой запрос)
-    - **Результат**: Нет задержки при входе в календарь, пользователи показываются сразу
-  - **ВАЖНО: Обновление токена после изменения профиля**:
-    - ��осле сохранения displayName или avatarUrl в ProfileModal → страница перезагружается через 2 секунды
-    - Это необходимо для получения свежего JWT токена с обновлёнными user_metadata
-    - Без перезагрузки старый токен останется и аватарка не появится в presence
-    - Toast уведомление предупреждает пользователя о перезагрузке
-  - **Batch оптимизация**: 1 запрос вместо N → снижение нагрузки в 15 раз
-  - **Кэширование онлайн пользователей**:
-    - Ключ кэша: `cache_online_users_batch`
-    - TTL: 45 секунд
-    - При загрузке экрана: сначала показываются кэшированные данные (мгновенно), затем обновляются с сервера в фоне
-    - Предотвращает "появление" блока с пользователями после загрузки воркспейсов
-    - Кэш очищается при выходе из системы
-  - **Graceful leave** (v1.8.8):
-    - При закрытии календаря (размонтирование OnlineUsers) отправляется `DELETE /presence/leave/:workspaceId`
-    - Мгновенное удаление presence из KV Store → пользователь исчезает из онлайн списка сразу
-    - Fallback: если leave не дошёл (сетевая ошибка) → автоудаление через 60 сек по TTL
-    - Endpoint: `app.delete("/make-server-73d66528/presence/leave/:workspaceId")`
-    - Логирование: `👋 Leave от {email} из workspace {id}`
-  - **Двухуровневая защита от "мигания"** (v1.8.8 v2):
-    - **Уровень 1 - Очистка кэша**: `handleBackToWorkspaces()` мгновенно очищает `cache_online_users_batch`
-    - **Уровень 2 - Временная блокировка**: Устанавливает флаг `suppress_current_user_presence` (TTL 5 сек)
-    - WorkspaceListScreen проверяет блокировку при загрузке кэша И при batch запросах
-    - Фильтрует текущего пользователя даже если он пришёл с сервера (защита от "гонки условий")
-    - Решает проблему: быстро вошли в календарь (<1 сек) → heartbeat → сразу назад → без блокировки было бы "мигание"
-    - Graceful degradation: блокировка истекает через 5 сек, batch запрос обновит данные
-- **Оптимизация**: React.memo, useMemo, batching, кэширование, мгновенное отображение
-
-### Collaborative Cursors (v3.4.0) ✅ НОВАЯ ВЕРСИЯ
-- **Supabase Realtime Presence** - отображение курсоров других пользователей в реальном времени
-- **Архитектура**:
-  - **Frontend**: `/utils/supabase/client.ts` - Supabase клиент с lazy loading
-  - **Context**: `/contexts/PresenceContext.tsx` - управление presence состоянием
-  - **Component**: `/components/scheduler/RealtimeCursors.tsx` - отображение курсоров
-  - **Integration**: `App.tsx` → `PresenceProvider` → `SchedulerMain` → `RealtimeCursors`
-- **Как работает**:
-  1. `PresenceProvider` подключается к Realtime каналу `workspace:{id}:presence`
-  2. При движении мыши вызывает `updateCursor(x, y)` (throttle 50ms)
-  3. Отправляет broadcast с `{ type: 'cursor_update', user_id, email, x, y, timestamp }`
-  4. Получает позиции других пользователей через Realtime
-  5. `RealtimeCursors` отображает курсоры с плавной анимацией
-- **Технические детали**:
-  - **Channel**: `workspace:{workspaceId}:presence` (приватный)
-  - **Events**: `presence_update` (broadcast), `join` (presence), `leave` (presence)
-  - **Throttle**: 50ms (максимум 20 обновлений/сек)
-  - **Timeout**: 5 секунд (автоудаление неактивных курсоров)
-  - **Координаты**: относительно viewport (clientX, clientY)
-  - **RLS**: проверка через `workspace_members` таблицу
-- **Оптимизации**:
-  - Lazy loading `@supabase/supabase-js` (загружается только когда нужно)
-  - Graceful fallback если Realtime недоступен (приложение работает без курсоров)
-  - Throttle 50ms → снижение нагрузки на сеть
-  - `eventsPerSecond: 20` в Realtime config → защита от перегрузки
-  - Автоматическая очистка устаревших курсоров каждую секунду
-  - Не показывается свой курсор (фильтруется по email)
-  - Автоматический реконнект через Supabase Realtime
-- **Визуальный стиль**:
-  - SVG курсор с цветом на основе email (HSL hash)
-  - Имя пользователя в цветном badge рядом с курсором
-  - `pointer-events: none` → курсоры не блокируют клики
-  - `transition: transform 100ms ease-out` → плавное движение
-  - Индикатор подключения в dev режиме
-- **Требования Supabase**:
-  - Realtime включён для таблиц (`events`, `users`, `projects`, `departments`, `workspaces`)
-  - RLS политики для `workspace_members` и `realtime.messages`
-  - Таблица `workspace_members` с колонками: `workspace_id`, `user_id`, `role`
-- **Документация**: `/SUPABASE_REALTIME_INTEGRATION_v3.4.0.md`, `/QUICK_TEST_REALTIME_v3.4.0.md`
-
----
-
-### Delta Sync автообновление событий (v3.3.0) ⚡
-- **Delta Sync + Full Sync** - умная двухуровневая синхронизация событий
-- **Интервалы синхронизации**:
-  - **Delta Sync**: каждые 4 секунды (только изменённые события) ⚡
-  - **Full Sync**: каждые 30 секунд (все события + обнаружение удалений) 🔄
-  - **Сотрудники**: каждые 15 секунд (полная синхронизация)
-  - **Департаменты**: каждые 15 секунд (полная синхронизация)
-  - **Проекты**: каждые 15 секунд (полная синхронизация)
-- **Как работает Delta Sync**:
-  1. Каждые 4 секунды запрашивает ТОЛЬКО изменённые события с последнего timestamp
-  2. Применяет изменения к текущему состоянию (merge)
-  3. Каждые 30 секунд делает Full Sync для обнаружения удалений другими пользователями
-  4. Пропускает синхронизацию при взаимодействии пользователя (drag/resize)
-  5. Пропускает синхронизацию если было локальное изменение < 2 секунд назад
-- **Технические детали**:
-  - Endpoint: `GET /events/changes?workspace_id=X&since=TIMESTAMP`
-  - Response: `{ events: [...], timestamp: "ISO_STRING" }`
-  - Timestamp сохраняется в `lastSyncTimestampRef` для следующего запроса
-  - Ref: `isUserInteracting` блокирует синхронизацию во время drag/drop/resize
-  - Ref: `deletedEventIdsRef` защищает от "воскрешения" удалённых событий
-- **Оптимизации**:
-  - Delta Sync передаёт только изменённые данные (минимальный трафик)
-  - Full Sync только каждые 30 секунд (обнаружение удалений)
-  - Блок��ровка синхронизацию при взаимодействии (нет конфликтов)
-  - Пропуск синхронизацию после локальных изменений (нет "мигания")
-  - Мгновенное применение изменений (merge вместо replace)
-- **Преимущества**:
-  - ⚡ Изменения появляются через 4 секунды (очень быстро!)
-  - 📉 Минимальный трафик (только изменённые события)
-  - 🛡️ Защита от конфликтов при drag/drop
-  - 🔄 Обнаружение удалений через Full Sync
-  - 🎯 Простая HTTP архитектура
-  - Документация: `/DELTA_SYNC_v3.3.0.md`, `/SIMPLE_POLLING_READY.md`
-
----
-
-**Версия документа**: 3.4.0 (2025-11-19)
-**Последнее обновление**: 
-- **Блокировка Undo/Redo для pending событий** (v3.3.20 - КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ):
-  - ✅ **Проблема 1**: Можно было нажать Undo когда событие грузится
-  - ✅ **Исправление 1**: Добавлена проверка временных ID в handleUndo (симметрия с handleRedo)
-  - ✅ **Проблема 2**: Нельзя было нажать Redo после того как событие загрузилось (toast висел)
-  - ✅ **Корневая причина**: История НЕ обновлялась после создания на сервере
-  - ✅ **Исправление 2**: Обновление ID в истории в syncRestoredEventsToServer
-  - ✅ State обновлялся: `ev_temp_123` → `e12345`
-  - ✅ История теперь обновляется: `ev_temp_123` → `e12345`
-  - ✅ При Redo восстанавливается событие с реальным ID (НЕ блокируется)
-  - Затронуты�� файлы: `/components/scheduler/SchedulerMain.tsx:411-444`, `/contexts/SchedulerContext.tsx:1349-1370`
-  - Документация: `/UNDO_REDO_PENDING_BLOCK_FIX_v3.3.20.md`, `/QUICK_TEST_UNDO_PENDING_v3.3.20.md`
-- **Pending состояние после Undo + убран toast warning** (v3.3.14 - КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ):
-  - ✅ Исправлена проблема: события показывают полоски загрузки после Undo
-  - ✅ Причина: Debounced save продолжает выполняться после Undo (pending операция в очереди)
-  - ✅ Решение: `await flushPendingChanges()` в начало `handleUndo` и `handleRedo`
-  - ✅ Все pending изменения сохраняются ПЕРЕД undo/redo → очередь пуста → нет полосок
-  - ✅ Убрали toast warning при блокировке pending событий (только console.log)
-  - ✅ События мгновенно восстанавливаются без артефактов
-  - Затронутые файлы: `/components/scheduler/SchedulerMain.tsx:400-620`
-  - Документация: `/UNDO_PENDING_FLUSH_FIX_v3.3.14.md`, `/QUICK_TEST_UNDO_PENDING_v3.3.14.md`
-- **Исправлен паттерн временных ID в cleanup** (v3.3.13 - КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ):
-  - ✅ Исправлена проблема: Orphaned events cleanup пытался удалить временные события через API
-  - ✅ Причина: Неправильный паттерн проверки `!event.id.startsWith('ev_temp')` вместо `!event.id.startsWith('ev_temp_')`
-  - ✅ Решение: Добавлено подчеркивание в конце паттерна для корректной проверки
-  - ✅ Временные события теперь корректно пропускаются в cleanup
-  - ✅ Нет ложных DELETE запросов к API
-  - ✅ Нет ошибок `Cannot delete temporary events via API`
-  - Затронутые файлы: `/contexts/SchedulerContext.tsx:964`
-  - Документация: `/TEMP_ID_PATTERN_FIX_v3.3.13.md`, `/QUICK_TEST_TEMP_ID_v3.3.13.md`, `/RELEASE_NOTES_v3.3.13.md`
-- **Блокировка Undo для pending событий** (v3.3.12 - КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ):
-  - ✅ Исправлена проблема: события "воскресали" после быстрого Undo сразу после создания
-  - ✅ Причина: Race condition между createEvent (создание в БД), Undo (удаление из стейта) и Delta Sync (загрузка из БД)
-  - ✅ Решение: Блокировка Undo/Redo если есть события с временными ID (`ev_temp_*`)
-  - ✅ Toast уведомление "Подождите, дождитесь завершения создания событий"
-  - ✅ Типичная задержка ~500ms (время создания на сервере)
-  - ✅ События НЕ "воскресают" из БД
-  - Документация: `/UNDO_PENDING_EVENTS_FIX_v3.3.12.md`, `/QUICK_TEST_UNDO_PENDING_v3.3.12.md`, `/RELEASE_NOTES_v3.3.12.md`
-- **Race Condition в Undo/Redo** (v3.3.11 - КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ):
-  - ✅ Исправлена race condition при быстром нажатии Ctrl+Z несколько раз подряд
-  - ✅ Причина: Второй Undo запускался ДО завершения первого → конфликты синхронизации
-  - ✅ Решение: Блокировка одновременных операций через `isUndoRedoInProgressRef`
-  - ✅ Проверка блокировки в начале `handleUndo` и `handleRedo`
-  - ✅ Гарантированное снятие блокировки через `finally` блок
-  - ✅ Логирование блокировки для диагностики
-  - Документация: `/UNDO_REDO_RACE_CONDITION_FIX_v3.3.11.md`
-- **Конфликт Undo и Debounced Save** (v3.3.10 - КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ):
-  - ✅ Исправлена ошибка: `❌ BATCH update: событие e37367 не найдено в БД` при Undo после создания
-  - ✅ Причина: Race condition между Undo (удаляет событие) и debounced save (пытается UPDATE)
-  - ✅ Решение: Очистка pending операций для удалённых событий в `handleUndo()` и `handleRedo()`
-  - ✅ Вызов `cancelPendingChange()` для каждого удалённого события ДО синхронизации удалений
-  - ✅ Добавлена зависимость `cancelPendingChange` в useCallback
-  - ✅ Undo/Redo работает без ошибок
-  - Документация: `/UNDO_DEBOUNCED_SAVE_CONFLICT_FIX_v3.3.10.md`
-- **Блокировка взаимодействий с временными событиями** (v3.3.9 - КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ):
-  - ✅ Исправлена ошибка: при Undo после быстрого drag временного события оно удаляется
-  - ✅ Причина: drag завершался ДО создания события на сервере → история сохраняла временный ID
-  - ✅ Решение: блокировка drag/resize для событий с `id.startsWith('ev_temp_')`
-  - ✅ История ВСЕГДА содержит реальные ID
-  - ✅ Undo/Redo работает корректно
-  - ✅ Задержка ~500ms между созданием и drag (незаметна)
-  - Документация: `/TEMP_EVENTS_INTERACTION_BLOCK_v3.3.9.md`
-- **BATCH create/update detection** (v3.3.8 - КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ):
-  - ✅ Исправлена ошибка: `❌ BATCH update: событие не найдено в БД`
-  - ✅ Причина: ВСЕ batch операции помечались как `op: 'update'`, даже для несуществующих событий
-  - ✅ Решение: определение `op: 'create' | 'update'` на основе `loadedEventIds.current.has(id)`
-  - ✅ Передача `id` в `data` для CREATE операций (для UPSERT на сервере)
-  - ✅ Добавление созданных событий в `loadedEventIds` после успешного batch create
-  - ✅ Детальное логирование: `📦 BATCH: событие e37356 → update (isLoaded=true)`
-  - ✅ Защита от race conditions между createEvent и drag
-  - Документация: `/BATCH_CREATE_UPDATE_FIX_v3.3.8.md`
-- **Sync history before drag** (v3.3.7 - ФИНАЛЬНОЕ ИСПРАВЛЕНИЕ):
-  - ✅ Критическое исправление: события больше не удаляются при undo после быстрого drag
-  - ✅ **Часть 1**: Flush pending changes перед drag/resize/gap drag
-    - Добавлен вызов `flushPendingChanges()` в начале всех drag операций
-  - ✅ **Часть 2**: Синхронное сохранение истории через Promise
-    - `saveHistory()` теперь вызывается через `await Promise.resolve()`
-    - Гарантирует что история сохранится ДО того как пользователь начнёт drag
-  - ✅ **Часть 3**: Убран IIFE в handlePaste (НОВОЕ)
-    - Сделали `handlePaste` async функцией (было: useCallback с IIFE)
-    - Убрали fire-and-forget `(async () => { ... })()`
-    - Событие всегда имеет реальный ID (НЕ временный!) при drag
-  - Результат: при undo событие восстанавливается (НЕ удаляется)
-  - Документация: `/SYNC_HISTORY_BEFORE_DRAG_v3.3.7.md`, `/QUICK_FIX_IIFE_v3.3.7.md`
-- **Supabase Realtime Integration** (v3.4.0):
-  - ✅ Collaborative Cursors через Supabase Realtime Presence
-  - ✅ Новый `/utils/supabase/client.ts` с lazy loading
-  - ✅ Новый `/contexts/PresenceContext.tsx` для управления presence
-  - ✅ Новый `/components/scheduler/RealtimeCursors.tsx` для отображения курсоров
-  - ✅ Graceful fallback если `@supabase/supabase-js` недоступен
-  - ✅ RLS безопасность через `workspace_members`
-  - ✅ Автоматический реконнект
-  - Документация: `/SUPABASE_REALTIME_INTEGRATION_v3.4.0.md`, `/QUICK_TEST_REALTIME_v3.4.0.md`
-- **Full Sync возвращает измененные события после Undo/Redo ИСПРАВЛЕНО** (v3.3.6):
-  - ✅ Расширена функция `syncRestoredEventsToServer()` - теперь синхронизирует CREATE + UPDATE
-  - ✅ Разделение событий на две группы: `eventsToCreate` (нет на сервере) и `eventsToUpdate` (��сть на сервере)
-  - ✅ Batch операции: `op: 'create'` + `op: 'update'` в одном запросе
-  - ✅ Измененные события (высота, позиция) больше НЕ перезаписываются данными с сервера
-  - ✅ Full Sync через 30 секунд загружает правильные данные
-  - Документация: `/UNDO_REDO_MODIFIED_EVENTS_FIX.md`, `/CHANGELOG.md` v3.3.6
-- **React Warning "Cannot update component while rendering" ИСПРАВЛЕН** (v3.3.3):
-  - ✅ Заменён `const [hasCachedData, setHasCachedData]` на `const hasCachedDataRef = useRef(false)`
-  - ✅ Все 7 вызовов `setHasCachedData(true)` заменены на `hasCachedDataRef.current = true`
-  - ✅ Нет конкурентных setState → warning исчез
-  - ✅ Производительность улучшена (ref быстрее state)
-  - Документация: `/CHANGELOG.md` v3.3.3
-- **Full Sync возвращает удалённые события после Undo/Redo ИСПРАВЛЕНО** (v3.3.3):
-  - ✅ Новая функция `syncDeletedEventsToServer(currentEvents, previousEvents)`
-  - ✅ Сравнивает события до/после Undo/Redo, находит удалённые
-  - ✅ Помечает в `deletedEventIdsRef` + удаляет на сервере через `eventsApi.delete()`
-  - ✅ Full Sync НЕ возвращает удалённые события благодаря `deletedEventIdsRef`
-  - ✅ Вызов в `handleUndo()` и `handleRedo()` с сохранением `previousEvents`
-  - Документация: `/UNDO_REDO_DELETED_EVENTS_SYNC.md`, `/CHANGELOG.md` v3.3.3
-- **Синхронизация проектов при Undo/Redo** (КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ v3.3.2):
-  - ✅ Добавлены функции блокировки синхронизации: `resetProjectsSyncTimer()`, `resetResourcesSyncTimer()`, `resetDepartmentsSyncTimer()`
-  - ✅ Вызов `resetProjectsSyncTimer()` в `handleUndo()` и `handleRedo()`
-  - ✅ Проекты НЕ перезаписываются данными с сервера после Undo/Redo
-  - ✅ Блокировка polling на 2 секунды защищает локальные изменения
-  - Документация: `/UNDO_REDO_PROJECTS_SYNC_FIX.md`, `/CHANGELOG.md` v3.3.2
-- **Защита истории от сохранения событий без проектов** (v3.3.1):
-  - ✅ Исправлены вызовы `resetHistory()` в модалках - ВСЕГДА передаём проекты
-  - ✅ Добавлена защита в `saveHistory()` - блокирует сохранение events без projects
-  - ✅ Новая секция в Guidelines: "↩️ Система Undo/Redo" с важными правилами
-  - ✅ Детальное логирование для диагностики проблем с историей
-  - Документация: `/UNDO_REDO_FIX_SUMMARY.md`, `/CHANGELOG.md` v3.3.1
-- **Delta Sync автообновление v3.3.0** (КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ):
-  - ✅ Восстановлен быстрый Delta Sync: каждые 4 секунды (было 10 секунд)
-  - ✅ Full Sync: каждые 30 секунд вместо 60 секунд
-  - ✅ Убрана динамическая смена интервалов (была сложная, не работала)
-  - ✅ Изменения появляются через 4 секунды (было 10-30 секунд)
-  - ✅ Простая и надёжная логика: фиксированный интервал 4 сек для delta
-  - ✅ Endpoint `/events/changes` для получения только изменённых событий
-  - Документация: `/guidelines/Guidelines.md` v3.3.0, `/CHANGELOG.md` v3.3.0
-- **Оптимизация алгоритма склейки событий v6.0** (ПРОИЗВОДИТЕЛЬНОСТЬ):
-  - ✅ Индексация событий: O(1) вместо O(n) для поиска соседей
-  - ✅ Утилитарные функции: -200 строк дублирования кода
-  - ✅ Меньше проходов: 4 вместо 5 (-20%)
-  - ✅ Оптимизация кода: 545 строк вместо 691 (-21%)
-  - ✅ DEBUG режим: опциональные логи (const DEBUG = false)
-  - ✅ Производительность: ~45x ускорение для 100 событий!
-  - ✅ Без изменений логики: те же 7 правил склейки, обратная совместимость
-  - Документация: `/EVENT_NEIGHBORS_v6.0_OPTIMIZATION.md`, `/CHANGELOG.md` v6.0
-- **Откусывание только при двойном gap v5.23** (КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ):
-  - ✅ ПРОХОД 5 теперь откусывает только при `expandMultiplier >= 2` (ДВОЙНОЙ gap!)
-  - ✅ Обычная склейка событий разных проектов (`expandRight = 1`) больше НЕ откусывается
-  - ✅ Вклинивание срабатывает только для событий с двойным расширением
-  - ✅ Визуально: нет нежелательных зазоров между проектами
-  - ✅ Логика вклинивания стала предсказуемой и правильной
-  - Документация: `/EVENT_GLUING_v5.23_FINAL.md`, `/CHANGELOG.md` v5.23
-- **Правильная неделя для поиска соседей справа v5.22** (КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ):
-  - ✅ ПРОХОД 3 для `roundBottomRight` теперь ищет на ПОСЛЕДНЕЙ неделе события (`startWeek + weeksSpan - 1`)
-  - ✅ `roundBottomLeft` ищет на СТАРТОВОЙ неделе события (`startWeek`)
-  - ✅ Логика: внешний угол справа смотрит на ПОСЛЕДНЮЮ неделю, внешний угол слева — на ПЕРВУЮ
-  - ✅ Работает для событий ЛЮБОЙ длины (1 неделя или 10 недель)
-  - ✅ Поджатие справа теперь срабатывает для коротких событий
-  - ✅ Компенсация в ПРОХОДЕ 4 гарантирует расширение соседей
-  - Документация: `/EVENT_GLUING_v5.22_FINAL.md`, `/CHANGELOG.md` v5.22
-- **Упрощённая логика склейки событий v3.1** (ФИНАЛЬНАЯ ВЕРСИЯ):
-  - ✅ Полная склейка для одинаковой высоты и позиции (hasFullLeftNeighbor)
-  - ✅ Расширение на gap + убирание padding для полн��й склейки
-  - ✅ Позитивная логика: `roundTopLeft = true` означает "скруглён"
-  - ✅ hasInner* вычисляются локально из innerTopLeftColor (не сохраняются в объект)
-  - ✅ Убрали removeTopLeftRadius и т.д. (негативная логика)
-  - ✅ Единый источник истины: цвета определяют наличие внутренних углов
-  - Документация: `/EVENT_GLUING_v3.1_FINAL.md`
-- **Корректное восстановление DOM стилей при ресайзе** (v2.3.13):
-  - ✅ Исправлено смещение событий при клике на ручку ресайза без изменения размера
-  - ✅ Сохранение исходных стилей (startLeft, startTop, startWidth, startHeight) в startResize
-  - ✅ Восстановление точных исходных стилей при hasChanged = false
-  - ✅ Pixel-perfect позиционирование без округлений
-  - Документация: `/CHANGELOG.md` v2.3.13
-- **Умна горизонтальная склейка событий** (v2.3.12):
-  - ✅ Боковые padding убираются только при полной склейке по высоте (оба угла)
-  - ✅ `hasFullLeftNeighbor = hasTopLeft && hasBottomLeft` (было: `hasAnyLeft = hasTopLeft || hasBottomLeft`)
-  - ✅ В середине горизонтальной склейки отступы остаются (4px), если unitsTall различается
-  - ✅ Симметричные отступы между юнитами даже при склейке
-  - Документация: `/CHANGELOG.md` v2.3.12
-- **Pixel-Perfect позиционирование событий** (v2.3.11):
-  - ✅ Минимальный gap увеличен с 0.5px до 1px
-  - ✅ `unitContentH = Math.floor(...)` для округления до целых пикселей
-  - ✅ Все координаты Y теперь целые числа (нет субпиксельного рендеринга)
-  - ✅ События идеально выровнены на всех размерах строки
-  - Документация: `/UNIFIED_PADDING_v2.3.9.md` (обновлён v2.3.11)
-- **Математически правильные внутренние скругления** (v2.3.10):
-  - ✅ `innerRadius = borderRadius + gap` (компенсирует отступ между событиями)
-  - ✅ При rowHeight ≥ 144px: внешний 10px, внутренний 14px
-  - ✅ Адаптивно для всех размеров строки
-  - Документация: `/UNIFIED_PADDING_v2.3.9.md` (обновлён)
-- **Унифицированные отступы для событий** (v2.3.9):
-  - ✅ `cellPadding = gap` (вместо `gap / 2`)
-  - ✅ Одиночные события имеют симметричные отступы 4px со всех сторон
-  - ✅ Между событиями разных недель: 8px (хорошо видно)
-  - ✅ Склейка событий работает как прежде (padding убирается)
-  - Документация: `/UNIFIED_PADDING_v2.3.9.md`
-- **Delta Sync автообновление v3.3.0** (v1.9.4 → v3.3.0):
-  - ✅ Быстрая синхронизация событий: Delta Sync каждые 4 секунды ⚡
-  - ✅ Full Sync каждые 30 секунд для обнаружения удалений 🔄
-  - ✅ Минимальный трафик: только изменённые события в Delta Sync
-  - ✅ Защита от конфликтов при drag/drop и после локальных изменений
-  - ✅ Сотрудники, Департаменты, Проекты: каждые 15 секунд
-  - ✅ Нагрузка: 29 req/min/user (умеренная)
-  - ✅ Простая HTTP архитектура без WebSocket
-  - Документация: `/DELTA_SYNC_v3.3.0.md`, `/QUICK_DELTA_SYNC.md`, `/TEST_DELTA_SYNC.md`, `/SYNC_INTERVALS_CHEATSHEET.md`
-- **Supabase Realtime Integration** (v3.4.0):
-  - ✅ **Collaborative Cursors ВКЛЮЧЕНЫ** через Supabase Realtime Presence
-  - ✅ Graceful fallback если `@supabase/supabase-js` недоступен
-  - ✅ Автоматический реконнект через Supabase SDK
-  - ✅ RLS безопасность через `workspace_members`
-  - ✅ Задержка ~50-100ms (мгновенные обновления)
-  - ⚠️ Если Realtime недоступен → курсоры отключены (приложение работает стабильно)
-  - Документация: `/SUPABASE_REALTIME_INTEGRATION_v3.4.0.md`
-- **Старые версии (deprecated)**:
-  - v1.9.3: Realtime Broadcast через `@supabase/supabase-js` - ОТКЛОНЕНО (ошибка сборки)
-  - v1.9.2: Native WebSocket - ОТКЛЮЧЁН (нестабильная работа в Edge Functions)
-  - v1.9.0: WebSocket через Edge Function `/cursors/:workspaceId` - УСТАРЕЛО
-  - Старый код сохранён в `/components/scheduler/CursorPresence.tsx` (не удалять!)
-- **Онлайн пользователи работают** (v1.8.8+):
-  - ✅ HTTP-based presence система стабильна
-  - ✅ Heartbeat каждые 30 секунд
-  - ✅ Graceful leave при закрытии календаря
-  - ✅ Batch запросы и кэширование (TTL 45 сек)
-
----
-
-**Версия документа**: 4.0.0 (2025-11-25)
-**Статус**: STABLE (Clean Rollback)
-**Последнее обновление**: 
-- **SchedulerMain.tsx Cleanup & Fix**:
-  - ✅ Выполнен откат к стабильной версии компонента
-  - ✅ Устранены дублирования кода в конце файла
-  - ✅ Добавлен корректный export default SchedulerMain
-  - ✅ Исправлены циклические зависимости и проблемы с Undo/Redo
-  - ✅ Удален лишний код автосохранения истории (теперь только явное сохранение)
-  - ✅ Стабильная работа Drag & Drop, Resize и Gap Handles
-
----
-
-**Версия документа**: 1.5.0 (2025-11-18)
-**Последнее обновление**: 
-- **Gap Handles - Двусторонний Resize** (v1.5.0):
-  - ✅ При зажатой Cmd/Ctrl появляются синие пипки на промежутках между событиями
-  - ✅ Вертикальные handles: между событиями сверху-снизу (курсор ns-resize)
-  - ✅ Горизонтальные handles: между событиями слева-справа (курсор ew-resize)
-  - ✅ Drag handle изменяет оба события одновременно
-  - ✅ Валидация: минимум 1 unit/week, не выходить за предел��
-  - ✅ Undo/Redo поддерживается, polling блокируется на 2 сек
-  - Документация: `/GAP_HANDLES_v1.5.0.md`
-- **Drag & Drop от точки захвата** (v1.4.0):
-  - ✅ При захвате события вычисляется за какой юнит взялись (offsetUnit)
-  - ✅ Этот юнит следует за курсором при перемещении
-  - ✅ Строка определяется по реальной позиции курсора (без offset)
-  - ✅ Событие переносится на новую строку только когда курсор на ней
-  - ✅ Интуитивное поведение без неожиданных прыжков
-  - Документация: `/CHANGELOG.md` v1.4.0
-- **UX оптимизация - убраны toast уведомления** (v1.4.0):
-  - ✅ Убраны toast при копировании/вставке/создании событий
-  - ✅ Меньше визуального шума
-  - ✅ Пользователь видит результат на календаре
-  - ✅ Фокус на критических сообщениях
-  - Документация: `/CHANGELOG.md` v1.4.0
-- **Supabase Realtime Integration** (v3.4.0):
-  - ✅ Collaborative Cursors через Supabase Realtime Presence
-  - ✅ Новый `/utils/supabase/client.ts` с lazy loading
-  - ✅ Новый `/contexts/PresenceContext.tsx` для управления presence
-  - ✅ Новый `/components/scheduler/RealtimeCursors.tsx` для отображения курсоров
-  - ✅ Integration: `App.tsx` → `PresenceProvider` → `SchedulerMain` → `RealtimeCursors`
-  - ✅ Как работает:
-    1. `PresenceProvider` подключается к Realtime каналу `workspace:{id}:presence`
-    2. При движении мыши вызывает `updateCursor(x, y)` (throttle 50ms)
-    3. Отправляет broadcast с `{ type: 'cursor_update', user_id, email, x, y, timestamp }`
-    4. Получает позиции других пользователей через Realtime
-    5. `RealtimeCursors` отображает курсоры с плавной анимацией
-  - ✅ Технические детали:
-    - **Channel**: `workspace:{workspaceId}:presence` (приватный)
-    - **Events**: `presence_update` (broadcast), `join` (presence), `leave` (presence)
-    - **Throttle**: 50ms (максимум 20 обновлений/сек)
-    - **Timeout**: 5 секунд (автоудаление неактивных курсоров)
-    - **Координаты**: относительно viewport (clientX, clientY)
-    - **RLS**: проверка через `workspace_members` таблицу
-  - ✅ Оптимизации:
-    - Lazy loading `@supabase/supabase-js` (загружается только когда нужно)
-    - Graceful fallback если Realtime недоступен (приложение работает без курсоров)
-    - Throttle 50ms → снижение нагрузки на сеть
-    - `eventsPerSecond: 20` в Realtime config → защита от перегрузки
-    - Автоматическая очистка устаревших курсоров каждую секунду
-    - Не показывается свой курсор (фильтруется по email)
-    - Автоматический реконнект через Supabase Realtime
-  - ✅ Визуальный стиль:
-    - SVG курсор с цветом на основе email (HSL hash)
-    - Имя пользователя в цветном badge рядом с курсором
-    - `pointer-events: none` → курсоры не блокируют клики
-    - `transition: transform 100ms ease-out` → плавное движение
-    - Индикатор подключения в dev режиме
-  - ✅ Требования Supabase:
-    - Realtime включён для таблиц (`events`, `users`, `projects`, `departments`, `workspaces`)
-    - RLS политики для `workspace_members` и `realtime.messages`
-    - Таблица `workspace_members` с колонками: `workspace_id`, `user_id`, `role`
-  - ✅ Документация: `/SUPABASE_REALTIME_INTEGRATION_v3.4.0.md`, `/QUICK_TEST_REALTIME_v3.4.0.md`
-
----
-
-**Версия документа**: 4.0.5 (2025-11-29)
-**Статус**: CLEAN ARCHITECTURE (Stable)
-**Последнее обновление**: 
+- **Event Interaction Fix (v8.11.0)**:
+  - ✅ **Pointer Events**: Enabled `pointer-events: auto` on SchedulerEvent to capture mouse events.
+  - ✅ **Bubbling Fix**: Modified `handleGlobalMouseMove` in SchedulerGridUnified to ignore events bubbling from `.scheduler-event`. This prevents the grid from showing highlights when the mouse is over an event.
+  - ✅ **Force Hide**: Added `hideHoverHighlight` method to SchedulerGridUnified for robust state clearing.
+  - ✅ **Side Effect**: Fixes dragging events by their body.
+- **Visual Improvements (v8.10.0)**:
+  - ✅ **Month Separators**: Added darker vertical lines to separate months in the scheduler grid. Implemented via CSS gradients on the interaction layer for performance.
+- **SchedulerGridUnified Highlight Fixes (v8.9.0)**:
+  - ✅ **Fixed Highlight Shifting**: Normalized coordinate system for hover highlight. Now renders inside Events Layer (relative to week start) instead of global container.
+  - ✅ **Fixed Ghost Highlight**: Removed duplicate highlight rendering in scroll container.
+  - ✅ **Fixed Padding Artifacts**: Added `unitIndex` validation to prevent highlight appearing in row padding areas (between rows).
+  - ✅ **Dynamic UNITS calculation**: Replaced hardcoded `UNITS` with dynamic calculation based on `eventRowH` and padding.
+- **Unified Grid Alignment (v8.8.0)**:
+  - ✅ **Spacer Logic**: Фон сетки (градиент) теперь позиционируется с `0px` (ранее `4px` offset), что выравнивает вертикальные линии точно по границам недель.
+  - ✅ **Exact Width**: Добавлено явное ограничение ширины строки ресурсов (`width: ${config.weekPx * WEEKS}px`), устраняющее "фантомную" 53-ю линию справа.
+  - ✅ **Clean UI**: Убран лишний `borderRight` у заголовков департаментов и строк ресурсов.
+  - ✅ **Result**: Идеальное пиксельное выравнивание колонок ресурсов с заголовками недель без визуальных артефактов на краях.
+- **Smart Search Phonetic Fix (v8.7.0)**:
+  - ✅ **Transliteration**: Добавлено правило `кс` -> `x`. Решает проблему поиска "Гэлакси" -> "Galaxy".
+  - ✅ **Phonetic**: Добавлено правило `eng` -> `ing`. Решает проблему поиска "Инглиш" -> "English".
+  - ✅ **Phonetic Normalization**: Улучшена нормализация `x` -> `ks` для обратной совместимости.
+  - ✅ **Highlight Fix**: Запрещена подсветка токенов короче 3 символов в середине слов. Решает проблему подсветки "en**GL**ish" по запросу "гэл".
+  - ✅ **Файлы**: `/utils/search.ts`, `/utils/highlightMatch.tsx`.
+- **Smart Search Skeleton Fix (v8.6.0)**:
+  - ✅ **Strict Skeleton**: Поиск по скелету согласных (Consonant Skeleton) теперь поддерживает только точное совпадение (`===`) или начало слова (`startsWith`).
+  - ✅ **No Skeleton Includes**: Запрещен поиск подстроки внутри скелета (`includes`). Это устранило ложные срабатывания, когда "LiteFi" (ltf) находился внутри "Platform" (p**ltf**rm).
+  - ✅ **Separated Variants**: Обычные варианты (fuzzy, translit) и скелетные варианты обрабатываются раздельно с разной логикой.
+  - ✅ **Файлы**: `/utils/search.ts`.
+- **Smart Search Tuning (v8.5.0)**:
+  - ✅ **Tighter Thresholds**: 2 ошибки теперь допускаются только для слов длиной 7+ символов (ранее 5+). Это устраняет ложные совпадения для слов средней длины ("ливери" -> "LiteFinance").
+  - ✅ **Distance Scoring**: В итоговый балл теперь добавляется `dist` (количество ошибок). Точные совпадения ранжируются выше приблизительных.
+  - ✅ **Файлы**: `/utils/search.ts`, `/utils/highlightMatch.tsx`.
+- **Smart Search Final Fix (v8.4.0)**:
+  - ✅ **Damerau-Levenshtein**: Алгоритм расстояния теперь учитывает перестановки (transpositions), исправляя опечатки типа "lihte" -> "light".
+  - ✅ **Consonant Skeleton**: Добавлен поиск по "скелету" слова (без гласных). "Лайтфин" (ltfn) находит "LiteFinance" (ltfnnc) даже при полном несовпадении гласных.
+  - ✅ **Translit Order**: Исправлен порядок транслитерации. Длинные ключи ('shch') теперь гарантированно обрабатываются раньше коротких ('sch').
+  - ✅ **No Length Cutoff**: Убрано жесткое ограничение по разнице длин, мешавшее поиску сокращений.
+  - ✅ **Strict Substring**: Сохранена строгая логика для середины слова (защита от ложных срабатываний).
+  - ✅ **Файлы**: `/utils/search.ts`, `/utils/highlightMatch.tsx`.
+- **Smart Search Fix (v8.3.0)**:
+  - ✅ **Strict Substring Matching**: Введена строгая проверка для совпадений в середине слова. Допускается на 1 ошибку меньше, чем для начала слова. Это устраняет ложные срабатывания (например, "Лайтфи" -> "Platform").
+  - ✅ **Prefix Lenience**: Для начала слова (префикса) сохранены мягкие пороги ошибок (2 ошибки для 5+ букв), что критично для поиска с опечатками и транслитерацией.
+  - ✅ **Highlight Word Start**: Подсветка теперь корректно определяет начала слов и применяет соответствующие пороги ошибок.
+  - ✅ **Файлы**: `/utils/search.ts`, `/utils/highlightMatch.tsx`.
+- **Smart Search Fix (v8.2.0)**:
+  - ✅ **Double Phonetic Normalization**: Теперь нормализуется не только запрос, но и целевая строка (`target`). Это позволяет находить "Лайтфи" (Litfi) в "LiteFinance" (Litfinans) через префиксное совпадение.
+  - ✅ **Threshold Tuning**: Смягчены пороги ошибок. Для слов длиной 5+ символов допускается 2 ошибки (было 1). Это критично для незаконченных транслитерированных запросов.
+  - ✅ **Highlight Sync**: Логика подсветки синхронизирована с новыми порогами поиска.
+  - ✅ **Файлы**: `/utils/search.ts`, `/utils/highlightMatch.tsx`.
+- **Fuzzy Highlight System (v8.1.0)**:
+  - ✅ **Levenshtein Highlight**: Подсветка текста переписана с RegExp на поиск нечетких подстрок. Теперь "Лайт" подсвечивает "Lite", а "Фидбэк" — "Feedback".
+  - ✅ **Range Merging**: Умное объединение пересекающихся диапазонов подсветки.
+  - ✅ **CamelCase Splitting**: Поиск теперь разбивает CamelCase названия ("LiteFinance" → "Lite Finance"), что значительно улучшает поиск по частям ("Лайт" находит "Lite").
+  - ✅ **Silent E Normalization**: Улучшена фонетика для английских слов (удаление немой 'e' на конце), что помогает сопоставлять "Lite" и "Lit" (из транслита "Layt").
+  - ✅ **Файлы**: `/utils/highlightMatch.tsx` (переписан), `/utils/search.ts` (улучшен).
+- **Mega-Super Smart Search (v8.0.0)**:
+  - ✅ **Token-based Architecture**: Полная переработка алгоритма. Вместо генерации тысяч вариантов строки используется умное сравнение токенов. Скорость работы увеличена в 10-50 раз.
+  - ✅ **Acronym Support**: Поддержка поиска по аббревиатурам (запрос `ВТБ` или `VTB` найдет `Vnesh Torg Bank` по первым буквам слов).
+  - ✅ **Visual Normalization**: Обработка визуально похожих символов (`0` ↔ `o`, `1` ↔ `l`, `$` ↔ `s`). Полезно для опечаток с цифрами.
+  - ✅ **Expanded Transliteration**: Добавлены сложные правила: `x` → `ks`, `q` → `kv`/`k`, `w` → `v`, `ts` → `ц`.
+  - ✅ **Optimization**: В `SimpleEventModal` удалено дублирование вычислений. Score считается 1 раз на элемент. Сохраняется сортировка по частоте использования при равном релевантности.
+  - ✅ **Файлы**: `/utils/search.ts` (полностью переписан), `/components/scheduler/SimpleEventModal.tsx`.
+- **Smart Search System (v7.0.0)**:
+  - ✅ **Агрессивная фонетическая нормализация**: Упрощение дифтонгов (`aj` → `i`, `ej` → `i`) для улучшения поиска (например, "Лайт" → "LiteFinance", "Фидбэк" → "Feedback").
+  - ✅ **Sliding Window алгоритм**: Поиск подстрок с учетом опечаток внутри длинных названий.
+  - ✅ **Levenshtein Distance**: Нечеткий поиск с допуском ошибок.
+  - ✅ **Relevance Sorting**: Весовая сортировка: Точное > Начало > Слово > Fuzzy.
+  - ✅ **Auto Layout**: Автоматическое переключение раскладки (ghbdtn ↔ привет).
+  - ✅ **Файлы**: `/utils/search.ts`, `/components/scheduler/SimpleEventModal.tsx`.
+- **Event Neighbors v8.0.2 (Biting Logic Fix)**:
+  - ✅ **Проблема**: Центральное событие получало лишнее уменьшение ширины (-1 gap), если сбоку было 2 и более соседей, даже если они не расширялись.
+  - ✅ **Причина**: В расчете `pressure` (Rule 3) использовалось `Math.max(1, expand)`, что считало каждый соседний проект за единицу давления по умолчанию.
+  - ✅ **Решение**: Убрано `Math.max(1, ...)`. Теперь давление создает только реальное расширение соседа (`expand > 0`).
+  - ✅ **Результат**: Множественные соседи без расширения больше не "кусают" центральное событие. Откусывание срабатывает только при реальной угрозе наложения.
+- **Event Neighbors v8.0.1 (Roof Bug Fix)**:
+  - ✅ **Проблема**: "Крыша" (Scenario A) - событие не получало дополнительный отступ справа, когда его сосед снизу (форма Б) был частью "стены" (склеен горизонтально).
+  - ✅ **Причина**: Пра��ило 2 (Б над А) сбрасывало расширение соседей верхнего события, не учитывая, что нижнее событие может быть частью стены.
+  - ✅ **Решение**: Добавлена проверка `if (topology.hasHorizontalGlue) continue;` в STAGE 3.
+  - ✅ **Результат**: Склеенные стены (Rule 1) имеют приоритет над формой крыши (Rule 2). Соседи верхнего события корректно расширяются (+1 gap) против стены.
+  - ✅ **Чистая архитектура**: Исправление локализовано в STAGE 3, не затрагивает другие этапы.
 - **Event Neighbors v8.0 - ПОЛНАЯ ПЕРЕРАБОТКА**:
   - ✅ **Чистая архитектура**: Разделение на 5 независимых этапов (STAGE 1-5)
   - ✅ **STAGE 1 - GEOMETRY**: Сбор геометрических фактов без принятия решений

@@ -8,6 +8,7 @@ import { SchedulerMain } from "./components/scheduler/SchedulerMain";
 import { WorkspaceListScreen } from "./components/workspace/WorkspaceListScreen";
 import { LoadingScreen } from "./components/ui/spinner";
 import { PresenceProvider } from "./contexts/PresenceContext";
+import { UIProvider } from "./contexts/UIContext";
 import { Workspace } from "./types/scheduler";
 import {
   getStorageItem,
@@ -184,7 +185,12 @@ function AppContent() {
         }
 
         if (token && sessionId) {
-          // Validate token with server
+          // ✅ Сразу устанавливаем токен - не блокируем UI
+          setAccessToken(token);
+          setIsAuthenticated(true);
+          setIsCheckingAuth(false);
+
+          // Validate token with server в фоне
           const response = await fetch(
             `https://${projectId}.supabase.co/functions/v1/make-server-73d66528/auth/session`,
             {
@@ -207,11 +213,13 @@ function AppContent() {
                 "auth_access_token",
                 data.session.access_token,
               );
-              setIsAuthenticated(true);
+              console.log("✅ Токен валидный и обновлен");
             } else {
               console.log("⚠️ No valid session, clearing auth");
               await removeStorageItem("auth_access_token");
               await removeStorageItem("auth_session_id");
+              setIsAuthenticated(false);
+              setAccessToken(null);
             }
           } else {
             console.log(
@@ -219,15 +227,19 @@ function AppContent() {
             );
             await removeStorageItem("auth_access_token");
             await removeStorageItem("auth_session_id");
+            setIsAuthenticated(false);
+            setAccessToken(null);
           }
         } else {
           console.log("⚠️ No stored credentials found");
+          setIsCheckingAuth(false);
         }
       } catch (error) {
         console.error("❌ Auth check failed:", error);
         await removeStorageItem("auth_access_token");
         await removeStorageItem("auth_session_id");
-      } finally {
+        setIsAuthenticated(false);
+        setAccessToken(null);
         setIsCheckingAuth(false);
       }
     };
@@ -235,7 +247,7 @@ function AppContent() {
     checkAuth();
   }, []);
 
-  // Periodic token refresh (каждые 10 минут)
+  // Periodic token refresh (каждые 30 минут - токен живет 1 час)
   useEffect(() => {
     if (!isAuthenticated || !accessToken) return;
 
@@ -294,8 +306,8 @@ function AppContent() {
           console.error("❌ Token refresh failed:", error);
         }
       },
-      10 * 60 * 1000,
-    ); // 10 minutes
+      30 * 60 * 1000,
+    ); // 30 minutes (токен живет 1 час, проверяем за 30 минут до истечения)
 
     return () => {
       clearInterval(refreshInterval);
@@ -434,14 +446,8 @@ function AppContent() {
   }
   */
 
-  if (isCheckingAuth) {
-    return (
-      <LoadingScreen
-        message="Проверка авторизации..."
-        size="lg"
-      />
-    );
-  }
+  // ✅ Убран блокирующий спиннер - проверка авторизации происходит в фоне
+  // Скелетон воркспейсов покажет loading состояние
 
   if (!isAuthenticated) {
     return <AuthScreen onAuthSuccess={handleAuthSuccess} />;
@@ -454,12 +460,41 @@ function AppContent() {
   );
 
   if (isWorkspaceUrl && !selectedWorkspace) {
-    // Show loading spinner while workspace is being restored from URL
+    // ✅ Показываем скелетон календаря вместо circular loader
+    // Создаем временный воркспейс для отображения скелетона
+    const tempWorkspace: Workspace = {
+      id: "loading",
+      name: "Загрузка...",
+      timeline_year: new Date().getFullYear(),
+      created_at: new Date().toISOString(),
+    };
+
     return (
-      <LoadingScreen
-        message="Загрузка рабочего пространства..."
-        size="lg"
-      />
+      <UIProvider>
+        <SchedulerProvider
+          accessToken={accessToken || undefined}
+          workspaceId={tempWorkspace.id}
+          timelineYear={tempWorkspace.timeline_year}
+        >
+          <SettingsProvider>
+            <FilterProvider>
+              <PresenceProvider
+                workspaceId={tempWorkspace.id}
+                accessToken={accessToken || undefined}
+              >
+                <SchedulerMain
+                  workspaceId={tempWorkspace.id}
+                  workspace={tempWorkspace}
+                  accessToken={accessToken}
+                  onBackToWorkspaces={handleBackToWorkspaces}
+                  onSignOut={handleSignOut}
+                  onTokenRefresh={handleTokenRefresh}
+                />
+              </PresenceProvider>
+            </FilterProvider>
+          </SettingsProvider>
+        </SchedulerProvider>
+      </UIProvider>
     );
   }
 
@@ -477,28 +512,31 @@ function AppContent() {
 
   // Show scheduler for selected workspace
   return (
-    <SchedulerProvider
-      accessToken={accessToken || undefined}
-      workspaceId={selectedWorkspace.id}
-    >
-      <SettingsProvider>
-        <FilterProvider>
-          <PresenceProvider
-            workspaceId={selectedWorkspace.id}
-            accessToken={accessToken || undefined}
-          >
-            <SchedulerMain
-              workspace={selectedWorkspace}
-              onBackToWorkspaces={handleBackToWorkspaces}
-              accessToken={accessToken}
-              onTokenRefresh={handleTokenRefresh}
-              onSignOut={handleSignOut}
-              onWorkspaceUpdate={setSelectedWorkspace}
-            />
-          </PresenceProvider>
-        </FilterProvider>
-      </SettingsProvider>
-    </SchedulerProvider>
+    <UIProvider>
+      <SchedulerProvider
+        accessToken={accessToken || undefined}
+        workspaceId={selectedWorkspace.id}
+        timelineYear={selectedWorkspace.timeline_year}
+      >
+        <SettingsProvider>
+          <FilterProvider>
+            <PresenceProvider
+              workspaceId={selectedWorkspace.id}
+              accessToken={accessToken || undefined}
+            >
+              <SchedulerMain
+                workspace={selectedWorkspace}
+                onBackToWorkspaces={handleBackToWorkspaces}
+                accessToken={accessToken}
+                onTokenRefresh={handleTokenRefresh}
+                onSignOut={handleSignOut}
+                onWorkspaceUpdate={setSelectedWorkspace}
+              />
+            </PresenceProvider>
+          </FilterProvider>
+        </SettingsProvider>
+      </SchedulerProvider>
+    </UIProvider>
   );
 }
 

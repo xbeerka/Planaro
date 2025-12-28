@@ -314,7 +314,7 @@ export function DepartmentsManagementModal({
 
   return (
     <div 
-      className="fixed inset-0 z-[999] flex items-center justify-center bg-black/50"
+      className="fixed inset-0 z-[5000] flex items-center justify-center bg-black/50"
       onClick={handleCancel}
     >
       <div 

@@ -1,10 +1,15 @@
 import React, {
   useMemo,
   forwardRef,
+  useState,
   useRef,
   useEffect,
+  useLayoutEffect,
   useCallback,
+  useImperativeHandle,
+  memo,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   Department,
   Resource,
@@ -12,26 +17,47 @@ import {
   Company,
   Workspace,
   Month,
-  LayoutConfig as LayoutConfigType,
   Project,
   SchedulerEvent,
 } from "../../types/scheduler";
 import {
-  generateMonths,
-  getLastWeeksOfMonths,
-  WEEKS,
   weekLabel,
   sortResourcesByGrade,
+  getWeeksInYear,
 } from "../../utils/scheduler";
+import { getDisplayNameFromToken } from "../../utils/jwt";
 import { LayoutConfig } from "../../utils/schedulerLayout";
-import { X } from "lucide-react";
+import {
+  X,
+  MoreVertical,
+  Edit,
+  Trash2,
+  PanelLeft,
+  PanelLeftClose,
+  EyeOff,
+} from "lucide-react";
 import svgPaths from "../../imports/svg-k0w039fxgr";
-import FakeSpaser from "../../imports/FakeSpaser";
 import Fakebottomfix from "../../imports/Fakebottomfix";
 import Header from "../../imports/Header";
 import { useScheduler } from "../../contexts/SchedulerContext";
-import { highlightMatch } from "../../utils/highlightMatch";
+import { useSettings } from "../../contexts/SettingsContext";
+import { useUI } from "../../contexts/UIContext";
 import { ResourceRowWithMenu } from "./ResourceRowWithMenu";
+import { ResourceSidebarCell } from "./ResourceSidebarCell";
+import { ResourceRowSkeleton } from "./ResourceRowSkeleton";
+import { DepartmentRowSkeleton } from "./DepartmentRowSkeleton";
+import EventBlock from "../../imports/EventBlock";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
+import { CustomScrollbars } from "./CustomScrollbars";
+import { CommentMarker } from "./CommentMarker";
+import { CommentModal } from "./CommentModal";
+import { getWeekIndexFromDate, getWeekStartDate } from "../../utils/scheduler";
+import { Comment } from "../../types/scheduler";
 
 interface SchedulerGridProps {
   config: LayoutConfig;
@@ -46,7 +72,9 @@ interface SchedulerGridProps {
   lastWeeks: Set<number>;
   currentWeekIndex: number;
   showCurrentWeekMarker: boolean;
-  renderEvents: () => React.ReactNode;
+  renderEvents: (
+    visibleResourceIds?: Set<string>,
+  ) => React.ReactNode;
   hoverHighlight: any;
   ghost: any;
   eventsContainerRef: React.RefObject<HTMLDivElement>;
@@ -64,21 +92,22 @@ interface SchedulerGridProps {
     e: React.MouseEvent,
     resourceId: string,
     week: number,
+    unitIndex?: number,
   ) => void;
   onCellMouseLeave: () => void;
   onBackToWorkspaces?: () => void;
   onSignOut?: () => void;
   onOpenProfileModal?: () => void;
   onOpenSettingsModal?: () => void;
+  onOpenWorkspaceManagementModal?: () => void;
+  onRenameWorkspace?: (newName: string) => void;
   currentUserDisplayName?: string;
   currentUserEmail?: string;
   currentUserAvatarUrl?: string;
+  isModalOpen?: boolean;
   searchQuery?: string;
   onSearchChange?: (query: string) => void;
-  scissorsMode?: boolean;
-  commentMode?: boolean;
-  onToggleScissors?: () => void;
-  onToggleComment?: () => void;
+  // scissorsMode and onToggleScissors removed (using useUI)
   onEditUser?: (resourceId: string) => void;
   onDeleteUser?: (resourceId: string) => void;
   hoveredResourceId?: string | null;
@@ -86,7 +115,28 @@ interface SchedulerGridProps {
   onEventMouseEnter?: (resourceId: string) => void;
   children?: React.ReactNode;
   scrollRef?: React.RefObject<HTMLDivElement>;
+  isLoading?: boolean;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  onSidebarCollapsedChange?: (collapsed: boolean) => void;
 }
+
+// ============================================================
+// КОНСТАНТЫ
+// ============================================================
+const LEFT_SIDEBAR_WIDTH = 284;
+const LEFT_SIDEBAR_WIDTH_COLLAPSED = 60;
+// const HEADER_ROW_HEIGHT = 80; // 🗑️ Removed as it's external now
+const MONTH_ROW_HEIGHT = 36;
+const WEEK_ROW_HEIGHT = 36;
+const DEPARTMENT_ROW_HEIGHT = 52;
+const OVERSCAN_COUNT = 5;
+
+// ============================================================
+// ВСПОМОГАТЕЛЬНЫЕ КОМПОНЕНТЫ
+// ============================================================
 
 function getUserInitials(
   displayName?: string,
@@ -105,161 +155,55 @@ function getUserInitials(
   return "U";
 }
 
-/**
- * Вычисляет значимые проекты пользователя за диапазон (1 неделя назад + 5 недель вперёд).
- * Возвращает проекты, которые занимают >= 25% от объема в этом диапазоне.
- * Учитывает как количество недель, так и высоту события (unitsTall).
- */
-function getUserSignificantProjects(
-  resourceId: string,
-  events: SchedulerEvent[],
-  projects: Project[],
-  currentWeekIndex: number,
-): Project[] {
-  // Диапазон: 1 неделя назад + 5 недель вперед = 6 недель
-  const rangeStart = Math.max(0, currentWeekIndex - 1);
-  const rangeEnd = Math.min(WEEKS, currentWeekIndex + 5);
-  const totalWeeksInRange = rangeEnd - rangeStart;
 
-  // Предполагаем 4 юнита на ресурс (стандартная высота)
-  const unitsPerResource = 4;
-  const averageLoad = 2; // Средняя загрузка (50% от полной высоты)
 
-  // Получить события пользователя в диапазоне
-  const userEvents = events.filter(
-    (e) =>
-      e.resourceId === resourceId &&
-      e.startWeek < rangeEnd &&
-      e.startWeek + e.weeksSpan > rangeStart,
-  );
-
-  if (userEvents.length === 0) return [];
-
-  // Подсчет "веса" по проектам (недели × unitsTall для учета загруженности)
-  const projectWeightMap = new Map<string, number>();
-
-  userEvents.forEach((event) => {
-    const eventStart = Math.max(event.startWeek, rangeStart);
-    const eventEnd = Math.min(
-      event.startWeek + event.weeksSpan,
-      rangeEnd,
-    );
-    const weeksInRange = eventEnd - eventStart;
-
-    if (weeksInRange > 0) {
-      // Вес = количество недель × высота события (юнит-недели)
-      const weight = weeksInRange * event.unitsTall;
-      const current =
-        projectWeightMap.get(event.projectId) || 0;
-      projectWeightMap.set(event.projectId, current + weight);
-    }
-  });
-
-  // Фильтр: проекты, занимающие >= 25% от диапазона при средней загрузке
-  // Порог = 25% от диапазона × средняя загрузка (2 units)
-  const threshold = totalWeeksInRange * 0.25 * averageLoad;
-  const significantProjectIds = Array.from(
-    projectWeightMap.entries(),
-  )
-    .filter(([, weight]) => weight >= threshold)
-    .map(([projectId]) => projectId);
-
-  // Вернуть объекты проектов, отсортированные по весу (больше времени = выше)
-  const sortedProjectIds = Array.from(
-    projectWeightMap.entries(),
-  )
-    .filter(([projectId]) =>
-      significantProjectIds.includes(projectId),
-    )
-    .sort((a, b) => b[1] - a[1]) // ✅ Сортировка: больший вес ПЕРВЫМ
-    .map(([projectId]) => projectId);
-
-  return sortedProjectIds
-    .map((id) => projects.find((p) => p.id === id))
-    .filter((p): p is Project => p !== undefined);
-}
-
-// --- Components from Figma Import ---
-
-// ⚡ Optimized Resource Sidebar Cell with React.memo
-// This prevents re-rendering of the heavy user projects calculation during scroll/updates
-interface ResourceSidebarCellProps {
-  resource: Resource;
-  searchQuery?: string;
-  getUserInitials: (name?: string, email?: string) => string;
-  onEditUser?: (id: string) => void;
-  onDeleteUser?: (id: string) => void;
-  events: SchedulerEvent[];
-  projects: Project[];
-  currentWeekIndex: number;
-}
-
-const ResourceSidebarCell = React.memo(
-  ({
-    resource,
-    searchQuery,
-    getUserInitials,
-    onEditUser,
-    onDeleteUser,
-    events,
-    projects,
-    currentWeekIndex,
-  }: ResourceSidebarCellProps) => {
-    // Memoize significant projects to avoid recalculation on every render
-    const significantProjects = useMemo(() => {
-      return getUserSignificantProjects(
-        resource.id,
-        events,
-        projects,
-        currentWeekIndex,
-      );
-    }, [resource.id, events, projects, currentWeekIndex]);
-
-    return (
-      <div
-        className="w-full flex flex-col gap-3 items-start justify-center px-2 h-full 
-             overflow-visible transform-gpu will-change-transform"
-        style={{
-          contain: "layout style",
-          backfaceVisibility: "hidden",
-        }}
-      >
-        {/* Profile (Avatar + Name + Position) */}
-        <div className="w-full h-full  flex flex-col gap-3 items-start justify-center box-border border-l border-r px-4 border-[#f0f0f0]">
-          <ResourceRowWithMenu
-            resource={resource}
-            searchQuery={searchQuery}
-            getUserInitials={getUserInitials}
-            onEdit={onEditUser}
-            onDelete={onDeleteUser}
-          />
-
-          {/* Значимые проекты пользователя */}
-          <ProjectsContainer projects={significantProjects} />
-        </div>
-      </div>
-    );
-  },
-  (prevProps, nextProps) => {
-    // Custom comparison for better performance
-    // Only re-render if critical props change
-    return (
-      prevProps.resource === nextProps.resource &&
-      prevProps.searchQuery === nextProps.searchQuery &&
-      prevProps.currentWeekIndex ===
-        nextProps.currentWeekIndex &&
-      prevProps.events === nextProps.events &&
-      prevProps.projects === nextProps.projects
-    );
-  },
-);
-
-function ArrowUp() {
+const SidePaddedBox = ({
+  children,
+  roundedTop = false,
+  topBorder = false,
+  topPadding = false,
+}: {
+  children: React.ReactNode;
+  roundedTop?: boolean;
+  topBorder?: boolean;
+  topPadding?: boolean;
+}) => {
   return (
     <div
-      className="relative size-full"
-      data-name="Arrow - Up 2"
+      style={{
+        padding: topPadding ? "8px 0 0 8px" : "0 0 0 8px",
+        height: "100%",
+        width: "100%",
+      }}
     >
+      <div
+        style={{
+          height: "100%",
+          width: "100%",
+          borderLeft: "1px solid #f0f0f0",
+          borderRight: "1px solid #f0f0f0",
+          ...(topBorder && { borderTop: "1px solid #f0f0f0" }),
+          ...(roundedTop && {
+            borderTopLeftRadius: "16px",
+            borderTopRightRadius: "16px",
+            overflow: "hidden",
+          }),
+          backgroundColor: "#fff",
+        }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+};
+
+// ============================================================
+// HEADER COMPONENTS
+// ============================================================
+
+function ArrowUp1() {
+  return (
+    <div className="relative size-full">
       <div className="absolute bottom-[-0.01%] left-0 right-0 top-0">
         <svg
           className="block size-full"
@@ -267,13 +211,10 @@ function ArrowUp() {
           preserveAspectRatio="none"
           viewBox="0 0 11 11"
         >
-          <g id="Arrow - Up 2">
-            <path
-              d={svgPaths.p22ff0c80}
-              fill="var(--fill-0, black)"
-              id="Stroke 1 (Stroke)"
-            />
-          </g>
+          <path
+            d={svgPaths.p22ff0c80}
+            fill="var(--fill-0, black)"
+          />
         </svg>
       </div>
     </div>
@@ -282,13 +223,10 @@ function ArrowUp() {
 
 function IconlyLightArrowUp() {
   return (
-    <div
-      className="relative size-[16px]"
-      data-name="Iconly/Light/Arrow - Up 2"
-    >
+    <div className="relative size-[16px]">
       <div className="absolute bottom-[13.74%] flex items-center justify-center left-1/2 top-[17.92%] translate-x-[-50%] w-[10.933px]">
         <div className="flex-none h-[10.934px] rotate-[180deg] w-[10.933px]">
-          <ArrowUp />
+          <ArrowUp1 />
         </div>
       </div>
     </div>
@@ -297,10 +235,7 @@ function IconlyLightArrowUp() {
 
 function IconlyRegularLightArrowUp1() {
   return (
-    <div
-      className="relative size-[20px]"
-      data-name="Iconly/Regular/Light/Arrow - Up 3"
-    >
+    <div className="relative size-[20px]">
       <div
         className="absolute flex items-center justify-center left-1/2 size-[16px] top-1/2 translate-x-[-50%] translate-y-[-50%]"
         style={
@@ -318,7 +253,6 @@ function IconlyRegularLightArrowUp1() {
   );
 }
 
-// Back Button Wrapper
 function HeaderBackButton({
   onClick,
 }: {
@@ -326,27 +260,47 @@ function HeaderBackButton({
 }) {
   return (
     <div
-      className="relative rounded-[12px] shrink-0 w-[36px] cursor-pointer hover:bg-gray-100 transition-colors"
-      data-name="input"
+      className="rounded-[12px] w-[36px] cursor-pointer hover:bg-gray-100 transition-colors"
       onClick={onClick}
     >
-      <div className="bg-clip-padding border-0 border-[transparent] border-solid box-border content-stretch flex gap-[6px] items-center justify-center px-[12px] py-[8px] relative w-[36px]">
-        <div className="flex items-center justify-center relative shrink-0">
-          <div className="flex-none rotate-[180deg] scale-y-[-100%]">
-            <IconlyRegularLightArrowUp1 />
-          </div>
+      <div className="px-[12px] py-[8px] flex items-center justify-center">
+        <div className="rotate-[180deg] scale-y-[-100%]">
+          <IconlyRegularLightArrowUp1 />
         </div>
       </div>
     </div>
   );
 }
 
-function ArrowUp1() {
+function SidebarToggleButton({
+  collapsed,
+  onClick,
+}: {
+  collapsed: boolean;
+  onClick?: () => void;
+}) {
   return (
     <div
-      className="relative size-full"
-      data-name="Arrow - Up 2"
+      className="rounded-[12px] w-[36px] cursor-pointer hover:bg-gray-100 transition-colors"
+      onClick={onClick}
+      title={
+        collapsed ? "Развернуть сайдбар" : "Свернуть сайдбар"
+      }
     >
+      <div className="px-[8px] py-[8px] flex items-center justify-center">
+        {collapsed ? (
+          <PanelLeft size={20} color="#868789" />
+        ) : (
+          <PanelLeftClose size={20} color="#868789" />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ArrowUp2() {
+  return (
+    <div className="relative size-full">
       <div className="absolute bottom-0 left-0 right-[-0.01%] top-[-0.01%]">
         <svg
           className="block size-full"
@@ -354,13 +308,10 @@ function ArrowUp1() {
           preserveAspectRatio="none"
           viewBox="0 0 9 6"
         >
-          <g id="Arrow - Up 2">
-            <path
-              d={svgPaths.p1c596770}
-              fill="var(--fill-0, black)"
-              id="Stroke 1 (Stroke)"
-            />
-          </g>
+          <path
+            d={svgPaths.p1c596770}
+            fill="var(--fill-0, black)"
+          />
         </svg>
       </div>
     </div>
@@ -369,40 +320,162 @@ function ArrowUp1() {
 
 function IconlyRegularLightArrowUp() {
   return (
-    <div
-      className="relative shrink-0 size-[20px]"
-      data-name="Iconly/Regular/Light/Arrow - Up 2"
-    >
+    <div className="relative shrink-0 size-[20px]">
       <div className="absolute flex inset-[37.67%_27.67%_36%_27.67%] items-center justify-center">
-        <div className="flex-none h-[5.266px] rotate-[180deg] scale-y-[-100%] w-[8.933px]">
-          <ArrowUp1 />
+        <div className="flex-none h-[5.266px] w-[8.933px]">
+          <ArrowUp2 />
         </div>
       </div>
     </div>
   );
 }
 
-function HeaderTitle({ name }: { name: string }) {
+function HeaderTitle({
+  name,
+  onRename,
+  onOpenSettings,
+  onOpenWorkspaceManagement,
+  onDelete,
+}: {
+  name: string;
+  onRename?: (newName: string) => void;
+  onOpenSettings?: () => void;
+  onOpenWorkspaceManagement?: () => void;
+  onDelete?: () => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editValue, setEditValue] = useState(name);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setEditValue(name);
+  }, [name]);
+
+  useEffect(() => {
+    if (isEditing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [isEditing]);
+
+  const handleStartEdit = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsEditing(true);
+  };
+
+  const handleSave = () => {
+    const trimmedValue = editValue.trim();
+    if (trimmedValue && trimmedValue !== name) {
+      onRename?.(trimmedValue);
+    } else {
+      setEditValue(name);
+    }
+    setIsEditing(false);
+  };
+
+  const handleCancel = () => {
+    setEditValue(name);
+    setIsEditing(false);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleSave();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      handleCancel();
+    }
+  };
+
+  if (isEditing) {
+    return (
+      <div className="bg-[#f6f6f6] rounded-[4px] px-[4px] h-[20px] flex items-center w-full">
+        <input
+          ref={inputRef}
+          type="text"
+          value={editValue}
+          onChange={(e) => setEditValue(e.target.value)}
+          onBlur={handleSave}
+          onKeyDown={handleKeyDown}
+          className="font-semibold text-[14px] text-black bg-transparent border-none outline-none w-full"
+        />
+      </div>
+    );
+  }
+
   return (
-    <div
-      className="content-stretch flex gap-[4px] items-start relative shrink-0"
-      data-name="Header Title"
-    >
-      <p className="font-semibold leading-[normal] relative shrink-0 text-[14px] text-black text-nowrap whitespace-pre truncate max-w-[180px]">
-        {name}
-      </p>
-      <IconlyRegularLightArrowUp />
-    </div>
+    <DropdownMenu open={isOpen} onOpenChange={setIsOpen}>
+      <div className="w-full flex gap-[2px] items-center header-title-container">
+        <div
+          className="px-[4px] h-[20px] rounded-bl-[4px] rounded-tl-[4px] cursor-text transition-colors flex items-center header-title-left flex-1 min-w-0"
+          onClick={handleStartEdit}
+        >
+          <p className="font-semibold text-[14px] text-black whitespace-nowrap truncate w-full">
+            {name}
+          </p>
+        </div>
+
+        <DropdownMenuTrigger asChild>
+          <div className="size-[20px] rounded-br-[4px] rounded-tr-[4px] cursor-pointer transition-colors flex items-center justify-center header-title-right shrink-0">
+            <div
+              className="transition-transform duration-200"
+              style={{
+                transform: isOpen
+                  ? "rotate(180deg)"
+                  : "rotate(0deg)",
+              }}
+            >
+              <IconlyRegularLightArrowUp />
+            </div>
+          </div>
+        </DropdownMenuTrigger>
+      </div>
+
+      <DropdownMenuContent
+        align="start"
+        className="w-48 rounded-xl"
+      >
+        <DropdownMenuItem
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenWorkspaceManagement?.();
+            setIsOpen(false);
+          }}
+          className="py-2.5 cursor-pointer"
+        >
+          Настройки
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenSettings?.();
+            setIsOpen(false);
+          }}
+          className="py-2.5 cursor-pointer"
+        >
+          Управление
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete?.();
+            setIsOpen(false);
+          }}
+          className="text-red-600 focus:text-red-600 focus:bg-red-50 py-2.5 cursor-pointer"
+        >
+          Удалить
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
 function YearContainer({ year }: { year: number | string }) {
   return (
-    <div
-      className="h-[16px] relative shrink-0 w-full"
-      data-name="Container"
-    >
-      <p className="absolute font-normal leading-[normal] left-0 text-[#868789] text-[12px] text-nowrap top-px whitespace-pre">
+    <div className="px-1 w-full">
+      <p className="w-full font-normal text-[#868789] text-[12px] whitespace-nowrap">
         {year}
       </p>
     </div>
@@ -411,31 +484,24 @@ function YearContainer({ year }: { year: number | string }) {
 
 function InterfaceEssentialMagnifier() {
   return (
-    <div
-      className="relative shrink-0 size-[20px]"
-      data-name="Interface essential/Magnifier"
-    >
+    <div className="relative shrink-0 size-[20px]">
       <svg
         className="block size-full"
         fill="none"
         preserveAspectRatio="none"
         viewBox="0 0 20 20"
       >
-        <g id="Interface essential/Magnifier">
-          <path
-            clipRule="evenodd"
-            d={svgPaths.p2a8c8580}
-            fill="var(--fill-0, #868789)"
-            fillRule="evenodd"
-            id="Icon"
-          />
-        </g>
+        <path
+          clipRule="evenodd"
+          d={svgPaths.p2a8c8580}
+          fill="var(--fill-0, #868789)"
+          fillRule="evenodd"
+        />
       </svg>
     </div>
   );
 }
 
-// Search Input Wrapper
 function SearchInput({
   value,
   onChange,
@@ -443,79 +509,44 @@ function SearchInput({
   value: string;
   onChange: (val: string) => void;
 }) {
+  const [isFocused, setIsFocused] = React.useState(false);
+
   return (
     <div
-      className="basis-0 bg-[rgba(0,0,0,0.03)] grow h-[36px] min-h-px min-w-px relative rounded-[10px] shrink-0"
-      data-name="input"
+      className={`w-full h-[36px] rounded-[10px] transition-all duration-200 ${
+        isFocused
+          ? "bg-transparent border border-[#f0f0f0]"
+          : "bg-[rgba(0,0,0,0.03)] hover:bg-[rgba(0,0,0,0.015)] border border-transparent"
+      }`}
     >
-      <div className="flex flex-row items-center justify-center size-full">
-        <div className="bg-clip-padding border-0 border-[transparent] border-solid box-border content-stretch flex gap-[6px] h-[36px] items-center justify-center px-[12px] py-[10px] relative w-full">
-          <InterfaceEssentialMagnifier />
-          <input
-            type="text"
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            placeholder="Поиск"
-            className="basis-0 font-normal grow leading-[20px] min-h-px min-w-px relative shrink-0 text-black text-[14px] bg-transparent border-none outline-none placeholder-[#868789]"
-          />
-          {value && (
-            <div
-              className="cursor-pointer flex items-center justify-center text-[#868789] hover:text-black transition-colors"
-              onClick={() => onChange("")}
-            >
-              <X size={14} />
-            </div>
-          )}
-        </div>
+      <div className="flex items-center h-full px-[12px] gap-[6px]">
+        <InterfaceEssentialMagnifier />
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onFocus={() => setIsFocused(true)}
+          onBlur={() => setIsFocused(false)}
+          placeholder="Поиск"
+          className="flex-1 font-normal text-[14px] bg-transparent border-none outline-none placeholder-[#868789] text-black"
+        />
+        {value && (
+          <div
+            className="cursor-pointer text-[#868789] hover:text-black transition-colors"
+            onClick={() => onChange("")}
+          >
+            <X size={14} />
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-// Project Badge Component
-function ProjectBadge({ project }: { project: Project }) {
-  const backgroundColor = project.backgroundColor || "#aeeb3d";
-  const textColor = project.textColor || "#000";
-
-  return (
-    <div
-      className="relative rounded-[8px] shrink-0"
-      data-name="Container"
-      style={{ backgroundColor }}
-    >
-      <div className="bg-clip-padding border-0 border-[transparent] border-solid box-border content-stretch flex gap-[8px] items-center justify-center px-[7px] py-[2px] relative">
-        <p
-          className="font-semibold leading-[16px] relative shrink-0 text-[10px] text-nowrap whitespace-pre"
-          style={{ color: textColor }}
-        >
-          {project.name}
-        </p>
-      </div>
-    </div>
-  );
-}
-
-// Projects Container
-function ProjectsContainer({
-  projects,
-}: {
-  projects: Project[];
-}) {
-  if (projects.length === 0) return null;
-
-  return (
-    <div
-      className="content-center flex flex-wrap gap-[6px] items-center relative shrink-0 w-full"
-      data-name="Container"
-    >
-      {projects.map((project) => (
-        <ProjectBadge key={project.id} project={project} />
-      ))}
-    </div>
-  );
-}
-
-export const SchedulerGrid = forwardRef<
+// ============================================================
+// MAIN GRID COMPONENT
+// ============================================================
+export const SchedulerGrid = memo(forwardRef<
   HTMLDivElement,
   SchedulerGridProps
 >(
@@ -545,15 +576,14 @@ export const SchedulerGrid = forwardRef<
       onSignOut,
       onOpenProfileModal,
       onOpenSettingsModal,
+      onOpenWorkspaceManagementModal,
+      onRenameWorkspace,
       currentUserDisplayName,
       currentUserEmail,
       currentUserAvatarUrl,
+      isModalOpen = false,
       searchQuery,
       onSearchChange,
-      scissorsMode,
-      commentMode,
-      onToggleScissors,
-      onToggleComment,
       onEditUser,
       onDeleteUser,
       hoveredResourceId,
@@ -561,579 +591,1796 @@ export const SchedulerGrid = forwardRef<
       onEventMouseEnter,
       children,
       scrollRef,
+      isLoading,
+      canUndo,
+      canRedo,
+      onUndo,
+      onRedo,
+      onSidebarCollapsedChange,
     },
     ref,
   ) => {
-    const { events, projects } = useScheduler();
+    const { events, projects, comments, createComment, updateComment, moveComment, deleteComment } = useScheduler();
+    const { showSeparators, showGaps } = useSettings();
+    const { commentMode, scissorsMode } = useUI();
 
-    // Constants - ДОЛЖНЫ быть ДО любых useCallback/useMemo которые их используют
-    const LEFT_WIDTH = config.resourceW;
-    const TOP_BAR_HEIGHT = 80; // ✅ Исправлено: при sticky не должен уезжать вверх на 16px
-    const TITLE_AREA_HEIGHT = 96; // ✅ Title Area слева
-    const SEARCH_AREA_HEIGHT = 80; // ✅ Search Area слева
-    const HEADER_HEIGHT = config.rowH * 2; // Matches Month + Week rows
-    const SEARCH_ROW_HEIGHT = 80; // ↑ Увеличено с 64px до 80px (сдвинули департаменты вниз на 16px)
-    const TOTAL_TOP_HEIGHT = HEADER_HEIGHT + SEARCH_ROW_HEIGHT;
+    const currentUserDisplayNameFromToken = useMemo(() => {
+      if (!accessToken) return "Unknown";
+      return getDisplayNameFromToken(accessToken) || "Unknown";
+    }, [accessToken]);
+
+    const eventsByResource = useMemo(() => {
+      const map = new Map<string, SchedulerEvent[]>();
+      events.forEach(ev => {
+        if (!map.has(ev.resourceId)) {
+          map.set(ev.resourceId, []);
+        }
+        map.get(ev.resourceId)!.push(ev);
+      });
+      return map;
+    }, [events]);
+
+    // ====================================
+    // STATE & REFS
+    // ====================================
+    const [scrollTop, setScrollTop] = useState(0);
+    const [scrollLeft, setScrollLeft] = useState(0);
+    const [viewportHeight, setViewportHeight] = useState(600);
+    const [viewportWidth, setViewportWidth] = useState(0);
+    const [scrollDimensions, setScrollDimensions] = useState({
+      width: 0,
+      height: 0,
+    });
+    const [srAnnouncement, setSrAnnouncement] = useState("");
+    const [sidebarCollapsed, setSidebarCollapsed] =
+      useState(false);
+    const [internalHoverHighlight, setInternalHoverHighlight] =
+      useState<{
+        visible: boolean;
+        left: number;
+        top: number;
+        width: number;
+        height: number;
+      }>({
+        visible: false,
+        left: 0,
+        top: 0,
+        width: 0,
+        height: 0,
+      });
+    const [commentModalState, setCommentModalState] = useState<{
+      isOpen: boolean;
+      comment?: Comment;
+      isCreating: boolean;
+      createData?: {
+        resourceId: string;
+        weekIndex: number;
+        weekDate: string;
+      };
+    }>({ isOpen: false, isCreating: false });
+
+    // ====================================
+    // COMMENT DRAG STATE
+    // ====================================
+    const [draggedCommentState, setDraggedCommentState] = useState<{
+      id: string;
+      startX: number;
+      startY: number;
+      currentX: number;
+      currentY: number;
+      offsetX: number;
+      offsetY: number;
+      comment: Comment;
+    } | null>(null);
+
+    const [commentGhostPosition, setCommentGhostPosition] = useState<{
+      visible: boolean;
+      weekIndex: number;
+      resourceId: string;
+      top: number;
+      left: number;
+    } | null>(null);
+
+    const lastHoverRef = useRef<{
+      resourceId: string | null;
+      week: number | null;
+      unitIndex: number | null;
+    }>({
+      resourceId: null,
+      week: null,
+      unitIndex: null,
+    });
+
+    const handleToggleSidebar = useCallback(() => {
+      setSidebarCollapsed((prev) => {
+        const newValue = !prev;
+        onSidebarCollapsedChange?.(newValue);
+        return newValue;
+      });
+    }, [onSidebarCollapsedChange]);
 
     const timelineYear =
       workspace?.timeline_year || new Date().getFullYear();
 
-    // Refs for scroll synchronization
-    // We use a single container for native scrolling performance
-    const internalScrollRef = useRef<HTMLDivElement>(null);
-    const scrollContainerRef = scrollRef || internalScrollRef;
+    // 🗑️ Header is removed, so TOP is just Months + Weeks
+    const TOTAL_TOP_HEIGHT =
+      MONTH_ROW_HEIGHT + WEEK_ROW_HEIGHT;
 
-    // Forward the scroll container ref
-    React.useImperativeHandle(ref, () => ({
-      scrollContainer:
-        scrollContainerRef.current as HTMLDivElement,
-    }));
+    // ✅ FIX: Сохраняем позицию скролла при изменении масштаба (S/M/L)
+    // Когда меняется weekPx, мы корректируем scrollLeft пропорционально
+    // Когда меняется eventRowH, мы корректируем scrollTop (для контента ниже заголовка)
+    const prevWeekPxRef = useRef(config.weekPx);
+    const prevEventRowHRef = useRef(config.eventRowH);
 
-    // Resources passed from parent are already filtered by search query
-    const filteredResources = resources;
+    useLayoutEffect(() => {
+      const scrollEl = scrollRef?.current;
+      if (!scrollEl) return;
 
-    // Filter departments - only show departments that have matching resources
-    const filteredDepartments = useMemo(() => {
-      // If search query is active, hide departments with no matching resources
-      if (searchQuery) {
-        const activeDeptIds = new Set(
-          filteredResources.map((r) => r.departmentId),
-        );
-        return visibleDepartments.filter((dept) =>
-          activeDeptIds.has(dept.id),
-        );
-      }
-      return visibleDepartments;
-    }, [visibleDepartments, filteredResources, searchQuery]);
+      let scrollAdjusted = false;
 
-    // Calculate used height for fake spacer
-    // Note: This is less critical now as we use a single grid, but still good for the bottom spacer
-    const usedHeight = useMemo(() => {
-      return filteredDepartments.reduce((acc, dept) => {
-        const deptResCount = filteredResources.filter(
-          (r) => r.departmentId === dept.id,
-        ).length;
-        return acc + 44 + deptResCount * 144;
-      }, TOTAL_TOP_HEIGHT);
-    }, [
-      filteredDepartments,
-      filteredResources,
-      TOTAL_TOP_HEIGHT,
-    ]);
-
-    // Build left cells (gridColumn: 1) - NOW STICKY
-    const leftCells = useMemo(() => {
-      const elements: JSX.Element[] = [];
-      let gridRow = 4;
-
-      filteredDepartments.forEach((dept) => {
-        const deptResources = sortResourcesByGrade(
-          filteredResources.filter(
-            (r) => r.departmentId === dept.id,
-          ),
-        );
-
-        // Department header
-        elements.push(
-          <div
-            className="cell department-row"
-            key={`dept-header-${dept.id}`}
-            style={{
-              gridColumn: 1,
-              gridRow,
-              position: "sticky",
-              left: 0,
-              zIndex: 300,
-              height: "44px",
-              display: "flex",
-              alignItems: "center",
-              padding: "0 8px",
-              backgroundColor: "#fff",
-            }}
-          >
-            <div
-              className="w-full h-full flex items-center box-border pl-2"
-              style={{
-                padding: "0px 16px",
-                borderLeft: "1px solid rgb(240, 240, 240)",
-                borderRight: "1px solid rgb(240, 240, 240)",
-              }}
-            >
-              <p className="font-medium text-xs text-[#868789] uppercase whitespace-nowrap">
-                {dept.name}
-              </p>
-            </div>
-          </div>,
-        );
-        gridRow++;
-
-        // Resources in department
-        deptResources.forEach((resource, resIndex) => {
-          // Resource header
-          elements.push(
-            <div
-              key={`resource-header-${resource.id}`}
-              className="cell resource-row"
-              style={{
-                gridColumn: 1,
-                gridRow,
-                position: "sticky",
-                left: 0,
-                zIndex: 300,
-                height: "144px",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                backgroundColor: "#fff",
-              }}
-            >
-              <div
-                className="w-full h-full"
-                data-resource-id={resource.id}
-              >
-                <ResourceSidebarCell
-                  resource={resource}
-                  searchQuery={searchQuery}
-                  getUserInitials={getUserInitials}
-                  onEdit={onEditUser}
-                  onDelete={onDeleteUser}
-                  events={events}
-                  projects={projects}
-                  currentWeekIndex={currentWeekIndex}
-                />
-              </div>
-            </div>,
-          );
-          gridRow++;
-        });
-      });
-
-      return elements;
-    }, [
-      filteredDepartments,
-      filteredResources,
-      events,
-      projects,
-      currentWeekIndex,
-      searchQuery,
-      onEditUser,
-      onDeleteUser,
-    ]);
-
-    // Build right cells (gridColumn: 2+)
-    const rightCells = useMemo(() => {
-      const elements: JSX.Element[] = [];
-
-      // Month headers (Row 2) - Shifted down by 1 for Header
-      let col = 2; // Start at column 2 (1 is resources)
-      months.forEach((month, idx) => {
-        elements.push(
-          <div
-            key={`month-${idx}`}
-            className="cell month"
-            style={{
-              gridColumn: `${col} / span ${month.weeks}`,
-              gridRow: 2,
-              position: "sticky",
-              top: `${TOP_BAR_HEIGHT}px`, // ✅ 80px - на 16px выше чем Search Area
-              zIndex: 200,
-              height: `${config.rowH}px`,
-              display: "flex",
-              alignItems: "flex-start", // ✅ Прижать контент к верху
-              alignSelf: "start", // ✅ Прижать к верху ячейки
-              backgroundColor: "#fff",
-              border: "none",
-              paddingTop: 0, // ✅ Убрать верхний отступ
-            }}
-          >
-            <div className="content-stretch flex items-start px-[4px] py-0 relative size-full w-full">
-              <div className="basis-0 bg-[#f6f6f6] grow h-[36px] min-h-px min-w-px relative rounded-[12px] shrink-0">
-                <div className="bg-clip-padding content-stretch flex h-[36px] items-center justify-center relative w-full">
-                  <p className="font-semibold leading-[20px] not-italic relative shrink-0 text-[#1a1a1a] text-[12px] text-nowrap whitespace-pre">
-                    {month.name}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>,
-        );
-        col += month.weeks;
-      });
-
-      // Week headers (Row 3) - Shifted down by 1
-      for (let i = 0; i < WEEKS; i++) {
-        elements.push(
-          <div
-            key={`week-${i}`}
-            className="cell"
-            style={{
-              gridColumn: i + 2, // +2 because col 1 is resources
-              gridRow: 3,
-              position: "sticky",
-              top: `${TOP_BAR_HEIGHT + config.rowH}px`, // ✅ 80 + 48 = 128px - на 16px выше
-              zIndex: 200,
-              height: `${config.rowH}px`,
-              backgroundColor: "#fff",
-              display: "flex",
-              alignItems: "center", // ✅ Центрирование по вертикали
-            }}
-          >
-            <div className="flex flex-row items-center justify-center w-full h-full">
-              <div className="box-border content-stretch flex items-center justify-center px-[6px] relative w-full">
-                <p className="font-normal leading-[16px] relative shrink-0 text-[#868789] text-[12px] text-nowrap whitespace-pre">
-                  {weekLabel(i, timelineYear)}
-                </p>
-              </div>
-            </div>
-          </div>,
-        );
+      // 1. Horizontal Scroll Adjustment (Scale)
+      if (prevWeekPxRef.current !== config.weekPx) {
+        const ratio = config.weekPx / prevWeekPxRef.current;
+        const newScrollLeft = scrollEl.scrollLeft * ratio;
+        scrollEl.scrollLeft = newScrollLeft;
+        setScrollLeft(newScrollLeft); // Sync state
+        prevWeekPxRef.current = config.weekPx;
+        scrollAdjusted = true;
       }
 
-      // Department and resource rows (Start from Row 4)
-      let gridRow = 4;
-
-      filteredDepartments.forEach((dept) => {
-        const deptResources = sortResourcesByGrade(
-          filteredResources.filter(
-            (r) => r.departmentId === dept.id,
-          ),
-        );
-
-        // Department cells
-        for (let w = 0; w < WEEKS; w++) {
-          elements.push(
-            <div
-              key={`dept-${dept.id}-week-${w}`}
-              className="cell department-row"
-              style={{
-                gridColumn: w + 2,
-                gridRow,
-                height: "44px",
-                background: "#fff",
-                zIndex: 40,
-              }}
-            />,
-          );
+      // 2. Vertical Scroll Adjustment (Row Height)
+      if (prevEventRowHRef.current !== config.eventRowH) {
+        // Only adjust vertical scroll if we are scrolled past the fixed header
+        if (scrollEl.scrollTop > TOTAL_TOP_HEIGHT) {
+          // Calculate relative scroll position within the content area (subtract fixed headers)
+          const contentScrollTop = scrollEl.scrollTop - TOTAL_TOP_HEIGHT;
+          
+          // Calculate ratio of height change
+          // We need to account for department headers which don't change height, but they are mixed in.
+          // However, a simple ratio of row heights is usually a good approximation if resources dominate.
+          // For exact precision, we would need to map the exact row at the top, but simple ratio is standard for this UX.
+          // NOTE: The previous TOTAL_TOP_HEIGHT should strictly be the same as current unless header config changes.
+          
+          const ratio = config.eventRowH / prevEventRowHRef.current;
+          
+          // Apply new scroll position: Header + (ContentScroll * Ratio)
+          const newScrollTop = TOTAL_TOP_HEIGHT + (contentScrollTop * ratio);
+          
+          scrollEl.scrollTop = newScrollTop;
+          setScrollTop(newScrollTop); // Sync state
         }
-        gridRow++;
+        prevEventRowHRef.current = config.eventRowH;
+        scrollAdjusted = true;
+      }
+      
+      // Force instant update if needed
+      if (scrollAdjusted) {
+         // Optionally force a re-render or layout check if needed, but setting state does that.
+      }
+    }, [config.weekPx, config.eventRowH, scrollRef, TOTAL_TOP_HEIGHT]);
 
-        // Resources in department
-        deptResources.forEach((resource, resIndex) => {
-          // Resource cells
-          for (let w = 0; w < WEEKS; w++) {
-            const isLastInMonth = lastWeeks.has(w);
-            elements.push(
-              <div
-                key={`resource-${resource.id}-week-${w}`}
-                className={`cell resource-row event-row ${isLastInMonth ? "last-in-month" : ""}`}
-                style={{
-                  gridColumn: w + 2,
-                  gridRow,
-                  height: "144px",
-                  background: "#fff",
-                  borderRight: "0.5px solid #DFE7EE",
-                  cursor: "pointer",
-                }}
-                data-resource-id={resource.id}
-                data-week={w}
-                onClick={(e) => {
-                  const rect =
-                    e.currentTarget.getBoundingClientRect();
-                  const y = e.clientY - rect.top;
-                  const unitIndex = Math.floor(
-                    (y - config.rowPaddingTop) /
-                      config.unitStride,
-                  );
-                  onCellClick(resource.id, w, unitIndex);
-                }}
-                onContextMenu={(e) =>
-                  onCellContextMenu?.(e, resource.id, w)
-                }
-                onMouseMove={(e) =>
-                  onCellMouseMove(e, resource.id, w)
-                }
-                onMouseLeave={onCellMouseLeave}
-              />,
-            );
-          }
-          gridRow++;
+    const weeksInYear = useMemo(
+      () => getWeeksInYear(timelineYear),
+      [timelineYear],
+    );
+
+    // ====================================
+    // COMMENTS MAP
+    // ====================================
+    const commentsByResource = useMemo(() => {
+      const map = new Map<string, Comment[]>();
+      if (!comments) return map;
+      
+      comments.forEach(comment => {
+        if (!map.has(comment.userId)) {
+          map.set(comment.userId, []);
+        }
+        
+        // Calculate week index if not present (backend returns date)
+        if (comment.weekIndex === undefined && comment.weekDate) {
+           const date = new Date(comment.weekDate);
+           const weekIndex = getWeekIndexFromDate(date, timelineYear);
+           comment.weekIndex = weekIndex;
+        }
+        
+        map.get(comment.userId)!.push(comment);
+      });
+      return map;
+    }, [comments, timelineYear]);
+
+    // ====================================
+    // SCROLL TRACKING
+    // ====================================
+    useEffect(() => {
+      const scrollEl = scrollRef?.current;
+      if (!scrollEl) return;
+
+      let rafId: number | null = null;
+      let ticking = false;
+
+      const handleScroll = () => {
+        if (!ticking) {
+          ticking = true;
+          rafId = requestAnimationFrame(() => {
+            setScrollTop(scrollEl.scrollTop);
+            setScrollLeft(scrollEl.scrollLeft);
+            ticking = false;
+            rafId = null;
+          });
+        }
+      };
+
+      const handleResize = () => {
+        setViewportHeight(scrollEl.clientHeight);
+        setViewportWidth(scrollEl.clientWidth);
+        setScrollDimensions({
+          width: scrollEl.scrollWidth,
+          height: scrollEl.scrollHeight,
+        });
+      };
+
+      setScrollTop(scrollEl.scrollTop);
+      setScrollLeft(scrollEl.scrollLeft);
+      setViewportHeight(scrollEl.clientHeight);
+      setViewportWidth(scrollEl.clientWidth);
+      setScrollDimensions({
+        width: scrollEl.scrollWidth,
+        height: scrollEl.scrollHeight,
+      });
+
+      scrollEl.addEventListener("scroll", handleScroll, {
+        passive: true,
+      });
+      window.addEventListener("resize", handleResize);
+
+      return () => {
+        if (rafId !== null) {
+          cancelAnimationFrame(rafId);
+        }
+        scrollEl.removeEventListener("scroll", handleScroll);
+        window.removeEventListener("resize", handleResize);
+      };
+    }, [scrollRef]);
+
+    // ====================================
+    // АВТОМАТИЧЕСКОЕ СВОРАЧИВАНИЕ САЙДБАРА
+    // ====================================
+    useEffect(() => {
+      const handleResize = () => {
+        if (window.innerWidth < 768) {
+          setSidebarCollapsed(true);
+          onSidebarCollapsedChange?.(true);
+        } else {
+          setSidebarCollapsed(false);
+          onSidebarCollapsedChange?.(false);
+        }
+      };
+
+      handleResize();
+
+      window.addEventListener("resize", handleResize);
+      return () =>
+        window.removeEventListener("resize", handleResize);
+    }, [onSidebarCollapsedChange]);
+
+    useImperativeHandle(
+      ref,
+      () => ({
+        scrollContainer: scrollRef?.current || null,
+        hideHoverHighlight: () => {
+          setInternalHoverHighlight((prev) => ({ ...prev, visible: false }));
+        },
+      }),
+      [scrollRef],
+    );
+
+    // Фильтрация ресурсов
+    const filteredResources = useMemo(() => {
+      return resources.filter((r) => r.isVisible !== false);
+    }, [resources]);
+
+    const filteredDepartments = useMemo(() => {
+      const hasNoDeptResources = filteredResources.some(
+        (r) => !r.departmentId,
+      );
+
+      let result = [...visibleDepartments];
+
+      const hasNoDeptGroup = result.some(
+        (d) => d.id === "NO_DEPT",
+      );
+
+      if (hasNoDeptResources && !hasNoDeptGroup) {
+        result.push({
+          id: "NO_DEPT",
+          name: "Без департамента",
+          queue: 9999,
+          visible: true,
+        });
+      }
+
+      const activeDeptIds = new Set(
+        filteredResources.map(
+          (r) => r.departmentId || "NO_DEPT",
+        ),
+      );
+
+      return result.filter((dept) =>
+        activeDeptIds.has(dept.id),
+      );
+    }, [visibleDepartments, filteredResources]);
+
+    // Построение структуры grid
+    const gridItems = useMemo(() => {
+      const items: Array<{
+        type:
+          | "department"
+          | "resource"
+          | "skeleton"
+          | "skeleton-department";
+        dept?: Department;
+        resource?: Resource;
+        row: number;
+        offset: number;
+        height: number;
+        isLastInDept?: boolean;
+      }> = [];
+
+      if (isLoading) {
+        let currentRow = 4;
+        let currentOffset = 0;
+
+        const availableHeight =
+          viewportHeight -
+          TOTAL_TOP_HEIGHT -
+          DEPARTMENT_ROW_HEIGHT;
+        const resourceCount =
+          Math.ceil(availableHeight / config.eventRowH) + 1;
+
+        items.push({
+          type: "skeleton-department",
+          row: currentRow,
+          offset: currentOffset,
+          height: DEPARTMENT_ROW_HEIGHT,
+        });
+        currentRow++;
+        currentOffset += DEPARTMENT_ROW_HEIGHT;
+
+        for (let r = 0; r < resourceCount; r++) {
+          items.push({
+            type: "skeleton",
+            row: currentRow,
+            offset: currentOffset,
+            height: config.eventRowH,
+          });
+          currentRow++;
+          currentOffset += config.eventRowH;
+        }
+
+        return items;
+      }
+
+      let currentRow = 4;
+      let currentOffset = 0;
+
+      filteredDepartments.forEach((dept) => {
+        const deptResources = sortResourcesByGrade(
+          filteredResources.filter((r) =>
+            dept.id === "NO_DEPT"
+              ? !r.departmentId
+              : r.departmentId === dept.id,
+          ),
+        );
+
+        items.push({
+          type: "department",
+          dept,
+          row: currentRow,
+          offset: currentOffset,
+          height: DEPARTMENT_ROW_HEIGHT,
+        });
+        currentRow++;
+        currentOffset += DEPARTMENT_ROW_HEIGHT;
+
+        deptResources.forEach((resource, index) => {
+          items.push({
+            type: "resource",
+            resource,
+            row: currentRow,
+            offset: currentOffset,
+            height: config.eventRowH,
+            isLastInDept: index === deptResources.length - 1,
+          });
+          currentRow++;
+          currentOffset += config.eventRowH;
         });
       });
 
-      return elements;
+      return items;
     }, [
-      config,
-      months,
-      lastWeeks,
       filteredDepartments,
       filteredResources,
-      timelineYear,
-      onCellMouseMove,
-      onCellClick,
-      onCellContextMenu,
+      isLoading,
+      viewportHeight,
+      TOTAL_TOP_HEIGHT,
+      DEPARTMENT_ROW_HEIGHT,
+      config.eventRowH,
     ]);
+
+    const totalContentHeight = useMemo(() => {
+      if (gridItems.length === 0) return 0;
+      const lastItem = gridItems[gridItems.length - 1];
+      // ✅ Последняя строка ПОЛНОСТЬЮ + фиксированный отступ 96px снизу
+      const BOTTOM_PADDING = 96;
+      return lastItem.offset + lastItem.height + BOTTOM_PADDING;
+    }, [gridItems, config.eventRowH]);
+
+    // ====================================
+    // VIRTUALIZATION
+    // ====================================
+    const { visibleItems, topSpacer } = useMemo(() => {
+      if (gridItems.length === 0) {
+        return { visibleItems: [], topSpacer: 0 };
+      }
+
+      const scrollOffset = Math.max(
+        0,
+        scrollTop - TOTAL_TOP_HEIGHT,
+      );
+      const viewportStart = scrollOffset;
+      const viewportEnd = scrollOffset + viewportHeight;
+
+      let left = 0;
+      let right = gridItems.length - 1;
+      let startIndex = 0;
+
+      while (left <= right) {
+        const mid = Math.floor((left + right) / 2);
+        const item = gridItems[mid];
+
+        if (item.offset + item.height > viewportStart) {
+          startIndex = mid;
+          right = mid - 1;
+        } else {
+          left = mid + 1;
+        }
+      }
+
+      left = startIndex;
+      right = gridItems.length - 1;
+      let endIndex = gridItems.length;
+
+      while (left <= right) {
+        const mid = Math.floor((left + right) / 2);
+        const item = gridItems[mid];
+
+        if (item.offset < viewportEnd) {
+          endIndex = mid + 1;
+          left = mid + 1;
+        } else {
+          right = mid - 1;
+        }
+      }
+
+      const bufferedStart = Math.max(
+        0,
+        startIndex - OVERSCAN_COUNT,
+      );
+      const bufferedEnd = Math.min(
+        gridItems.length,
+        endIndex + OVERSCAN_COUNT,
+      );
+
+      const visible = gridItems.slice(
+        bufferedStart,
+        bufferedEnd,
+      );
+
+      const departmentsAboveViewport = gridItems
+        .slice(0, bufferedStart)
+        .filter(
+          (item) =>
+            item.type === "department" ||
+            item.type === "skeleton-department",
+        );
+
+      const visibleWithStickyDepts = [
+        ...departmentsAboveViewport,
+        ...visible,
+      ];
+
+      const spacer =
+        visibleWithStickyDepts.length > 0
+          ? visibleWithStickyDepts[0].offset
+          : gridItems[bufferedStart]?.offset || 0;
+
+      return {
+        visibleItems: visibleWithStickyDepts,
+        topSpacer: spacer,
+      };
+    }, [
+      gridItems,
+      scrollTop,
+      viewportHeight,
+      TOTAL_TOP_HEIGHT,
+      OVERSCAN_COUNT,
+      totalContentHeight,
+    ]);
+
+    // ====================================
+    // COMMENT DRAG EFFECT & HANDLERS (Moved down to access gridItems)
+    // ====================================
+    const handleCommentPointerDown = useCallback((e: React.PointerEvent | React.MouseEvent, comment: Comment) => {
+      e.preventDefault(); 
+      e.stopPropagation(); 
+      
+      const target = e.currentTarget as HTMLElement;
+      const rect = target.getBoundingClientRect();
+      const offsetX = e.clientX - rect.left;
+      const offsetY = e.clientY - rect.top;
+
+      setDraggedCommentState({
+        id: comment.id,
+        startX: e.clientX,
+        startY: e.clientY,
+        currentX: e.clientX,
+        currentY: e.clientY,
+        offsetX,
+        offsetY,
+        comment
+      });
+    }, []);
+
+    // Global listeners for comment drag
+    useEffect(() => {
+      if (!draggedCommentState) return;
+
+      const handleMove = (e: PointerEvent) => {
+        e.preventDefault();
+        setDraggedCommentState(prev => prev ? ({ ...prev, currentX: e.clientX, currentY: e.clientY }) : null);
+        
+        // Calculate ghost position
+        const scrollContainer = scrollRef?.current;
+        if (!scrollContainer) {
+          setCommentGhostPosition(null);
+          return;
+        }
+
+        const rect = scrollContainer.getBoundingClientRect();
+        const xInScroll = e.clientX - rect.left + scrollContainer.scrollLeft; 
+        const yInScroll = e.clientY - rect.top + scrollContainer.scrollTop;
+
+        const sidebarWidth = sidebarCollapsed ? LEFT_SIDEBAR_WIDTH_COLLAPSED : LEFT_SIDEBAR_WIDTH;
+        const xInContent = xInScroll - sidebarWidth;
+        const yInContent = yInScroll - TOTAL_TOP_HEIGHT;
+
+        if (xInContent < 0 || yInContent < 0) {
+          setCommentGhostPosition(null);
+          return;
+        }
+
+        const weekIndex = Math.floor(xInContent / config.weekPx);
+        const targetItem = gridItems.find(item => 
+          item.type === 'resource' && 
+          yInContent >= item.offset && 
+          yInContent < (item.offset + item.height)
+        );
+
+        if (targetItem && targetItem.resource && weekIndex >= 0 && weekIndex < weeksInYear) {
+          setCommentGhostPosition({
+            visible: true,
+            weekIndex,
+            resourceId: targetItem.resource.id,
+            top: TOTAL_TOP_HEIGHT + targetItem.offset + (config.gap * 1),
+            left: weekIndex * config.weekPx + (config.gap * 0.5),
+          });
+        } else {
+          setCommentGhostPosition(null);
+        }
+      };
+
+      const handleUp = async (e: PointerEvent) => {
+         const state = draggedCommentState;
+         setDraggedCommentState(null); // Clear state immediately
+         setCommentGhostPosition(null); // Clear ghost
+         
+         const dist = Math.sqrt(Math.pow(e.clientX - state.startX, 2) + Math.pow(e.clientY - state.startY, 2));
+         
+         // If moved less than 5px, treat as accidental drag (do nothing)
+         // The CommentMarker component handles mini→maxi expansion on its own click
+         if (dist < 5) {
+            return;
+         }
+
+         // Drop Logic
+         const scrollContainer = scrollRef?.current;
+         if (!scrollContainer) return;
+
+         const rect = scrollContainer.getBoundingClientRect();
+         // X relative to scroll container content
+         const xInScroll = e.clientX - rect.left + scrollContainer.scrollLeft; 
+         const yInScroll = e.clientY - rect.top + scrollContainer.scrollTop;
+
+         // Adjust for Sidebar
+         const sidebarWidth = sidebarCollapsed ? LEFT_SIDEBAR_WIDTH_COLLAPSED : LEFT_SIDEBAR_WIDTH;
+         const xInContent = xInScroll - sidebarWidth;
+         const yInContent = yInScroll - TOTAL_TOP_HEIGHT; // Top headers
+
+         if (xInContent < 0 || yInContent < 0) return;
+
+         const weekIndex = Math.floor(xInContent / config.weekPx);
+         
+         // Find Resource
+         const targetItem = gridItems.find(item => 
+            item.type === 'resource' && 
+            yInContent >= item.offset && 
+            yInContent < (item.offset + item.height)
+         );
+
+         if (targetItem && targetItem.resource && weekIndex >= 0 && weekIndex < weeksInYear) {
+             // Only move if changed
+             if (targetItem.resource.id !== state.comment.userId || weekIndex !== state.comment.weekIndex) {
+                 await moveComment(state.comment.id, weekIndex, targetItem.resource.id);
+             }
+         }
+      };
+
+      window.addEventListener('pointermove', handleMove);
+      window.addEventListener('pointerup', handleUp);
+
+      return () => {
+        window.removeEventListener('pointermove', handleMove);
+        window.removeEventListener('pointerup', handleUp);
+      };
+    }, [draggedCommentState, gridItems, sidebarCollapsed, TOTAL_TOP_HEIGHT, config.weekPx, weeksInYear, moveComment, scrollRef]);
+
+    useEffect(() => {
+      const resourceCount = visibleItems.filter(
+        (item) => item.type === "resource",
+      ).length;
+      const totalResources = gridItems.filter(
+        (item) => item.type === "resource",
+      ).length;
+
+      setSrAnnouncement(
+        `Showing ${resourceCount} of ${totalResources} resources. Scroll to see more.`,
+      );
+    }, [visibleItems.length, gridItems.length]);
+
+    useEffect(() => {
+      if (scrollRef.current) {
+        setScrollDimensions({
+          width: scrollRef.current.scrollWidth,
+          height: scrollRef.current.scrollHeight,
+        });
+      }
+    }, [
+      gridItems,
+      totalContentHeight,
+      isLoading,
+      scrollRef,
+      config.weekPx,
+    ]);
+
+    // ====================================
+    // GLOBAL INTERACTION HANDLER
+    // ====================================
+
+    const findItemAtY = useCallback(
+      (y: number) => {
+        let left = 0;
+        let right = gridItems.length - 1;
+
+        while (left <= right) {
+          const mid = Math.floor((left + right) / 2);
+          const item = gridItems[mid];
+
+          if (
+            y >= item.offset &&
+            y < item.offset + item.height
+          ) {
+            return item;
+          }
+
+          if (y < item.offset) {
+            right = mid - 1;
+          } else {
+            left = mid + 1;
+          }
+        }
+        return null;
+      },
+      [gridItems],
+    );
+
+    const updateHoverHighlight = useCallback(
+      (data: {
+        visible: boolean;
+        left: number;
+        top: number;
+        width: number;
+        height: number;
+      }) => {
+        setInternalHoverHighlight(data);
+      },
+      [],
+    );
+
+    const handleGlobalMouseMove = useCallback(
+      (e: React.MouseEvent) => {
+        if (!scrollRef.current) return;
+
+        // ✅ Игнорируем события мыши, если курсор находится над событием (event bubbling)
+        // Это предотвращает появление хайлайта сетки поверх события
+        if ((e.target as HTMLElement).closest('.scheduler-event')) {
+          updateHoverHighlight({
+            ...internalHoverHighlight,
+            visible: false,
+          });
+          return;
+        }
+
+        const rect = scrollRef.current.getBoundingClientRect();
+        const relativeY = e.clientY - rect.top + scrollTop;
+        const dataY = relativeY - TOTAL_TOP_HEIGHT;
+
+        if (dataY < 0) {
+          updateHoverHighlight({
+            ...internalHoverHighlight,
+            visible: false,
+          });
+          return;
+        }
+
+        const item = findItemAtY(dataY);
+
+        if (item && item.type === "resource" && item.resource) {
+          const sidebarWidth = sidebarCollapsed
+            ? LEFT_SIDEBAR_WIDTH_COLLAPSED
+            : LEFT_SIDEBAR_WIDTH;
+          const relativeX = e.clientX - rect.left + scrollLeft;
+          const weekStartX = sidebarWidth + 4;
+
+          if (relativeX < weekStartX) {
+            updateHoverHighlight({
+              ...internalHoverHighlight,
+              visible: false,
+            });
+            return;
+          }
+
+          const xInGrid = relativeX - weekStartX;
+          const week = Math.floor(xInGrid / config.weekPx);
+
+          const yInRow = dataY - item.offset;
+          const unitIndex = Math.floor(
+            (yInRow - config.rowPaddingTop) /
+              config.unitStride,
+          );
+
+          // Оптимизация: проверяем также unitIndex
+          if (
+            lastHoverRef.current.resourceId !== item.resource.id ||
+            lastHoverRef.current.week !== week ||
+            lastHoverRef.current.unitIndex !== unitIndex
+          ) {
+            lastHoverRef.current = {
+              resourceId: item.resource.id,
+              week,
+              unitIndex,
+            };
+
+            // Вызываем внешний обр��ботчик с явным unitIndex
+            if (onCellMouseMove) {
+              onCellMouseMove(e, item.resource.id, week, unitIndex);
+              
+              // ✅ Если есть внешний обработчик, отключаем внутренний хайлайт
+              // Это передаёт полный контроль родителю (SchedulerMain), который может скрыть хайлайт над событиями
+              if (internalHoverHighlight.visible) {
+                updateHoverHighlight({
+                  ...internalHoverHighlight,
+                  visible: false,
+                });
+              }
+              return;
+            }
+
+            // Вычисляем координаты для ховер-хайлайта (локальный fallback)
+            // For comment mode: match comment container exactly (full week width, no cell padding)
+            // For normal mode: use cell padding and unit positioning
+            const left = commentMode
+              ? week * config.weekPx + (config.gap * 0.5)
+              : week * config.weekPx + config.cellPaddingLeft;
+            
+            const top = commentMode
+              ? TOTAL_TOP_HEIGHT + item.offset + (config.gap * 1)
+              : TOTAL_TOP_HEIGHT +
+                item.offset +
+                config.rowPaddingTop +
+                unitIndex * config.unitStride;
+
+            // Calculate max units dynamically based on row height and padding
+            // Assuming symmetric padding (top = bottom) if bottom is not defined
+            const rowPaddingBottom = (config as any).rowPaddingBottom ?? config.rowPaddingTop;
+            const maxUnits = Math.floor(
+              (config.eventRowH - config.rowPaddingTop - rowPaddingBottom) /
+                config.unitStride
+            );
+
+            // Only show if unitIndex is valid (not in padding area) OR in comment mode
+            if (commentMode || (unitIndex >= 0 && unitIndex < maxUnits)) {
+              updateHoverHighlight({
+                visible: true,
+                left,
+                top,
+                width: commentMode ? config.weekPx : config.weekPx - config.cellPaddingLeft - config.cellPaddingRight,
+                height: commentMode ? 28 : config.unitStride,
+              });
+            } else {
+              updateHoverHighlight({
+                ...internalHoverHighlight,
+                visible: false,
+              });
+            }
+          }
+        } else {
+          updateHoverHighlight({
+            ...internalHoverHighlight,
+            visible: false,
+          });
+        }
+      },
+      [
+        scrollRef,
+        scrollTop,
+        scrollLeft,
+        TOTAL_TOP_HEIGHT,
+        findItemAtY,
+        sidebarCollapsed,
+        config,
+        onCellMouseMove,
+        internalHoverHighlight,
+        updateHoverHighlight,
+      ],
+    );
+
+    const handleGlobalMouseLeave = useCallback(() => {
+      if (onCellMouseLeave) {
+        onCellMouseLeave();
+      }
+      updateHoverHighlight({
+        ...internalHoverHighlight,
+        visible: false,
+      });
+    }, [
+      onCellMouseLeave,
+      internalHoverHighlight,
+      updateHoverHighlight,
+    ]);
+
+    // Функция для обработки ховера в строках (при showSeparators = true) - REMOVED
+    // Using handleGlobalMouseMove for unified logic
+
 
     return (
       <div
-        ref={scrollContainerRef}
-        className="scheduler-scroll-container"
+        className="relative flex flex-col h-full bg-white select-none"
         style={{
-          height: "100%",
-          overflow: "auto",
-          position: "relative",
-          // Optimize scroll performance
-          willChange: "scroll-position",
-          WebkitOverflowScrolling: "touch",
+          height: "100vh",
         }}
       >
+        <style>{`
+          .scheduler-scroll-container::-webkit-scrollbar {
+            display: none;
+          }
+          .scheduler-scroll-container {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+          }
+          
+          /* ✅ Ультра-легкий фон для недельных линий (используем тонкие div вместо градиентов) */
+          .week-line {
+            position: absolute;
+            top: 0;
+            width: 0.5px;
+            height: 100%;
+            background-color: rgba(223, 231, 238, 0.3);
+            pointer-events: none;
+          }
+          
+          .month-line {
+            position: absolute;
+            top: 0;
+            width: 1px;
+            height: 100%;
+            background-color: rgba(180, 190, 200, 0.3);
+            pointer-events: none;
+          }
+        `}</style>
+        {/* ====================================== */}
+        {/* SCROLLABLE CONTAINER */}
+        {/* ====================================== */}
         <div
-          className="scheduler-grid"
+          ref={scrollRef}
+          className="scheduler-scroll-container"
           style={{
-            display: "grid",
-            // Column 1: Resources (Fixed Width), Columns 2...N: Weeks (Fixed Width)
-            gridTemplateColumns: `${LEFT_WIDTH}px repeat(${WEEKS}, ${config.weekPx}px)`,
-            // ✅ ЯВНО задаём высоту первых 3 строк
-            gridTemplateRows: `${TOP_BAR_HEIGHT}px ${config.rowH}px ${config.rowH}px`,
-            // Rows will be implicit
-            minWidth: "max-content",
-            position: "relative",
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            overflow: isLoading ? "hidden" : "auto",
           }}
+          onMouseMove={handleGlobalMouseMove}
+          onMouseLeave={handleGlobalMouseLeave}
         >
-          {/* --- LEFT HEADER (Sticky Top & Left) --- */}
-          {/* Spans Rows 1-3 (Total 176px) */}
-          <div
-            style={{
-              gridColumn: 1,
-              gridRow: "1 / span 3",
-              position: "sticky",
-              top: 0,
-              left: 0,
-              zIndex: 500,
-              height: "152px",
-              backgroundColor: "#fff",
-              display: "flex",
-              flexDirection: "column",
-            }}
-          >
-            {/* Внутренний контейнер с рамкой слева/справа/сверху */}
-            <div
-              style={{
-                height: "100%", // заполнить внешний блок
-                width: "100%",
-                boxSizing: "border-box", // важно, чтобы рамки шли внутрь
+          {/* ====================================== */}
+          {/* OPTIMIZATION: УПРОЩЕННЫЙ ФОН при showSeparators = false */}
+          {/* ====================================== */}
 
-                display: "flex",
-                flexDirection: "column",
-                padding: "8px 8px 0px 8px",
-              }}
-            >
-              {/* Title Area (Matches Figma ~96px) */}
+          {!showSeparators && !isLoading && (
+            <>
+              {/* ✅ ПРОСТОЙ БЕЛЫЙ ФОН без градиентов */}
               <div
                 style={{
-                  height: "72px",
-                  padding: "16px 12px 16px 8px",
-                  borderTop: "1px solid #f0f0f0",
-                  borderLeft: "1px solid #f0f0f0",
-                  borderRight: "1px solid #f0f0f0",
-                  borderTopLeftRadius: "16px",
-                  borderTopRightRadius: "16px",
+                  position: "absolute",
+                  top: `${TOTAL_TOP_HEIGHT}px`,
+                  left: `${sidebarCollapsed ? LEFT_SIDEBAR_WIDTH_COLLAPSED : LEFT_SIDEBAR_WIDTH}px`,
+                  width: `${config.weekPx * weeksInYear + 4}px`,
+                  height: `${totalContentHeight}px`,
+                  backgroundColor: "#fff",
+                  zIndex: 0,
+                  pointerEvents: "none",
                 }}
-              >
-                <div className="flex flex-col gap-1 px-4">
-                  <div className="flex items-center gap-2 mb-1">
-                    {onBackToWorkspaces && (
-                      <HeaderBackButton
-                        onClick={onBackToWorkspaces}
-                      />
-                    )}
-                    <div className="flex flex-col">
-                      <HeaderTitle
-                        name={
-                          workspace?.name ||
-                          "Рабочее пространство"
-                        }
-                      />
-                      <YearContainer year={timelineYear} />
+              />
+
+              {/* ✅ ВЕРТИКАЛЬНЫЕ ЛИНИИ НЕДЕЛЬ */}
+              {Array.from({ length: weeksInYear - 1 }).map(
+                (_, i) => {
+                  const weekPos = i + 1;
+                  return (
+                    <div
+                      key={`week-line-${weekPos}`}
+                      className="week-line"
+                      style={{
+                        left: `${weekPos * config.weekPx}px`,
+                        top: `${TOTAL_TOP_HEIGHT}px`,
+                        height: `${totalContentHeight}px`,
+                      }}
+                    />
+                  );
+                },
+              )}
+
+              {/* ✅ ВЕРТИКАЛЬНЫЕ ЛИНИИ МЕСЯЦЕВ */}
+              {months.slice(0, -1).map((_, i) => {
+                const weeks = months
+                  .slice(0, i + 1)
+                  .reduce((a, b) => a + b.weeks, 0);
+                return (
+                  <div
+                    key={`month-line-${i}`}
+                    className="month-line"
+                    style={{
+                      left: `${weeks * config.weekPx}px`,
+                      top: `${TOTAL_TOP_HEIGHT}px`,
+                      height: `${totalContentHeight}px`,
+                    }}
+                  />
+                );
+              })}
+
+              {/* ✅ ЕДИНЫЙ ИНТЕРАКТИВНЫЙ СЛОЙ - С ПРАВИЛЬНОЙ ВЫСОТОЙ */}
+            </>
+          )}
+
+          {!isLoading && (
+            <div
+              onClick={(e) => {
+                if (!scrollRef.current) return;
+
+                const rect =
+                  scrollRef.current.getBoundingClientRect();
+                const relativeY =
+                  e.clientY - rect.top + scrollTop;
+                const dataY = relativeY - TOTAL_TOP_HEIGHT;
+
+                if (dataY < 0) return;
+
+                const item = findItemAtY(dataY);
+
+                if (
+                  item &&
+                  item.type === "resource" &&
+                  item.resource
+                ) {
+                  const sidebarWidth = sidebarCollapsed
+                    ? LEFT_SIDEBAR_WIDTH_COLLAPSED
+                    : LEFT_SIDEBAR_WIDTH;
+                  const relativeX =
+                    e.clientX - rect.left + scrollLeft;
+                  const weekStartX = sidebarWidth + 4;
+
+                  if (relativeX < weekStartX) return;
+
+                  const xInGrid = relativeX - weekStartX;
+                  const week = Math.floor(
+                    xInGrid / config.weekPx,
+                  );
+
+                  const yInRow = dataY - item.offset;
+                  const unitIndex = Math.floor(
+                    (yInRow - config.rowPaddingTop) /
+                      config.unitStride,
+                  );
+
+                  // ✅ INTERCEPT CLICK FOR COMMENTS
+                  if (commentMode) {
+                    const weekDate = getWeekStartDate(timelineYear, week).toISOString();
+                    setCommentModalState({
+                      isOpen: true,
+                      isCreating: true,
+                      createData: {
+                        resourceId: item.resource.id,
+                        weekIndex: week,
+                        weekDate
+                      }
+                    });
+                    return;
+                  }
+
+                  onCellClick(
+                    item.resource.id,
+                    week,
+                    unitIndex,
+                  );
+                }
+              }}
+              onMouseMove={handleGlobalMouseMove}
+              onMouseLeave={handleGlobalMouseLeave}
+              onContextMenu={(e) => {
+                if (!scrollRef.current || !onCellContextMenu)
+                  return;
+
+                const rect =
+                  scrollRef.current.getBoundingClientRect();
+                const relativeY =
+                  e.clientY - rect.top + scrollTop;
+                const dataY = relativeY - TOTAL_TOP_HEIGHT;
+
+                if (dataY < 0) return;
+
+                const item = findItemAtY(dataY);
+
+                if (
+                  item &&
+                  item.type === "resource" &&
+                  item.resource
+                ) {
+                  const sidebarWidth = sidebarCollapsed
+                    ? LEFT_SIDEBAR_WIDTH_COLLAPSED
+                    : LEFT_SIDEBAR_WIDTH;
+                  const relativeX =
+                    e.clientX - rect.left + scrollLeft;
+                  const weekStartX = sidebarWidth + 4;
+
+                  if (relativeX < weekStartX) return;
+
+                  const xInGrid = relativeX - weekStartX;
+                  const week = Math.floor(
+                    xInGrid / config.weekPx,
+                  );
+
+                  onCellContextMenu(
+                    e,
+                    item.resource.id,
+                    week,
+                  );
+                }
+              }}
+              style={{
+                position: "absolute",
+                top: `${TOTAL_TOP_HEIGHT}px`,
+                left: `${sidebarCollapsed ? LEFT_SIDEBAR_WIDTH_COLLAPSED : LEFT_SIDEBAR_WIDTH}px`,
+                width: `${config.weekPx * weeksInYear + 4}px`,
+                height: `${Math.max(totalContentHeight, viewportHeight - TOTAL_TOP_HEIGHT)}px`,
+                zIndex: 1,
+                cursor: "pointer",
+              }}
+            />
+          )}
+
+          {/* ====================================== */}
+          {/* UNIFIED CSS GRID */}
+          {/* ====================================== */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: `${sidebarCollapsed ? LEFT_SIDEBAR_WIDTH_COLLAPSED : LEFT_SIDEBAR_WIDTH}px 0px 4px repeat(${weeksInYear}, ${config.weekPx}px) 4px`,
+              minWidth: "max-content",
+            }}
+          >
+            {/* ========== ROW 1 (WAS ROW 2): SEARCH + MONTHS ========== */}
+
+            {/* Left Corner: Search */}
+            <div
+              style={{
+                gridColumn: 1,
+                gridRow: 1,
+                position: "sticky",
+                left: 0,
+                top: 0,
+                height: `${MONTH_ROW_HEIGHT}px`,
+                backgroundColor: "#fff",
+                zIndex: 501,
+              }}
+            >
+              <SidePaddedBox>
+                {!sidebarCollapsed && (
+                  <div className="px-2 h-full flex items-center">
+                    <SearchInput
+                      value={searchQuery || ""}
+                      onChange={(val) => onSearchChange?.(val)}
+                    />
+                  </div>
+                )}
+              </SidePaddedBox>
+            </div>
+
+            {/* Month Headers */}
+            {months.map((month, idx) => {
+              const startCol =
+                months
+                  .slice(0, idx)
+                  .reduce((sum, m) => sum + m.weeks, 0) + 4;
+
+              const isFirst = idx === 0;
+              const isLast = idx === months.length - 1;
+              let paddingClass = "px-0.5";
+              if (isFirst && isLast) {
+                paddingClass = "px-1";
+              } else if (isFirst) {
+                paddingClass = "pl-1 pr-0.5";
+              } else if (isLast) {
+                paddingClass = "pl-0.5 pr-1";
+              }
+
+              return (
+                <div
+                  key={`month-${idx}`}
+                  style={{
+                    gridColumn: `${startCol} / span ${month.weeks}`,
+                    gridRow: 1,
+                    position: "sticky",
+                    top: 0,
+                    height: `${MONTH_ROW_HEIGHT}px`,
+                    backgroundColor: "#fff",
+                    zIndex: 300,
+                  }}
+                >
+                  <div
+                    className={`${paddingClass} h-full flex items-center`}
+                  >
+                    <div className="bg-[#f6f6f6] rounded-[12px] h-full w-full flex items-center justify-center">
+                      <p className="font-semibold text-[12px] text-[#1a1a1a]">
+                        {month.name}
+                      </p>
                     </div>
                   </div>
                 </div>
-              </div>
+              );
+            })}
 
-              {/* Search Area */}
-              <div
-                style={{
-                  height: "72px",
-                  padding: "0px 16px",
-                  borderLeft: "1px solid rgb(240, 240, 240)",
-                  borderRight: "1px solid rgb(240, 240, 240)",
-                }}
-              >
-                <SearchInput
-                  value={searchQuery || ""}
-                  onChange={(val) => onSearchChange?.(val)}
-                />
-              </div>
-            </div>
-          </div>
-          {/* --- RIGHT HEADER (Sticky Top) --- */}
-          {/* Row 1: Filters/Header */}
-          <div
-            style={{
-              gridColumn: "2 / -1",
-              gridRow: 1,
-              position: "sticky",
-              top: 0,
-              zIndex: 400,
-              height: `${TOP_BAR_HEIGHT}px`,
-              // Sticky left trick to keep it visible while scrolling horizontally
-              // We position it sticky left at the start of the scrollport (after left panel)
-              left: `${LEFT_WIDTH}px`,
-              width: `calc(100vw - ${LEFT_WIDTH}px)`,
-              maxWidth: "100%",
-            }}
-          >
-            <div className="w-full h-full bg-white">
-              <Header
-                workspaceId={workspace?.id?.toString()}
-                accessToken={accessToken}
-                scissorsMode={scissorsMode}
-                commentMode={commentMode}
-                onToggleScissors={onToggleScissors}
-                onToggleComment={onToggleComment}
-                companies={companies}
-                departments={visibleDepartments}
-                projects={projects}
-              />
-            </div>
-          </div>
-          {/* --- GRID CELLS --- */}
-          {rightCells}{" "}
-          {/* Months (Row 2), Weeks (Row 3), Content (Row 4+) */}
-          {leftCells}{" "}
-          {/* Departments & Resources (Row 4+, Col 1) */}
-          {/* EVENTS LAYER (Overlay) */}
-          {/* We place this in a grid item that spans the data area */}
-          <div
-            ref={eventsContainerRef}
-            style={{
-              gridColumn: "2 / -1",
-              gridRow: "2 / -1", // Starts at Month row (matches old gridRef top)
-              position: "relative", // Anchor for absolute children
-              zIndex: 100,
-              pointerEvents: "none", // Allow clicks to pass through to cells
-              width: `${WEEKS * config.weekPx}px`,
-              height: "100%",
-            }}
-          >
-            {/* Wrapper to ensure pointer-events: auto for children */}
+            {/* ========== ROW 2 (WAS ROW 3): WEEK HEADERS ========== */}
+
+            {/* Left Corner: Empty */}
             <div
               style={{
-                position: "absolute",
-                inset: 0,
+                gridColumn: 1,
+                gridRow: 2,
+                position: "sticky",
+                left: 0,
+                top: `${MONTH_ROW_HEIGHT}px`,
+                height: `${WEEK_ROW_HEIGHT}px`,
+                backgroundColor: "#fff",
+                zIndex: 501,
+              }}
+            >
+              <SidePaddedBox>{null}</SidePaddedBox>
+            </div>
+
+            {/* Week Headers */}
+            {Array.from({ length: weeksInYear }).map((_, w) => (
+              <div
+                key={`week-${w}`}
+                style={{
+                  gridColumn: w + 4,
+                  gridRow: 2,
+                  position: "sticky",
+                  top: `${MONTH_ROW_HEIGHT}px`,
+                  height: `${WEEK_ROW_HEIGHT}px`,
+                  backgroundColor: "#fff",
+                  zIndex: 150,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <p className="font-normal text-[12px] text-[#868789] truncate">
+                  {weekLabel(w, timelineYear, config.weekPx)}
+                </p>
+              </div>
+            ))}
+
+            {/* ========== ROW 3+ (WAS ROW 4+): DEPARTMENTS + RESOURCES (VIRTUALIZED) ========== */}
+
+            {/* Top Spacer */}
+            {topSpacer > 0 && (
+              <div
+                style={{
+                  gridColumn: "1 / -1",
+                  gridRow: 3,
+                  height: `${topSpacer}px`,
+                }}
+              />
+            )}
+
+            {visibleItems.map((item, idx) => {
+              // GAP SPACER
+              const gapElement = (() => {
+                if (idx === 0) return null;
+
+                const prevRow = visibleItems[idx - 1].row;
+                if (item.row > prevRow + 1) {
+                  const prevItem = visibleItems[idx - 1];
+                  const gapHeight =
+                    item.offset -
+                    (prevItem.offset + prevItem.height);
+
+                  if (gapHeight > 0) {
+                    return (
+                      <div
+                        key={`gap-before-${item.type}-${item.row}`}
+                        style={{
+                          gridColumn: "1 / -1",
+                          gridRow: prevRow + 1,
+                          height: `${gapHeight}px`,
+                          pointerEvents: "none",
+                        }}
+                      />
+                    );
+                  }
+                }
+                return null;
+              })();
+
+              // ✨ SKELETON ROW
+              if (item.type === "skeleton") {
+                return (
+                  <React.Fragment key={`skeleton-${item.row}`}>
+                    {gapElement}
+                    {/* Skeleton Name (Left) */}
+                    <div
+                      style={{
+                        gridColumn: 1,
+                        gridRow: item.row,
+                        position: "sticky",
+                        left: 0,
+                        height: `${config.eventRowH}px`,
+                        backgroundColor: "#fff",
+                        zIndex: 200,
+                      }}
+                    >
+                      <div className="w-full h-full flex items-center pl-2">
+                        <div
+                          className={`w-full h-full border-l border-r border-[#f0f0f0] ${sidebarCollapsed ? "" : "px-4"}`}
+                          style={{
+                            borderBottom: showSeparators
+                              ? "1px solid #DFE7EE"
+                              : "none",
+                          }}
+                        >
+                          <ResourceRowSkeleton
+                            sidebarCollapsed={sidebarCollapsed}
+                            rowHeight={config.eventRowH}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Skeleton Row (52 weeks) - ТОЛЬКО при showSeparators = true */}
+                    {showSeparators && (
+                      <div
+                        style={{
+                          gridColumn: "3 / -1",
+                          gridRow: item.row,
+                          width: `${config.weekPx * weeksInYear + 4}px`,
+                          backgroundColor: "#fff",
+                          borderBottom: "1px solid #DFE7EE",
+                          position: "relative",
+                        }}
+                      >
+                        {/* Skeleton Event */}
+                        {(() => {
+                          const skeletonHeight =
+                            config.eventRowH - config.rowPaddingTop * 2;
+
+                          return (
+                            <div
+                              className="animate-pulse"
+                              style={{
+                                position: "absolute",
+                                left: `${config.cellPaddingLeft + 4}px`,
+                                top: `${config.rowPaddingTop}px`,
+                                width: `${weeksInYear * config.weekPx - config.cellPaddingLeft - config.cellPaddingRight}px`,
+                                height: `${skeletonHeight}px`,
+                                padding: `${config.cellPaddingLeft}px`,
+                                opacity: 1,
+                              }}
+                            >
+                              <EventBlock />
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    )}
+                  </React.Fragment>
+                );
+              }
+
+              if (item.type === "skeleton-department") {
+                return (
+                  <React.Fragment
+                    key={`skeleton-dept-${item.row}`}
+                  >
+                    {gapElement}
+                    {/* Department Skeleton (Left) */}
+                    <div
+                      style={{
+                        gridColumn: 1,
+                        gridRow: item.row,
+                        position: "sticky",
+                        left: 0,
+                        top: `${MONTH_ROW_HEIGHT + WEEK_ROW_HEIGHT}px`,
+                        height: `${DEPARTMENT_ROW_HEIGHT}px`,
+                        backgroundColor: "#fff",
+                        zIndex: 201,
+                      }}
+                    >
+                      <SidePaddedBox>
+                        <DepartmentRowSkeleton
+                          sidebarCollapsed={sidebarCollapsed}
+                        />
+                      </SidePaddedBox>
+                    </div>
+
+                    {/* Department Row (52 weeks) */}
+                    <div
+                      style={{
+                        gridColumn: "3 / -1",
+                        gridRow: item.row,
+                        position: "sticky",
+                        left: 0,
+                        top: `${MONTH_ROW_HEIGHT + WEEK_ROW_HEIGHT}px`,
+                        height: `${DEPARTMENT_ROW_HEIGHT}px`,
+                        backgroundColor: "#fff",
+                        borderRight: "0.5px solid #DFE7EE",
+                        zIndex: 150,
+                      }}
+                    />
+                  </React.Fragment>
+                );
+              }
+
+              if (item.type === "department" && item.dept) {
+                return (
+                  <React.Fragment key={`dept-${item.dept.id}`}>
+                    {gapElement}
+                    {/* Department Name (Left) */}
+                    <div
+                      style={{
+                        gridColumn: 1,
+                        gridRow: item.row,
+                        position: "sticky",
+                        left: 0,
+                        top: `${MONTH_ROW_HEIGHT + WEEK_ROW_HEIGHT}px`,
+                        height: `${DEPARTMENT_ROW_HEIGHT}px`,
+                        backgroundColor: "#fff",
+                        zIndex: 201,
+                      }}
+                    >
+                      <SidePaddedBox>
+                        {!sidebarCollapsed && (
+                          <div className="px-4 h-full flex items-center">
+                            <p className="font-medium text-xs text-[#868789] uppercase">
+                              {item.dept.name}
+                            </p>
+                          </div>
+                        )}
+                      </SidePaddedBox>
+                    </div>
+
+                    {/* Department Row (52 weeks) */}
+                    <div
+                      style={{
+                        gridColumn: "3 / -1",
+                        gridRow: item.row,
+                        position: "sticky",
+                        left: 0,
+                        top: `${MONTH_ROW_HEIGHT + WEEK_ROW_HEIGHT}px`,
+                        height: `${DEPARTMENT_ROW_HEIGHT}px`,
+                        backgroundColor: "#fff",
+                        zIndex: 150,
+                      }}
+                    />
+                  </React.Fragment>
+                );
+              }
+
+              if (item.type === "resource" && item.resource) {
+                return (
+                  <React.Fragment
+                    key={`resource-${item.resource.id}`}
+                  >
+                    {gapElement}
+                    {/* Resource Name (Left) - ВСЕГДА рендерим */}
+                    <div
+                      style={{
+                        gridColumn: 1,
+                        gridRow: item.row,
+                        position: "sticky",
+                        left: 0,
+                        height: `${config.eventRowH}px`,
+                        backgroundColor: "#fff",
+                        zIndex: 200,
+                      }}
+                    >
+                      <ResourceSidebarCell
+                        resource={item.resource}
+                        searchQuery={searchQuery}
+                        onEditUser={onEditUser}
+                        onDeleteUser={onDeleteUser}
+                        events={events}
+                        projects={projects}
+                        grades={grades}
+                        currentWeekIndex={currentWeekIndex}
+                        weeksInYear={weeksInYear}
+                        rowHeight={config.eventRowH}
+                        sidebarCollapsed={sidebarCollapsed}
+                        showSeparators={showSeparators}
+                        isLastInDept={item.isLastInDept}
+                        getUserInitials={getUserInitials}
+                      />
+                    </div>
+
+                    {/* Resource Row - Interaction Layer + Background */}
+                    <div
+                      className="cell resource-row event-row"
+                      role="row"
+                      aria-label={`${item.resource!.displayName}, ${
+                        grades.find(
+                          (g) =>
+                            g.id === item.resource!.gradeId,
+                        )?.name || ""
+                      }, ${
+                        companies.find(
+                          (c) =>
+                            c.id === item.resource!.companyId,
+                        )?.name || ""
+                      }`}
+                      style={{
+                        gridColumn: "3 / -1",
+                        gridRow: item.row,
+                        width: `${config.weekPx * weeksInYear + 4}px`,
+                        backgroundColor: "#fff",
+                        backgroundImage: (() => {
+                          const monthStops = [];
+                          const weekStops = [];
+
+                          // 1. Week lines (lighter)
+                          // We start at i=1 (divider between Week 1 and Week 2)
+                          // We end at i < weeksInYear (divider between Week 51 and Week 52)
+                          // We do NOT draw at i=0 (left edge) or i=weeksInYear (right edge)
+                          for (let i = 1; i < weeksInYear; i++) {
+                            const px = i * config.weekPx;
+                            weekStops.push(`transparent ${px - 1}px`);
+                            weekStops.push(`#F0F0F0 ${px - 1}px`);
+                            weekStops.push(`#F0F0F0 ${px}px`);
+                            weekStops.push(`transparent ${px}px`);
+                          }
+
+                          // 2. Month lines (darker)
+                          let accumulatedWeeks = 0;
+                          months.forEach((month, index) => {
+                            accumulatedWeeks += month.weeks;
+                            if (index === months.length - 1) return;
+
+                            const px = accumulatedWeeks * config.weekPx;
+                            monthStops.push(`transparent ${px - 1}px`);
+                            monthStops.push(`#D4D4D4 ${px - 1}px`);
+                            monthStops.push(`#D4D4D4 ${px}px`);
+                            monthStops.push(`transparent ${px}px`);
+                          });
+
+                          const gradients = [];
+                          if (monthStops.length > 0) {
+                            gradients.push(`linear-gradient(to right, ${monthStops.join(", ")})`);
+                          }
+                          if (weekStops.length > 0) {
+                            gradients.push(`linear-gradient(to right, ${weekStops.join(", ")})`);
+                          }
+
+                          return gradients.length > 0 ? gradients.join(", ") : "none";
+                        })(),
+                        backgroundSize: `${config.weekPx * weeksInYear}px 100%`,
+                        backgroundPosition: "4px 0",
+                        backgroundRepeat: "no-repeat",
+                        cursor: "pointer",
+                        borderBottom:
+                          showSeparators && !item.isLastInDept
+                            ? "1px solid #DFE7EE"
+                            : "none",
+                        position: "relative",
+                        zIndex: 0, // Explicit low z-index
+                        pointerEvents: "auto", // ✅ Ensure mouse events are captured
+                      }}
+                      data-resource-id={item.resource!.id}
+                      // Events handled by Global Interaction Layer
+                      tabIndex={0}
+                    />
+                  </React.Fragment>
+                );
+              }
+
+              return null;
+            })}
+
+            {/* Bottom Spacer */}
+            {visibleItems.length > 0 && (
+              <div
+                style={{
+                  gridColumn: "1 / -1",
+                  gridRow:
+                    (visibleItems[visibleItems.length - 1]
+                      ?.row || 4) + 1,
+                  height: `${Math.max(0, totalContentHeight - (visibleItems[visibleItems.length - 1] ? visibleItems[visibleItems.length - 1].offset + visibleItems[visibleItems.length - 1].height : topSpacer))}px`,
+                }}
+              />
+            )}
+
+            {/* 🌸 СПЕЙСЕР - Заполняет пространство до низа экрана */}
+            <div
+              style={{
+                position: "fixed",
+                left: 0,
+                top: `${MONTH_ROW_HEIGHT + WEEK_ROW_HEIGHT}px`,
+                bottom: 0,
+                width: `${sidebarCollapsed ? LEFT_SIDEBAR_WIDTH_COLLAPSED : LEFT_SIDEBAR_WIDTH}px`,
+                zIndex: 160,
+              }}
+            >
+              <SidePaddedBox>
+                {/* Спейсер для заполнения пространства */}
+              </SidePaddedBox>
+            </div>
+
+            {/* ========== CHRONO OVERLAY (Current Week Marker) ========== */}
+            <div
+              style={{
+                gridColumn: "4 / -2",
+                gridRow: "4 / -1", // Should extend from below weeks
+                position: "sticky",
+                top: `${MONTH_ROW_HEIGHT + WEEK_ROW_HEIGHT}px`,
+                height: 0,
+                pointerEvents: "none",
+                zIndex: 155,
+              }}
+            >
+              <div
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: -4,
+                  right: 0,
+                  height: "100vh",
+                  pointerEvents: "none",
+                }}
+              >
+                {showCurrentWeekMarker &&
+                  currentWeekIndex > 0 && (
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: 0,
+                        left: 0,
+                        height: "100%",
+                        width: `${currentWeekIndex * config.weekPx + 4}px`,
+                        backgroundColor:
+                          "rgba(255, 255, 255, 0.6)",
+                        pointerEvents: "none",
+                      }}
+                    />
+                  )}
+                {showCurrentWeekMarker && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      left: `${currentWeekIndex * config.weekPx + 4}px`,
+                      height: "100%",
+                      width: "1px",
+                      backgroundColor: "#0062FF",
+                      pointerEvents: "none",
+                    }}
+                  />
+                )}
+              </div>
+            </div>
+
+            {/* ========== EVENTS LAYER ========== */}
+            <div
+              ref={eventsContainerRef}
+              style={{
+                gridColumn: "4 / -2",
+                gridRow: "1 / -1",
+                position: "relative",
+                zIndex: 100,
+                pointerEvents: "none",
+                // ✅ CSS-переменная для sticky-позиционирования названий событий
+                ['--sticky-name-left' as any]: `${sidebarCollapsed ? (LEFT_SIDEBAR_WIDTH_COLLAPSED + 8) : (LEFT_SIDEBAR_WIDTH + 12)}px`,
+              }}
+            >
+              <div
+                style={{
+                  position: "relative",
+                  width: "100%",
+                  height: "100%",
+                  paddingTop: 0,
+                  pointerEvents: "none",
+                }}
+              >
+                {renderEvents && renderEvents()}
+
+                {/* Ghost Event */}
+                {ghost?.visible && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      left: ghost.left,
+                      top: ghost.top,
+                      width: ghost.width,
+                      height: ghost.height,
+                      backgroundColor:
+                        "rgba(59, 130, 246, 0.3)",
+                      border: "1px solid #2563eb",
+                      borderRadius: "4px",
+                      boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+                      pointerEvents: "none",
+                      zIndex: 1000,
+                    }}
+                  />
+                )}
+
+                {children}
+
+                {/* Hover Highlight (Rendered INSIDE Events Layer) */}
+                {!isLoading &&
+                  (hoverHighlight?.visible || internalHoverHighlight.visible) && (
+                    <div
+                      style={{
+                        position: "absolute",
+                        left: hoverHighlight?.visible
+                          ? hoverHighlight.left
+                          : internalHoverHighlight.left,
+                        top: hoverHighlight?.visible
+                          ? hoverHighlight.top
+                          : internalHoverHighlight.top,
+                        width: hoverHighlight?.visible
+                          ? hoverHighlight.width
+                          : internalHoverHighlight.width,
+                        height: hoverHighlight?.visible
+                          ? hoverHighlight.height
+                          : internalHoverHighlight.height,
+                        backgroundColor: "rgba(59, 130, 246, 0.15)",
+                        borderRadius: "12px",
+                        pointerEvents: "none",
+                        zIndex: commentMode ? 150 : -1,
+                      }}
+                    />
+                  )}
+              </div>
+            </div>
+
+            {/* ========== COMMENTS LAYER ========== */}
+            <div
+              style={{
+                gridColumn: "4 / -2",
+                gridRow: "1 / -1",
+                position: "relative",
+                zIndex: 160, // Higher than Events(100) and Overlay(1)
                 pointerEvents: "none",
               }}
             >
-              {renderEvents && renderEvents()}
+               {visibleItems.map((item) => {
+                  if (item.type !== "resource" || !item.resource) return null;
+                  const resourceComments = commentsByResource.get(item.resource.id);
+                  if (!resourceComments || resourceComments.length === 0) return null;
+
+                  return resourceComments.map((comment) => {
+                     if (comment.weekIndex === undefined || comment.weekIndex < 0 || comment.weekIndex >= weeksInYear) return null;
+                     
+                     const top = TOTAL_TOP_HEIGHT + item.offset + config.gap;
+                     const left = comment.weekIndex * config.weekPx + (config.gap * 0.5);
+
+                     const isDragging = draggedCommentState?.id === comment.id;
+
+                     return (
+                        <div
+                          key={`comment-${comment.id}`}
+                          style={{
+                            position: "absolute",
+                            left: `${left}px`,
+                            top: `${top}px`,
+                            width: `${config.weekPx}px`,
+                            height: `${config.eventRowH}px`,
+                            pointerEvents: "none",
+                            opacity: isDragging ? 0.4 : 1,
+                            transition: isDragging ? 'none' : 'opacity 0.2s',
+                          }}
+                        >
+                          <div style={{ pointerEvents: "auto" }}>
+                            <CommentMarker
+                              comment={comment}
+                              cellWidth={config.weekPx}
+                              gap={0}
+                              onClick={() => {}}
+                              onEdit={() => setCommentModalState({
+                                isOpen: true,
+                                isCreating: false,
+                                comment
+                              })}
+                              onDelete={() => {
+                                if (window.confirm('Вы уверены, что хотите удалить этот комментарий?')) {
+                                  deleteComment(comment.id);
+                                }
+                              }}
+                              onDragStart={(e) => handleCommentPointerDown(e, comment)}
+                            />
+                          </div>
+                        </div>
+                     );
+                  });
+               })}
+               
+               {/* Ghost Comment Preview */}
+               {commentGhostPosition?.visible && (
+                 <div
+                   style={{
+                     position: "absolute",
+                     left: `${commentGhostPosition.left}px`,
+                     top: `${commentGhostPosition.top}px`,
+                     width: `${config.weekPx - config.gap}px`,
+                     height: `28px`,
+                     backgroundColor: "rgba(59, 130, 246, 0.15)",
+                     borderRadius: "12px",
+                     pointerEvents: "none",
+                     zIndex: 1000,
+                   }}
+                 />
+               )}
             </div>
-
-            {/* Past weeks overlay */}
-            {showCurrentWeekMarker && currentWeekIndex > 0 && (
-              <div
-                className="past-weeks-overlay"
-                style={{
-                  position: "absolute",
-                  left: 0,
-                  top: "96px", // ✅ Month (48px) + Week (48px) = 96px
-                  width: `${currentWeekIndex * config.weekPx}px`,
-                  height: "500px", // 🐛 DEBUG: Большая высота
-                  backgroundColor: "rgba(255, 0, 0, 0.8)", // 🐛 DEBUG: ЯРКО-КРАСНЫЙ!
-                  pointerEvents: "none",
-                  zIndex: 9999, // 🐛 DEBUG: Максимальный z-index
-                  border: "10px solid blue", // 🐛 DEBUG: Синяя рамка
-                }}
-              />
-            )}
-
-            {/* Current week line */}
-            {showCurrentWeekMarker && (
-              <div
-                className="current-week-line"
-                style={{
-                  position: "absolute",
-                  top: "96px", // ✅ Month (48px) + Week (48px) = 96px
-                  left: `${currentWeekIndex * config.weekPx}px`,
-                  width: "30px", // 🐛 DEBUG: Толстая для видимости
-                  height: "500px", // 🐛 DEBUG: Большая высота
-                  backgroundColor: "#00FF00", // 🐛 DEBUG: ЗЕЛЕНАЯ!
-                  zIndex: 9999,
-                  pointerEvents: "none",
-                }}
-              />
-            )}
-
-            {hoverHighlight?.visible && (
-              <div
-                className="hover-highlight"
-                style={{
-                  position: "absolute",
-                  left: hoverHighlight.left,
-                  top: hoverHighlight.top,
-                  width: hoverHighlight.width,
-                  height: hoverHighlight.height,
-                  border: "2px dashed #3b82f6",
-                  borderRadius: "6px",
-                  pointerEvents: "none",
-                  zIndex: 100,
-                  backgroundColor: "rgba(59, 130, 246, 0.05)",
-                }}
-              />
-            )}
-
-            {ghost?.visible && (
-              <div
-                className="ghost-event"
-                style={{
-                  position: "absolute",
-                  left: ghost.left,
-                  top: ghost.top,
-                  width: ghost.width,
-                  height: ghost.height,
-                  backgroundColor: "rgba(59, 130, 246, 0.3)",
-                  border: "1px solid #2563eb",
-                  borderRadius: "4px",
-                  pointerEvents: "none",
-                  zIndex: 1000,
-                  boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
-                }}
-              />
-            )}
-
-            {children}
           </div>
-          {/* 🌸 РОЗОВЫЙ СПЕЙСЕР - Заполняет пространство до низа экрана */}
-          <div
-            className="bg-pink-300"
-            style={{
-              gridColumn: 1, // ✅ Только левая колонка (сайдбар)
-              gridRow: 9998, // Перед Fake Spacer
-              position: "sticky",
-              left: 0,
-              zIndex: 300,
-              borderLeft: "1px solid rgb(240, 240, 240)",
-              borderRight: "1px solid rgb(240, 240, 240)",
-              marginRight: "8px",
-              minHeight: `max(0px, calc(100vh - ${usedHeight}px - 24px))`,
-            }}
-          />
         </div>
 
-        {/* Fake Bottom Fix */}
+        {/* ====================================== */}
+        {/* FAKE BOTTOM FIX */}
+        {/* ====================================== */}
         <div
           style={{
             position: "fixed",
             bottom: 0,
             left: 0,
-            width: `${config.resourceW}px`,
+            width: `${sidebarCollapsed ? LEFT_SIDEBAR_WIDTH_COLLAPSED : LEFT_SIDEBAR_WIDTH}px`,
             height: "25px",
             zIndex: 400,
             pointerEvents: "none",
@@ -1141,9 +2388,115 @@ export const SchedulerGrid = forwardRef<
         >
           <Fakebottomfix />
         </div>
+
+        {/* ====================================== */}
+        {/* TOGGLE SIDEBAR BUTTON */}
+        {/* ====================================== */}
+        <div
+          className="lg:hidden"
+          style={{
+            position: "fixed",
+            bottom: "16px",
+            left: "16px",
+            zIndex: 401,
+            pointerEvents: "auto",
+            backgroundColor: "rgba(255, 255, 255, 0.9)",
+            borderRadius: "8px",
+          }}
+        >
+          <SidebarToggleButton
+            collapsed={sidebarCollapsed}
+            onClick={handleToggleSidebar}
+          />
+        </div>
+
+        {/* ====================================== */}
+        {/* SCREEN READER LIVE REGION */}
+        {/* ====================================== */}
+        <div
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className="sr-only"
+        >
+          {srAnnouncement}
+        </div>
+
+        {/* Dragged Comment Ghost */}
+        {draggedCommentState && (
+            <div
+            style={{
+                position: "fixed",
+                left: draggedCommentState.currentX - draggedCommentState.offsetX,
+                top: draggedCommentState.currentY - draggedCommentState.offsetY,
+                width: `${config.weekPx}px`,
+                height: `${config.eventRowH}px`,
+                pointerEvents: "none",
+                zIndex: 2000,
+                opacity: 0.9,
+            }}
+            >
+            <CommentMarker 
+                comment={draggedCommentState.comment} 
+                cellWidth={config.weekPx} 
+                gap={0}
+                onClick={() => {}} 
+            />
+            </div>
+        )}
+
+        {!isLoading && (
+          <CustomScrollbars
+            scrollRef={
+              scrollRef as React.RefObject<HTMLDivElement>
+            }
+            scrollTop={scrollTop}
+            scrollLeft={scrollLeft}
+            scrollHeight={scrollDimensions.height}
+            scrollWidth={scrollDimensions.width}
+            clientHeight={viewportHeight}
+            clientWidth={viewportWidth}
+            verticalTopOffset={152} // Offset to avoid header + toolbar
+            horizontalLeftOffset={
+              sidebarCollapsed
+                ? LEFT_SIDEBAR_WIDTH_COLLAPSED + 8
+                : LEFT_SIDEBAR_WIDTH + 8
+            }
+            isModalOpen={isModalOpen}
+            sidebarCollapsed={sidebarCollapsed}
+          />
+        )}
+        
+        {/* Comment Modal */}
+        <CommentModal 
+          isOpen={commentModalState.isOpen}
+          onClose={() => setCommentModalState(prev => ({ ...prev, isOpen: false }))}
+          isCreating={commentModalState.isCreating}
+          initialText={commentModalState.isCreating ? "" : commentModalState.comment?.comment}
+          authorName={!commentModalState.isCreating ? commentModalState.comment?.userDisplayName : undefined}
+          authorAvatarUrl={!commentModalState.isCreating ? commentModalState.comment?.authorAvatarUrl : undefined}
+          dateStr={!commentModalState.isCreating && commentModalState.comment?.createdAt ? new Date(commentModalState.comment.createdAt).toLocaleDateString() : undefined}
+          onSave={async (text) => {
+            if (commentModalState.isCreating && commentModalState.createData) {
+              await createComment({
+                userId: commentModalState.createData.resourceId,
+                userDisplayName: currentUserDisplayName || currentUserDisplayNameFromToken || "Unknown",
+                authorAvatarUrl: currentUserAvatarUrl,
+                comment: text,
+                weekDate: commentModalState.createData.weekDate,
+                weekIndex: commentModalState.createData.weekIndex // ✅ Pass the explicit week index
+              });
+            } else if (!commentModalState.isCreating && commentModalState.comment) {
+              await updateComment(commentModalState.comment.id, text);
+            }
+          }}
+          onDelete={!commentModalState.isCreating && commentModalState.comment ? async () => {
+            await deleteComment(commentModalState.comment!.id);
+          } : undefined}
+        />
       </div>
     );
   },
-);
+));
 
 SchedulerGrid.displayName = "SchedulerGrid";

@@ -133,13 +133,14 @@ export function UsersManagementModal({
 
   const handleAddNewUser = () => {
     const tempId = `temp-${Date.now()}-${Math.random()}`;
+    const defaultGradeId = grades.find(g => g.name === 'Junior')?.id || grades[0]?.id || '';
     setLocalNewUsers(prev => [...prev, {
       tempId,
       fullName: '',
       position: '',
       departmentId: departments[0]?.id || '',
-      grade: '',
-      companyId: '1',
+      grade: defaultGradeId,
+      companyId: companies[0]?.id || '',
       avatarUrl: undefined
     }]);
   };
@@ -365,7 +366,7 @@ export function UsersManagementModal({
 
   return (
     <div 
-      className="fixed inset-0 z-[999] flex items-center justify-center bg-black/50"
+      className="fixed inset-0 z-[5000] flex items-center justify-center bg-black/50"
       onClick={handleCancel}
     >
       <div 
@@ -710,7 +711,6 @@ const UserRow = forwardRef<HTMLDivElement, UserRowProps>(({
             onChange={e => onChange('grade', e.target.value)}
             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
           >
-            <option value="">Грейд</option>
             {grades.map(grade => (
               <option key={grade.id} value={grade.id}>
                 {grade.name}

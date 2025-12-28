@@ -1,26 +1,29 @@
 import { createContext, useContext, useState, useEffect, ReactNode, useCallback, useMemo, useRef } from 'react';
-import { SchedulerEvent, Department, Resource, Project, Grade, EventPattern, Company, BatchOperation, BatchResult } from '../types/scheduler';
+import { SchedulerEvent, Department, Resource, Project, Grade, EventPattern, Company, BatchOperation, BatchResult, Comment } from '../types/scheduler';
 import { 
   eventsApi, 
   resourcesApi, 
   projectsApi, 
   departmentsApi, 
   gradesApi, 
+  companiesApi,
   eventPatternsApi,
-  fetchCompanies,
   CreateResourceData,
   UpdateResourceData,
   CreateProjectData,
   UpdateProjectData
 } from '../services/api';
+import * as commentsApi from '../services/api/comments'; // Import comments API
 import { usersApi } from '../services/api/users';
 import { getStorageJSON, setStorageJSON } from '../utils/storage';
 import { usePendingOperations } from '../hooks/usePendingOperations';
 import { useSyncManager } from '../hooks/useSyncManager';
+import { useUI } from './UIContext';
 import { projectId } from '../utils/supabase/info';
 import { handleCloudflareError } from '../utils/cloudflareErrorHandler';
 import { toast } from 'sonner@2.0.3';
 import { throttledRequest } from '../utils/requestThrottle';
+import { getWeeksInYear } from '../utils/scheduler'; // ✅ Для динамического вычисления недель
 
 interface SchedulerContextType {
   // Data
@@ -31,10 +34,7 @@ interface SchedulerContextType {
   grades: Grade[];
   eventPatterns: EventPattern[];
   companies: Company[];
-  
-  // Loading states
-  isLoading: boolean;
-  isLoadingResources: boolean; // ✅ Для блокировки рендера событий
+  comments: Comment[]; // ✅ Комментарии
   
   // Computed data
   visibleDepartments: Department[];
@@ -71,6 +71,8 @@ interface SchedulerContextType {
   createResource: (data: CreateResourceData) => Promise<void>;
   updateResource: (id: string, data: UpdateResourceData) => Promise<void>;
   deleteResource: (id: string) => Promise<void>;
+  loadResources: () => Promise<void>; // ✅ Add loadResources function
+  toggleUserVisibility: (id: string) => Promise<void>;
   uploadUserAvatar: (userId: string, file: File) => Promise<string>;
   
   // Project operations
@@ -91,6 +93,26 @@ interface SchedulerContextType {
   getGradeName: (gradeId: string | undefined) => string | undefined;
   loadedEventIds: Set<string>;
   getEvents: () => { events: SchedulerEvent[], projects: Project[], eventZOrder: Map<string, number> }; // ✅ Функция для получения свежего снапшота
+  
+  // Grade operations
+  createGrade: (name: string) => Promise<void>;
+  updateGrade: (gradeId: string, name: string) => Promise<void>;
+  deleteGrade: (gradeId: string) => Promise<void>;
+  loadGrades: () => Promise<void>;
+  updateGradesSortOrder: (updates: Array<{ id: string; sortOrder: number }>) => Promise<void>;
+  
+  // Company operations
+  createCompany: (name: string) => Promise<void>;
+  updateCompany: (companyId: string, name: string) => Promise<void>;
+  deleteCompany: (companyId: string) => Promise<void>;
+  loadCompanies: () => Promise<void>;
+  updateCompaniesSortOrder: (updates: Array<{ id: string; sortOrder: number }>) => Promise<void>;
+  
+  // Comment operations
+  createComment: (data: { userId: string; userDisplayName: string; authorAvatarUrl?: string; comment: string; weekDate: string; weekIndex?: number }) => Promise<Comment>;
+  updateComment: (id: string, text: string) => Promise<Comment>;
+  moveComment: (id: string, newWeekIndex: number, newUserId: string) => Promise<Comment>;
+  deleteComment: (id: string) => Promise<void>;
 }
 
 const SchedulerContext = createContext<SchedulerContextType | undefined>(undefined);
@@ -99,9 +121,10 @@ interface SchedulerProviderProps {
   children: ReactNode;
   accessToken?: string;
   workspaceId?: string;
+  timelineYear?: number; // ✅ Год воркспейса для вычисления количества недель
 }
 
-export function SchedulerProvider({ children, accessToken, workspaceId }: SchedulerProviderProps) {
+export function SchedulerProvider({ children, accessToken, workspaceId, timelineYear }: SchedulerProviderProps) {
   const [eventsState, setEventsState] = useState<SchedulerEvent[]>([]);
   const loadedEventIds = useRef<Set<string>>(new Set());
 
@@ -248,13 +271,15 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
     }
   });
   
-  const [isLoadingDepartments, setIsLoadingDepartments] = useState(true);
-  const [isLoadingResources, setIsLoadingResources] = useState(true);
-  const [isLoadingProjects, setIsLoadingProjects] = useState(true);
-  const [isLoadingGrades, setIsLoadingGrades] = useState(true);
-  const [isLoadingEventPatterns, setIsLoadingEventPatterns] = useState(true);
-  const [isLoadingCompanies, setIsLoadingCompanies] = useState(true);
-  const [isLoadingEvents, setIsLoadingEvents] = useState(true);
+  const { 
+    isLoadingDepartments, setIsLoadingDepartments,
+    isLoadingResources, setIsLoadingResources,
+    isLoadingProjects, setIsLoadingProjects,
+    isLoadingGrades, setIsLoadingGrades,
+    isLoadingEventPatterns, setIsLoadingEventPatterns,
+    isLoadingCompanies, setIsLoadingCompanies,
+    isLoadingEvents, setIsLoadingEvents,
+  } = useUI();
   
   // 🚫 User interaction state (для отклю��ения polling во время drag/resize)
   const isUserInteractingRef = useRef(false);
@@ -269,6 +294,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
   const [grades, setGrades] = useState<Grade[]>([]);
   const [eventPatterns, setEventPatterns] = useState<EventPattern[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
+  const [comments, setComments] = useState<Comment[]>([]); // ✅ State for comments
   
   // Refs для tracking локальных изменений (защита от синхронизации)
   const lastResourcesChangeRef = useRef<number>(0);
@@ -277,14 +303,6 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
   
   // Alias для удобства
   const events = eventsState;
-
-  // Вычисленное состояние загрузки
-  // ✅ НЕ используем hasCachedDataRef в useMemo - это вызывает "Cannot update component while rendering"
-  // Просто проверяем все флаги загрузки
-  const isLoading = useMemo(() => {
-    return isLoadingDepartments || isLoadingResources || isLoadingProjects || 
-           isLoadingGrades || isLoadingEventPatterns || isLoadingCompanies || isLoadingEvents;
-  }, [isLoadingDepartments, isLoadingResources, isLoadingProjects, isLoadingGrades, isLoadingEventPatterns, isLoadingCompanies, isLoadingEvents]);
 
   // Load departments
   useEffect(() => {
@@ -297,6 +315,11 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
     if (!workspaceId) {
       queueMicrotask(() => setIsLoadingDepartments(false));
       return;
+    }
+
+    // ✅ Если workspaceId === "loading" - показываем скелетон, не загружаем данные
+    if (workspaceId === "loading") {
+      return; // Оставляем isLoadingDepartments = true
     }
 
     const load = async () => {
@@ -336,6 +359,11 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
       queueMicrotask(() => setIsLoadingResources(false));
       return;
     }
+
+    // ✅ Если workspaceId === "loading" - показываем скелетон, не загружаем данные
+    if (workspaceId === "loading") {
+      return; // Оставляем isLoadingResources = true
+    }
     
     const load = async () => {
       try {
@@ -349,6 +377,12 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
         
         // Load fresh data in background
         const data = await resourcesApi.getAll(accessToken, workspaceId);
+        
+        // 🔍 DEBUG: Log first resource to see what we got from API
+        if (data && data.length > 0) {
+          // console.log('🔍 ПЕРВЫЙ РЕСУРС ИЗ API (frontend):', JSON.stringify(data[0], null, 2));
+        }
+        
         setResources(data);
         
         // Update cache
@@ -373,6 +407,11 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
     if (!workspaceId) {
       queueMicrotask(() => setIsLoadingProjects(false));
       return;
+    }
+
+    // ✅ Если workspaceId === "loading" - показываем скелетон, не загружаем данные
+    if (workspaceId === "loading") {
+      return; // Оставляем isLoadingProjects = true
     }
 
     const load = async () => {
@@ -407,6 +446,11 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
       return;
     }
 
+    // ✅ Если workspaceId === "loading" - показываем скелетон, не загружаем данные
+    if (workspaceId === "loading") {
+      return; // Оставляем isLoadingGrades = true
+    }
+
     const load = async () => {
       try {
         // Load from cache first
@@ -419,7 +463,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
         }
         
         // Load fresh data in background
-        const data = await gradesApi.getAll(accessToken);
+        const data = await gradesApi.getAll(Number(workspaceId), accessToken);
         setGrades(data);
         
         // Update cache
@@ -439,6 +483,11 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
     if (!accessToken) {
       queueMicrotask(() => setIsLoadingEventPatterns(false));
       return;
+    }
+
+    // ✅ Если workspaceId === "loading" - показываем скелетон, не загружаем данные
+    if (workspaceId === "loading") {
+      return; // Оставляем isLoadingEventPatterns = true
     }
 
     const load = async () => {
@@ -475,6 +524,11 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
       return;
     }
 
+    // ✅ Если workspaceId === "loading" - показываем скелетон, не загружаем данные
+    if (workspaceId === "loading") {
+      return; // Оставляем isLoadingCompanies = true
+    }
+
     const load = async () => {
       try {
         // Load from cache first
@@ -487,7 +541,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
         }
         
         // Load fresh data in background
-        const data = await fetchCompanies(accessToken);
+        const data = await companiesApi.getAll(workspaceId, accessToken);
         setCompanies(data);
         
         // Update cache
@@ -497,6 +551,34 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
         console.error('❌ Ошибка загрузки компаний:', error);
       } finally {
         setIsLoadingCompanies(false);
+      }
+    };
+    load();
+  }, [accessToken, workspaceId]);
+
+  // Load comments
+  useEffect(() => {
+    if (!accessToken) {
+      setComments([]);
+      return;
+    }
+
+    // ✅ Если workspaceId === "loading" - не загружаем данные
+    if (!workspaceId || workspaceId === "loading") {
+      return;
+    }
+
+    const load = async () => {
+      try {
+        // Load fresh data in background
+        const data = await commentsApi.fetchComments(String(workspaceId), accessToken);
+        console.log('📊 Frontend received comments:', data.length);
+        if (data.length > 0) {
+          console.log('   First comment weekDate (in context):', data[0].weekDate);
+        }
+        setComments(data);
+      } catch (error) {
+        console.error('❌ Ошибка загрузки комментариев:', error);
       }
     };
     load();
@@ -524,6 +606,11 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
       });
       
       return;
+    }
+
+    // ✅ Если workspaceId === "loading" - показываем скелетон, не загружаем данные
+    if (workspaceId === "loading") {
+      return; // Оставляем isLoadingEvents = true
     }
 
     const load = async () => {
@@ -608,7 +695,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
               console.log(`🗑️ Full Sync: обнаружено ${deletedIds.length} удалённых событий другими пользователями:`, deletedIds);
             }
             
-            // Фильтруем события которые были удалены текущим пользователем
+            // Фильтруем события которые были удалены текущим пользовател��м
             const filtered = allEvents.filter(event => !deletedEventIdsRef.current.has(event.id));
             
             // ✅ КРИТИЧНО: МЕРЖИМ с локальными событиями вместо полной замены!
@@ -848,7 +935,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
         }
 
         setResources(prev => {
-          // Сравниваем с текущими ресурсами через JSON
+          // С��авниваем с текущими ресурсами через JSON
           const hasChanges = JSON.stringify(prev) !== JSON.stringify(serverResources);
 
           if (hasChanges) {
@@ -957,6 +1044,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
 
   // Clean up orphaned events
   useEffect(() => {
+    // isLoadingProjects and isLoadingEvents come from UIContext
     if (isLoadingProjects || isLoadingEvents) return;
     
     // ✅ КРИТИЧНО: Задержка 5 секунд перед cleanup
@@ -981,7 +1069,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
           // ✅ v3.3.13: КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ - правильный паттерн временных ID
           if (event.id.startsWith('e') && !event.id.startsWith('ev_temp_')) {
             eventsApi.delete(event.id, accessToken).catch(err => 
-              console.error(`❌ Ошибка удаления события ${event.id}:`, err)
+              console.error(`❌ ��шибка удаления события ${event.id}:`, err)
             );
           }
         });
@@ -993,6 +1081,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
 
   // Clean up invalid patterns in projects
   useEffect(() => {
+    // isLoadingProjects and isLoadingEventPatterns come from UIContext
     if (isLoadingProjects || isLoadingEventPatterns || !accessToken) return;
     
     const projectsWithInvalidPatterns = projects.filter(project => {
@@ -1046,6 +1135,10 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
         // console.log(`⚠️ Событие ${event.id} не отображается: сотрудник ${event.resourceId} не найден`);
         return false;
       }
+      // ✅ Проверяем видимость сотрудника
+      if (resource.visible === false) {
+        return false;
+      }
       const department = departments.find(d => d.id === resource.departmentId);
       if (department?.visible === false) {
         // console.log(`⚠️ Событие ${event.id} не отображается: департамент ${department.id} скрыт`);
@@ -1064,7 +1157,8 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
   const createEvent = useCallback(async (event: Partial<SchedulerEvent>): Promise<SchedulerEvent> => {
     // Валидация weeksSpan перед созданием
     const startWeek = event.startWeek || 0;
-    const maxWeeks = 52 - startWeek;
+    const weeksInYear = timelineYear ? getWeeksInYear(timelineYear) : 52; // ✅ Динамическое количество недель
+    const maxWeeks = weeksInYear - startWeek;
     const validWeeksSpan = Math.max(1, Math.min(event.weeksSpan || 1, maxWeeks));
     
     // ✅ ШАГ 1 v4.0.0: Генерируем УНИКАЛЬНЫЙ временный ID с рандомизацией
@@ -1322,6 +1416,60 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
     console.log('✅ Сотрудник удален:', id);
   }, [accessToken, workspaceId]);
 
+  const loadResources = useCallback(async () => {
+    try {
+      const data = await resourcesApi.getAll(accessToken, workspaceId);
+      
+      // 🔍 DEBUG: Log first resource in loadResources
+      if (data && data.length > 0) {
+        console.log('🔍 loadResources - ПЕРВЫЙ РЕСУРС:', JSON.stringify(data[0], null, 2));
+      }
+      
+      setResources(data);
+      
+      // Обновляем кэш
+      await setStorageJSON(`cache_resources_${workspaceId}`, data);
+      console.log('✅ Сотрудники перезагружены из API');
+    } catch (error) {
+      console.error('❌ Ошибка перезагрузки сотрудников:', error);
+      throw error;
+    }
+  }, [accessToken, workspaceId]);
+
+  const toggleUserVisibility = useCallback(async (id: string) => {
+    const result = await usersApi.toggleVisibility(id);
+    
+    // ВАЖНО: Используем функциональный setState для избежания stale closure
+    setResources(prev => {
+      const newResources = prev.map(r => {
+        if (r.id === id) {
+          // Robustly handle visibility property (API might return visible or isVisible)
+          const newVisible = result.visible ?? (result as any).isVisible;
+          
+          // Create new object securely
+          const updated = { ...r };
+          updated.visible = newVisible;
+          (updated as any).isVisible = newVisible;
+          
+          return updated;
+        }
+        return r;
+      });
+      
+      // Сохраняем в кэш асинхронно
+      setStorageJSON(`cache_resources_${workspaceId}`, newResources).catch(err => 
+        console.error('❌ Ошибка сохранения сотрудников в кэш:', err)
+      );
+      
+      return newResources;
+    });
+    
+    // Отмечаем что было локальное изменение
+    lastResourcesChangeRef.current = Date.now();
+    
+    console.log('✅ Видимость сотрудника обновлена:', id, '→', result.visible);
+  }, [accessToken, workspaceId]);
+
   const uploadUserAvatar = useCallback(async (userId: string, file: File): Promise<string> => {
     const avatarUrl = await usersApi.uploadAvatar(userId, file);
     console.log('✅ Аватар загружен для пользователя:', userId, '→', avatarUrl);
@@ -1457,9 +1605,27 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
       
       return newDepartments;
     });
+
+    // ✅ Обновляем локальные ресурсы: проставляем departmentId = null (пустая строка) для удаленного департамента
+    setResources(prev => {
+      const newResources = prev.map(r => {
+        if (r.departmentId === deptId) {
+          return { ...r, departmentId: '' };
+        }
+        return r;
+      });
+      
+      // Сохраняем в кэш асинхронно
+      setStorageJSON(`cache_resources_${workspaceId}`, newResources).catch(err => 
+        console.error('❌ Ошибка сохранения ресурсов в кэш после удаления департамента:', err)
+      );
+      
+      return newResources;
+    });
     
     // Отмечаем что было локальное изменение
     lastDepartmentsChangeRef.current = Date.now();
+    lastResourcesChangeRef.current = Date.now();
     
     console.log('✅ Де��артамент удален:', deptId);
   }, [accessToken, workspaceId]);
@@ -1568,7 +1734,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
       // Отмечаем что было локальное изменение
       lastDepartmentsChangeRef.current = Date.now();
       
-      console.log('✅ Видимость департамента обновлена:', deptId);
+      console.log('✅ Видимость департамента о��новлена:', deptId);
     } catch (error) {
       console.error('❌ Ошибка обновления видимости:', error);
       throw error;
@@ -1582,6 +1748,310 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
     return grade?.name;
   }, [grades]);
 
+  // Grade operations
+  const createGrade = useCallback(async (name: string) => {
+    try {
+      const newGrade = await gradesApi.create(name, workspaceId, accessToken);
+      
+      setGrades(prev => {
+        const newGrades = [...prev, newGrade];
+        
+        // Сохраняем в кэш асинхронно
+        setStorageJSON(`cache_grades_${workspaceId}`, newGrades).catch(err => 
+          console.error('❌ Ошибка сохранения грейдов в кэш:', err)
+        );
+        
+        return newGrades;
+      });
+      
+      console.log('✅ Грейд создан:', newGrade.name);
+    } catch (error) {
+      console.error('❌ Ошибка создания грейда:', error);
+      throw error;
+    }
+  }, [accessToken, workspaceId]);
+
+  const updateGrade = useCallback(async (gradeId: string, name: string) => {
+    try {
+      const updatedGrade = await gradesApi.update(gradeId, name, workspaceId, accessToken);
+      
+      setGrades(prev => {
+        const newGrades = prev.map(g => g.id === gradeId ? updatedGrade : g);
+        
+        // Сохраняем в кэш асинхронно
+        setStorageJSON(`cache_grades_${workspaceId}`, newGrades).catch(err => 
+          console.error('❌ Ошибка сохранения грейдов в кэш:', err)
+        );
+        
+        return newGrades;
+      });
+      
+      console.log('✅ Грейд обновлен:', updatedGrade.name);
+    } catch (error) {
+      console.error('❌ Ошибка обновления грейда:', error);
+      throw error;
+    }
+  }, [accessToken, workspaceId]);
+
+  const deleteGrade = useCallback(async (gradeId: string) => {
+    try {
+      await gradesApi.delete(gradeId, accessToken);
+      
+      setGrades(prev => {
+        const newGrades = prev.filter(g => g.id !== gradeId);
+        
+        // Сохраняем в кэш асинхронно
+        setStorageJSON(`cache_grades_${workspaceId}`, newGrades).catch(err => 
+          console.error('❌ Ошибка сохранения грейдов в кэш:', err)
+        );
+        
+        return newGrades;
+      });
+      
+      console.log('✅ Грейд удален:', gradeId);
+    } catch (error) {
+      console.error('❌ Ошибка удаления грейда:', error);
+      throw error;
+    }
+  }, [accessToken, workspaceId]);
+
+  const loadGrades = useCallback(async () => {
+    try {
+      const data = await gradesApi.getAll(Number(workspaceId), accessToken);
+      setGrades(data);
+      
+      // Обновляем кэш
+      await setStorageJSON(`cache_grades_${workspaceId}`, data);
+      console.log('✅ Грейды перезагружены из API');
+    } catch (error) {
+      console.error('❌ Ошибка перезагрузки грейдов:', error);
+      throw error;
+    }
+  }, [accessToken, workspaceId]);
+
+  // Company operations
+  const createCompany = useCallback(async (name: string) => {
+    try {
+      const newCompany = await companiesApi.create(name, workspaceId, accessToken);
+      
+      setCompanies(prev => {
+        const newCompanies = [...prev, newCompany];
+        
+        // Сохраняем в кэш асинхронно
+        setStorageJSON(`cache_companies_${workspaceId}`, newCompanies).catch(err => 
+          console.error('❌ Ошибка сохранения компаний в кэш:', err)
+        );
+        
+        return newCompanies;
+      });
+      
+      console.log('✅ Компания создана:', newCompany.name);
+    } catch (error) {
+      console.error('❌ Ошибка создания компании:', error);
+      throw error;
+    }
+  }, [accessToken, workspaceId]);
+
+  const updateCompany = useCallback(async (companyId: string, name: string) => {
+    try {
+      const updatedCompany = await companiesApi.update(companyId, name, workspaceId, accessToken);
+      
+      setCompanies(prev => {
+        const newCompanies = prev.map(c => c.id === companyId ? updatedCompany : c);
+        
+        // Сохраняем в кэш асинхронно
+        setStorageJSON(`cache_companies_${workspaceId}`, newCompanies).catch(err => 
+          console.error('❌ Ошибка сохранения компаний в кэш:', err)
+        );
+        
+        return newCompanies;
+      });
+      
+      console.log('✅ Компания обновлена:', updatedCompany.name);
+    } catch (error) {
+      console.error('❌ Ошибка обновления компании:', error);
+      throw error;
+    }
+  }, [accessToken, workspaceId]);
+
+  const deleteCompany = useCallback(async (companyId: string) => {
+    try {
+      await companiesApi.delete(companyId, accessToken);
+      
+      setCompanies(prev => {
+        const newCompanies = prev.filter(c => c.id !== companyId);
+        
+        // Сохраняем в кэш асинхронно
+        setStorageJSON(`cache_companies_${workspaceId}`, newCompanies).catch(err => 
+          console.error('❌ Ошибка сохранения компаний в кэш:', err)
+        );
+        
+        return newCompanies;
+      });
+      
+      console.log('✅ Компания удалена:', companyId);
+    } catch (error) {
+      console.error('❌ Ошибка удаления компании:', error);
+      throw error;
+    }
+  }, [accessToken, workspaceId]);
+
+  const loadCompanies = useCallback(async () => {
+    try {
+      const data = await companiesApi.getAll(workspaceId, accessToken);
+      setCompanies(data);
+      
+      // Обновляем кэш
+      await setStorageJSON(`cache_companies_${workspaceId}`, data);
+      console.log('✅ Компании перезагружены из API');
+    } catch (error) {
+      console.error('❌ Ошибка перезагрузки компаний:', error);
+      throw error;
+    }
+  }, [accessToken, workspaceId]);
+
+  // Batch update grades sort order
+  const updateGradesSortOrder = useCallback(async (updates: Array<{ id: string; sortOrder: number }>) => {
+    try {
+      console.log(`🎓 Batch update sort_order для ${updates.length} грейдов`);
+      await gradesApi.updateSortOrder(updates, accessToken);
+      
+      // Reload grades to get updated sort_order
+      await loadGrades();
+      
+      console.log('✅ Порядок грейдов обновлён');
+    } catch (error) {
+      console.error('❌ Ошибка обновления порядка грейдов:', error);
+      throw error;
+    }
+  }, [accessToken, loadGrades]);
+
+  // Batch update companies sort order
+  const updateCompaniesSortOrder = useCallback(async (updates: Array<{ id: string; sortOrder: number }>) => {
+    try {
+      console.log(`🏢 Batch update sort_order для ${updates.length} компаний`);
+      await companiesApi.updateSortOrder(updates, accessToken);
+      
+      // Reload companies to get updated sort_order
+      await loadCompanies();
+      
+      console.log('✅ Порядок компаний обновлён');
+    } catch (error) {
+      console.error('❌ Ошибка обновления порядка компаний:', error);
+      throw error;
+    }
+  }, [accessToken, loadCompanies]);
+
+  // Comment operations
+  const createComment = useCallback(async (data: { userId: string; userDisplayName: string; authorAvatarUrl?: string; comment: string; weekDate: string; weekIndex?: number }) => {
+    if (!accessToken || !workspaceId) throw new Error("No access token or workspace ID");
+    
+    // Optimistic update
+    const tempId = String(-Date.now()); // Negative ID for temp, converted to string
+    const tempComment: Comment = {
+      id: tempId,
+      workspaceId: String(workspaceId),
+      userId: data.userId,
+      userDisplayName: data.userDisplayName,
+      authorAvatarUrl: data.authorAvatarUrl,
+      comment: data.comment,
+      weekDate: data.weekDate,
+      weekIndex: data.weekIndex, // Pass optimistic weekIndex
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    
+    setComments(prev => [...prev, tempComment]);
+    
+    try {
+      const newComment = await commentsApi.createComment({
+        ...data,
+        workspaceId
+      }, accessToken);
+      
+      setComments(prev => prev.map(c => c.id === tempId ? {
+        ...newComment,
+        // Preserve author info if missing in response
+        authorAvatarUrl: newComment.authorAvatarUrl || c.authorAvatarUrl,
+        userDisplayName: newComment.userDisplayName || c.userDisplayName
+      } : c));
+      return newComment;
+    } catch (error) {
+      setComments(prev => prev.filter(c => c.id !== tempId));
+      throw error;
+    }
+  }, [accessToken, workspaceId]);
+
+  const updateComment = useCallback(async (id: string, text: string) => {
+    if (!accessToken) throw new Error("No access token");
+    if (!workspaceId) throw new Error("No workspace ID");
+    
+    // Optimistic update
+    setComments(prev => prev.map(c => c.id === id ? { ...c, comment: text, updatedAt: new Date().toISOString() } : c));
+    
+    try {
+      const updated = await commentsApi.updateComment(id, String(workspaceId), text, undefined, undefined, accessToken);
+      setComments(prev => prev.map(c => c.id === id ? {
+        ...updated,
+        // Preserve author info if missing in response
+        authorAvatarUrl: updated.authorAvatarUrl || c.authorAvatarUrl,
+        userDisplayName: updated.userDisplayName || c.userDisplayName
+      } : c));
+      return updated;
+    } catch (error) {
+      if (workspaceId) {
+        commentsApi.fetchComments(String(workspaceId), accessToken).then(setComments);
+      }
+      throw error;
+    }
+  }, [accessToken, workspaceId]);
+
+  const moveComment = useCallback(async (id: string, newWeekIndex: number, newUserId: string) => {
+    if (!accessToken) throw new Error("No access token");
+    if (!workspaceId) throw new Error("No workspace ID");
+    
+    // Optimistic update
+    setComments(prev => prev.map(c => {
+       if (c.id === id) {
+         return { ...c, weekIndex: newWeekIndex, userId: newUserId, updatedAt: new Date().toISOString() };
+       }
+       return c;
+    }));
+    
+    try {
+      const updated = await commentsApi.updateComment(id, String(workspaceId), undefined, newWeekIndex, newUserId, accessToken);
+      setComments(prev => prev.map(c => c.id === id ? {
+        ...updated,
+        // Preserve author info if missing in response
+        authorAvatarUrl: updated.authorAvatarUrl || c.authorAvatarUrl,
+        userDisplayName: updated.userDisplayName || c.userDisplayName
+      } : c));
+      return updated;
+    } catch (error) {
+      // Revert on error
+      if (workspaceId) {
+        commentsApi.fetchComments(String(workspaceId), accessToken).then(setComments);
+      }
+      throw error;
+    }
+  }, [accessToken, workspaceId]);
+
+  const deleteComment = useCallback(async (id: string) => {
+    if (!accessToken) throw new Error("No access token");
+    if (!workspaceId) throw new Error("No workspace ID");
+    
+    // Optimistic update
+    const previousComments = comments;
+    setComments(prev => prev.filter(c => c.id !== id));
+    
+    try {
+      await commentsApi.deleteComment(id, String(workspaceId), accessToken);
+    } catch (error) {
+      setComments(previousComments);
+      throw error;
+    }
+  }, [accessToken, comments, workspaceId]);
+
   // ✅ Мемоизируем value объект чтобы избежать пересоздания при каждом рендере
   // Это предотвращает warning "Cannot update component while rendering"
   const contextValue = useMemo(() => ({
@@ -1592,8 +2062,9 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
     grades,
     eventPatterns,
     companies,
-    isLoading,
-    isLoadingResources, // ✅ Экспорт для блокировки рендера событий
+    comments, // ✅ Комментарии
+    // isLoading removed (moved to UIContext)
+    // isLoadingResources removed (moved to UIContext)
     visibleDepartments,
     visibleEvents,
     createEvent,
@@ -1616,6 +2087,8 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
     createResource,
     updateResource,
     deleteResource,
+    loadResources,
+    toggleUserVisibility,
     uploadUserAvatar,
     createProject,
     updateProject,
@@ -1628,6 +2101,20 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
     reorderDepartments,
     toggleDepartmentVisibility,
     getGradeName,
+    createGrade,
+    updateGrade,
+    deleteGrade,
+    loadGrades,
+    updateGradesSortOrder,
+    createCompany,
+    updateCompany,
+    deleteCompany,
+    loadCompanies,
+    updateCompaniesSortOrder,
+    createComment,
+    updateComment,
+    moveComment,
+    deleteComment,
     setHistoryIdUpdater, // ✅ Export setHistoryIdUpdater
     loadedEventIds: loadedEventIds.current
   }), [
@@ -1638,8 +2125,9 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
     grades,
     eventPatterns,
     companies,
-    isLoading,
-    isLoadingResources,
+    comments,
+    // isLoading,
+    // isLoadingResources,
     visibleDepartments,
     visibleEvents,
     createEvent,
@@ -1657,6 +2145,8 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
     createResource,
     updateResource,
     deleteResource,
+    loadResources,
+    toggleUserVisibility,
     uploadUserAvatar,
     createProject,
     updateProject,
@@ -1668,7 +2158,20 @@ export function SchedulerProvider({ children, accessToken, workspaceId }: Schedu
     renameDepartment,
     reorderDepartments,
     toggleDepartmentVisibility,
-    getGradeName
+    getGradeName,
+    createGrade,
+    updateGrade,
+    deleteGrade,
+    loadGrades,
+    updateGradesSortOrder,
+    createCompany,
+    updateCompany,
+    deleteCompany,
+    loadCompanies,
+    updateCompaniesSortOrder,
+    createComment,
+    updateComment,
+    deleteComment
   ]);
 
   return (

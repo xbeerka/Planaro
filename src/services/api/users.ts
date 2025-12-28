@@ -41,4 +41,37 @@ export const usersApi = {
     console.log('✅ Аватар успешно загружен:', data.avatarUrl);
     return data.avatarUrl;
   },
+
+  /**
+   * Переключает видимость пользователя (скрыть/показать)
+   * @param userId - ID пользователя (с префиксом 'r')
+   * @returns Обновленные данные видимости
+   */
+  async toggleVisibility(userId: string): Promise<{ id: string; visible: boolean }> {
+    const accessToken = await getStorageItem('auth_access_token');
+    if (!accessToken) {
+      console.error('❌ Токен доступа не найден в IndexedDB');
+      throw new Error('Не авторизован');
+    }
+
+    console.log('👁️ Переключение видимости пользователя:', userId);
+
+    const response = await fetch(`${API_BASE}/resources/${userId}/visibility`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('❌ Ошибка от сервера:', error);
+      throw new Error(`Failed to toggle visibility: ${error}`);
+    }
+
+    const data = await response.json();
+    console.log('✅ Видимость пользователя обновлена:', data);
+    return data;
+  },
 };

@@ -1,33 +1,24 @@
+import { X, Filter, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+
 import { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import svgPaths from "./svg-yurl9oiucn";
 import svgPathsNew from "./svg-bl5oypf3kt";
+import svgPathsIcons from "./svg-k2ncor8zr6";
 import imgAvatarOnline from "figma:asset/13999075da141928723b8c42fbe1a97dc4a5be20.png";
 import imgAvatarOnline1 from "figma:asset/5bd0f85444d9f77271656b5be7fa3c91c10a9579.png";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
-import { HeaderOnlineUsers } from "../components/scheduler/HeaderOnlineUsers";
-import svgPathsActive from "./svg-jys0cyf1sl";
-import svgPathsInactive from "./svg-58ntncjlc7";
+import { HighlightText } from "../components/ui/HighlightText";
+import { Switch } from "../components/ui/switch";
 import { useFilters } from "../contexts/FilterContext";
 import { useSettings } from "../contexts/SettingsContext";
-import { X, Filter } from "lucide-react";
-
-interface Company {
-  id: string;
-  name: string;
-}
-
-interface Department {
-  id: string;
-  name: string;
-  queue?: number;
-}
-
-interface Project {
-  id: string;
-  name: string;
-  backgroundColor: string;
-  textColor: string;
-}
+import { useUI } from "../contexts/UIContext";
+import { HeaderOnlineUsers } from "../components/scheduler/HeaderOnlineUsers";
+import { smartSearch } from "../utils/search";
+import { Company } from "../types/Company";
+import { Department } from "../types/Department";
+import { Project } from "../types/Project";
 
 interface HeaderProps {
   workspaceId?: string;
@@ -39,6 +30,11 @@ interface HeaderProps {
   companies?: Company[];
   departments?: Department[];
   projects?: Project[];
+  canUndo?: boolean;
+  canRedo?: boolean;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  sidebarCollapsed?: boolean; // ✨ Новый проп для адаптивности
 }
 
 type Mode = "cursor" | "scissors" | "comment";
@@ -70,26 +66,22 @@ function ModeButton({
 
 function CursorIcon({ active }: { active: boolean }) {
   return (
-    <div className="relative shrink-0 size-[20px]">
+    <div className="relative shrink-0 size-[20px]" data-name={active ? "cursor_active" : "cursor_rest"}>
       <svg
         className="block size-full"
         fill="none"
         preserveAspectRatio="none"
-        viewBox="0 0 20 20"
+        viewBox="0 0 16 16"
       >
-        <g id="Frame 23">
+        <g id={active ? "cursor_active" : "cursor_rest"}>
           <path
-            d={
-              active
-                ? svgPathsActive.p3b7a5900
-                : svgPathsInactive.p21785580
-            }
+            d={active ? svgPathsIcons.p268b500 : svgPathsIcons.pb4a2500}
             fill={
               active
                 ? "var(--fill-0, #0062FF)"
                 : "var(--fill-0, black)"
             }
-            id="Vector 193"
+            id="Vector"
           />
         </g>
       </svg>
@@ -101,39 +93,24 @@ function ScissorsIcon({ active }: { active: boolean }) {
   return (
     <div
       className="relative shrink-0 size-[20px]"
-      data-name="Icon"
+      data-name={active ? "scissors_active" : "scissors_rest"}
     >
       <svg
         className="block size-full"
         fill="none"
         preserveAspectRatio="none"
-        viewBox="0 0 20 20"
+        viewBox="0 0 16 16"
       >
-        <g id="Icon">
-          <g id="Union">
-            <path
-              clipRule="evenodd"
-              d={
-                active
-                  ? svgPathsActive.p260f3480
-                  : svgPathsInactive.p382f7100
-              }
-              fill={
-                active
-                  ? "var(--fill-0, #0062FF)"
-                  : "var(--fill-0, black)"
-              }
-              fillRule="evenodd"
-            />
-            <path
-              d={svgPathsActive.p33398ea8}
-              fill={
-                active
-                  ? "var(--fill-0, #0062FF)"
-                  : "var(--fill-0, black)"
-              }
-            />
-          </g>
+        <g id={active ? "scissors_active" : "scissors_rest"}>
+          <path
+            d={active ? svgPathsIcons.p201fc180 : svgPathsIcons.pd69ce00}
+            fill={
+              active
+                ? "var(--fill-0, #0062FF)"
+                : "var(--fill-0, black)"
+            }
+            id="Vector"
+          />
         </g>
       </svg>
     </div>
@@ -144,27 +121,23 @@ function CommentIcon({ active }: { active: boolean }) {
   return (
     <div
       className="relative shrink-0 size-[20px]"
-      data-name="Icon"
+      data-name={active ? "comment_active" : "comment_rest"}
     >
       <svg
         className="block size-full"
         fill="none"
         preserveAspectRatio="none"
-        viewBox="0 0 20 20"
+        viewBox="0 0 16 16"
       >
-        <g id="Icon">
+        <g id={active ? "comment_active" : "comment_rest"}>
           <path
-            d={
-              active
-                ? svgPathsActive.p220c8000
-                : svgPathsInactive.p336f1c00
-            }
+            d={active ? svgPathsIcons.p265f9c00 : svgPathsIcons.pda47100}
             fill={
               active
                 ? "var(--fill-0, #0062FF)"
                 : "var(--fill-0, black)"
             }
-            id="Vector (Stroke)"
+            id="Vector"
           />
         </g>
       </svg>
@@ -175,10 +148,14 @@ function CommentIcon({ active }: { active: boolean }) {
 function Frame4(props: HeaderProps) {
   const {
     scissorsMode,
-    commentMode,
     onToggleScissors,
-    onToggleComment,
+    canUndo = false,
+    canRedo = false,
+    onUndo,
+    onRedo,
   } = props;
+
+  const { commentMode, setCommentMode, handleToggleComment } = useUI();
 
   // Determine current mode
   const isScissors = !!scissorsMode;
@@ -187,19 +164,52 @@ function Frame4(props: HeaderProps) {
 
   const handleCursorClick = () => {
     if (isScissors && onToggleScissors) onToggleScissors();
-    if (isComment && onToggleComment) onToggleComment();
+    if (isComment) setCommentMode(false);
   };
 
   const handleScissorsClick = () => {
+    if (isComment) setCommentMode(false);
     if (onToggleScissors) onToggleScissors();
   };
 
   const handleCommentClick = () => {
-    if (onToggleComment) onToggleComment();
+    if (isScissors && onToggleScissors) onToggleScissors();
+    handleToggleComment();
   };
 
   return (
-    <div className="content-stretch flex gap-[12px] items-center relative shrink-0">
+    <div className="content-stretch flex gap-[12px] items-center relative shrink-0 max-md:hidden">
+      {/* Navigation buttons group */}
+      <div className="box-border content-stretch flex items-center relative rounded-[12px] shrink-0">
+        <div
+          aria-hidden="true"
+          className="absolute border-[0.8px] border-[rgba(0,0,0,0.12)] border-solid inset-0 pointer-events-none rounded-[12px] z-10"
+        />
+        <button
+          onClick={onUndo}
+          disabled={!canUndo}
+          className={`p-[8px] transition-colors rounded-l-[12px] relative ${canUndo ? "hover:bg-gray-50 cursor-pointer" : "cursor-not-allowed"}`}
+        >
+          <ChevronLeft
+            className={`w-5 h-5 transition-opacity ${!canUndo ? "opacity-40" : ""}`}
+          />
+        </button>
+        <div className="w-[1px] h-5 bg-[rgba(0,0,0,0.12)]" />
+        <button
+          onClick={onRedo}
+          disabled={!canRedo}
+          className={`p-[8px] transition-colors rounded-r-[12px] relative ${canRedo ? "hover:bg-gray-50 cursor-pointer" : "cursor-not-allowed"}`}
+        >
+          <ChevronRight
+            className={`w-5 h-5 transition-opacity ${!canRedo ? "opacity-40" : ""}`}
+          />
+        </button>
+      </div>
+
+      {/* Separator */}
+      <div className="w-[1px] h-6 bg-gray-300 shrink-0" />
+
+      {/* Tool buttons */}
       <ModeButton
         active={isCursor}
         icon={<CursorIcon active={isCursor} />}
@@ -322,26 +332,49 @@ function IconlyLightArrowUp() {
   );
 }
 
-function IconlyRegularLightArrowUp() {
-  return (
-    <div
-      className="relative shrink-0 size-[20px]"
-      data-name="Iconly/Regular/Light/Arrow - Up 2"
-    >
-      <div className="absolute flex items-center justify-center left-1/2 size-[16px] top-1/2 translate-x-[-50%] translate-y-[-50%]">
-        <div className="flex-none">
-          <IconlyLightArrowUp />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Input6() {
-  const { weekPx, eventRowH, setWeekPx, setEventRowH } =
-    useSettings();
+function Input6({ sidebarCollapsed }: HeaderProps) {
+  const {
+    weekPx,
+    eventRowH,
+    setWeekPx,
+    setEventRowH,
+    showGaps,
+    setShowGaps,
+    showPatterns,
+    setShowPatterns,
+    showProjectWeight,
+    setShowProjectWeight,
+    showSeparators,
+    setShowSeparators,
+  } = useSettings();
   const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Drag-to-dismiss state
+  const [dragStartY, setDragStartY] = useState<number | null>(
+    null,
+  );
+  const [dragOffset, setDragOffset] = useState(0);
+
+  // Position state for desktop
+  const [dropdownPosition, setDropdownPosition] = useState({
+    top: 0,
+    right: 0,
+  });
+
+  // Toggle handler with position calculation
+  const toggleDropdown = () => {
+    if (!isOpen && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      setDropdownPosition({
+        top: rect.bottom + 8,
+        right: window.innerWidth - rect.right,
+      });
+    }
+    setIsOpen(!isOpen);
+  };
 
   // Предустановки для ширины недели
   const weekPresets = [
@@ -364,7 +397,9 @@ function Input6() {
     const handleClickOutside = (e: MouseEvent) => {
       if (
         dropdownRef.current &&
-        !dropdownRef.current.contains(e.target as Node)
+        !dropdownRef.current.contains(e.target as Node) &&
+        containerRef.current &&
+        !containerRef.current.contains(e.target as Node)
       ) {
         setIsOpen(false);
       }
@@ -383,11 +418,39 @@ function Input6() {
     }
   }, [isOpen]);
 
+  // Drag-to-dismiss handlers
+  const handleTouchStart = (e: React.TouchEvent) => {
+    setDragStartY(e.touches[0].clientY);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (dragStartY === null) return;
+
+    const currentY = e.touches[0].clientY;
+    const offset = currentY - dragStartY;
+
+    if (offset > 0) {
+      const resistance = 0.6;
+      setDragOffset(offset * resistance);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (dragStartY === null) return;
+
+    if (dragOffset > 80) {
+      setIsOpen(false);
+    }
+
+    setDragStartY(null);
+    setDragOffset(0);
+  };
+
   return (
-    <div ref={dropdownRef} className="relative">
+    <div ref={containerRef} className="relative">
       <div
-        onClick={() => setIsOpen(!isOpen)}
-        className="box-border content-stretch flex gap-[6px] items-center justify-center px-[12px] py-[8px] relative rounded-[12px] shrink-0 cursor-pointer hover:bg-gray-50 transition-colors"
+        onClick={toggleDropdown}
+        className={`box-border content-stretch flex gap-[6px] items-center justify-center ${sidebarCollapsed ? "px-[8px]" : "px-[12px] max-md:px-[8px]"} py-[8px] relative rounded-[12px] shrink-0 cursor-pointer hover:bg-gray-50 transition-colors`}
         data-name="input"
       >
         <div
@@ -396,71 +459,177 @@ function Input6() {
         />
         <IconLineCalendarActive />
         <p className="font-medium leading-[20px] relative shrink-0 text-[12px] text-black text-nowrap whitespace-pre">{`Вид `}</p>
-        <div
-          className={`transition-transform ${isOpen ? "" : "rotate-180"}`}
-        >
-          <IconlyRegularLightArrowUp />
-        </div>
       </div>
 
-      {/* Дропдаун с настройками */}
-      {isOpen && (
-        <div className="absolute top-[calc(100%+8px)] right-0 bg-white rounded-[12px] shadow-lg border border-gray-200 z-50 w-[320px] py-4">
-          {/* Ширина недели */}
-          <div className="px-4 mb-4">
-            <p className="text-xs font-medium text-gray-600 mb-2">
-              Ширина недели
-            </p>
-            <div className="grid grid-cols-2 gap-2">
-              {weekPresets.map((preset) => (
-                <button
-                  key={preset.value}
-                  onClick={() => {
-                    console.log(
-                      `🎨 Изменение ширины недели: ${weekPx}px → ${preset.value}px`,
-                    );
-                    setWeekPx(preset.value);
-                  }}
-                  className={`px-3 py-2 rounded-lg text-xs font-medium transition-all ${
-                    weekPx === preset.value
-                      ? "bg-[#0062FF] text-white shadow-sm"
-                      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                  }`}
-                >
-                  {preset.label}
-                </button>
-              ))}
-            </div>
-          </div>
+      {/* Overlay для мобилки */}
+      {isOpen &&
+        createPortal(
+          <div
+            className="md:hidden fixed inset-0 bg-black/40 z-[9998] transition-opacity duration-300"
+            onClick={() => setIsOpen(false)}
+          />,
+          document.body,
+        )}
 
-          {/* Высота строки */}
-          <div className="px-4">
-            <p className="text-xs font-medium text-gray-600 mb-2">
-              Высота строки
-            </p>
-            <div className="grid grid-cols-2 gap-2">
-              {heightPresets.map((preset) => (
-                <button
-                  key={preset.value}
-                  onClick={() => {
-                    console.log(
-                      `🎨 Изменение высоты строки: ${eventRowH}px → ${preset.value}px`,
-                    );
-                    setEventRowH(preset.value);
-                  }}
-                  className={`px-3 py-2 rounded-lg text-xs font-medium transition-all ${
-                    eventRowH === preset.value
-                      ? "bg-[#0062FF] text-white shadow-sm"
-                      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                  }`}
-                >
-                  {preset.label}
-                </button>
-              ))}
+      {/* Дропдаун с настройками */}
+      {isOpen &&
+        createPortal(
+          <div
+            ref={dropdownRef}
+            style={{
+              transform: `translateY(${dragOffset}px)`,
+              transition:
+                dragStartY === null
+                  ? "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)"
+                  : "none",
+              // Позиционирование для десктопа
+              ...(window.innerWidth >= 768 && {
+                position: "fixed",
+                top: `${dropdownPosition.top}px`,
+                right: `${dropdownPosition.right}px`,
+              }),
+            }}
+            className="md:w-[320px] md:max-h-[500px] md:rounded-[12px] max-md:fixed max-md:bottom-0 max-md:left-0 max-md:right-0 max-md:w-full max-md:h-[calc(100dvh-120px)] max-md:rounded-t-[28px] bg-white md:shadow-lg md:border md:border-gray-200 max-md:shadow-[0_-8px_32px_rgba(0,0,0,0.12)] z-[10000] overflow-hidden flex flex-col"
+          >
+            {/* Drag Handle (толко на мобилке) */}
+            <div
+              className="md:hidden flex justify-center pt-4 pb-3 cursor-grab active:cursor-grabbing"
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
+            >
+              <div className="w-12 h-[5px] bg-gray-300 rounded-full transition-colors active:bg-gray-400" />
             </div>
-          </div>
-        </div>
-      )}
+
+            {/* Заголовок */}
+            <div className="px-4 py-4 max-md:py-3 border-b border-gray-200 flex items-center justify-between min-h-[60px]">
+              <h3 className="font-semibold text-base max-md:text-[19px]">
+                Настройки вида
+              </h3>
+              <button
+                onClick={() => setIsOpen(false)}
+                className="md:hidden p-2 hover:bg-gray-100 rounded-lg transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                aria-label="Закрыть"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Содержимое настроек */}
+            <div className="overflow-y-auto flex-1 px-4 py-4 space-y-6">
+              {/* Ширина недели */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-gray-900">
+                    Ширина недели
+                  </span>
+                  <span className="text-sm text-gray-500">
+                    {weekPx}px
+                  </span>
+                </div>
+                <div className="grid grid-cols-4 gap-2">
+                  {[
+                    { label: "XS", value: 48 },
+                    { label: "S", value: 120 },
+                    { label: "M", value: 180 },
+                    { label: "L", value: 220 },
+                  ].map((preset) => (
+                    <button
+                      key={preset.value}
+                      onClick={() => setWeekPx(preset.value)}
+                      className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                        weekPx === preset.value
+                          ? "bg-[#0062FF] text-white"
+                          : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Высота строки */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-gray-900">
+                    Высота строки
+                  </span>
+                  <span className="text-sm text-gray-500">
+                    {eventRowH}px
+                  </span>
+                </div>
+                <div className="grid grid-cols-4 gap-2">
+                  {[
+                    { label: "XS", value: 48 },
+                    { label: "S", value: 96 },
+                    { label: "M", value: 120 },
+                    { label: "L", value: 144 },
+                  ].map((preset) => (
+                    <button
+                      key={preset.value}
+                      onClick={() => setEventRowH(preset.value)}
+                      className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                        eventRowH === preset.value
+                          ? "bg-[#0062FF] text-white"
+                          : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Разделитель */}
+              <div className="border-t border-gray-200" />
+
+              {/* Свитчи */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-900">
+                    Показывать отступы
+                  </span>
+                  <Switch
+                    checked={showGaps}
+                    onCheckedChange={setShowGaps}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-900">
+                    Показывать паттерны
+                  </span>
+                  <Switch
+                    checked={showPatterns}
+                    onCheckedChange={setShowPatterns}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-900">
+                    Показывать вес проектов
+                  </span>
+                  <Switch
+                    checked={showProjectWeight}
+                    onCheckedChange={setShowProjectWeight}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-900">
+                    Разделитель строк
+                  </span>
+                  <Switch
+                    checked={showSeparators}
+                    onCheckedChange={setShowSeparators}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
@@ -539,11 +708,20 @@ function Frame1({ workspaceId, accessToken }: HeaderProps) {
 }
 
 function Frame2(props: HeaderProps) {
+  const { sidebarCollapsed = false } = props;
+
   return (
     <div className="content-stretch flex gap-[16px] items-center relative shrink-0">
-      <Container {...props} />
-      <Input6 />
-      <Frame1 {...props} />
+      <Container
+        {...props}
+        sidebarCollapsed={sidebarCollapsed}
+      />
+      <Input6 sidebarCollapsed={sidebarCollapsed} />
+      {!sidebarCollapsed && (
+        <div className="max-md:hidden">
+          <Frame1 {...props} />
+        </div>
+      )}
     </div>
   );
 }
@@ -573,9 +751,11 @@ function Boxheader(props: HeaderProps) {
 }
 
 export default function Header(props: HeaderProps) {
+  const { sidebarCollapsed = false } = props;
+
   return (
     <div
-      className="box-border content-stretch flex flex-col gap-2 items-start p-2 relative h-full w-full"
+      className="box-border content-stretch flex flex-col gap-2 items-start p-2 w-full relative h-full"
       data-name="header"
     >
       <Boxheader {...props} />
@@ -588,6 +768,7 @@ function Container(props: HeaderProps) {
     companies = [],
     departments = [],
     projects = [],
+    sidebarCollapsed = false,
   } = props;
   const {
     enabledCompanies,
@@ -605,8 +786,22 @@ function Container(props: HeaderProps) {
   const [activeTab, setActiveTab] = useState<
     "company" | "department" | "project"
   >("project");
+  const [searchQuery, setSearchQuery] = useState(""); // ✨ Состояние поиска
   const containerRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Drag-to-dismiss state
+  const [dragStartY, setDragStartY] = useState<number | null>(
+    null,
+  );
+  const [dragOffset, setDragOffset] = useState(0);
+
+  // Позиция dropdown для десктопа
+  const [dropdownPosition, setDropdownPosition] = useState({
+    top: 0,
+    right: 0,
+  });
 
   // Общий счетчик активных фильтров
   const totalFilters =
@@ -614,12 +809,26 @@ function Container(props: HeaderProps) {
     enabledDepartments.size +
     enabledProjects.size;
 
+  // Toggle dropdown handler with immediate position calculation
+  const toggleDropdown = () => {
+    if (!isOpen && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      setDropdownPosition({
+        top: rect.bottom + 8,
+        right: window.innerWidth - rect.right,
+      });
+    }
+    setIsOpen(!isOpen);
+  };
+
   // Закрытие по клику вне дропдауна
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (
         dropdownRef.current &&
-        !dropdownRef.current.contains(e.target as Node)
+        !dropdownRef.current.contains(e.target as Node) &&
+        containerRef.current &&
+        !containerRef.current.contains(e.target as Node)
       ) {
         setIsOpen(false);
       }
@@ -638,6 +847,39 @@ function Container(props: HeaderProps) {
     }
   }, [isOpen]);
 
+  // Drag-to-dismiss handlers
+  const handleTouchStart = (e: React.TouchEvent) => {
+    // Запоминаем начальную позицию касания
+    setDragStartY(e.touches[0].clientY);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (dragStartY === null) return;
+
+    const currentY = e.touches[0].clientY;
+    const offset = currentY - dragStartY;
+
+    // Разрешаем только свайп вниз (с небольшим сопротивлением)
+    if (offset > 0) {
+      // Добавляем resistance для более приятного UX
+      const resistance = 0.6; // Чем меньше, тем больше сопротивление
+      setDragOffset(offset * resistance);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (dragStartY === null) return;
+
+    // Закрываем если протянули больше 80px (с учетом resistance)
+    if (dragOffset > 80) {
+      setIsOpen(false);
+    }
+
+    // Сброс
+    setDragStartY(null);
+    setDragOffset(0);
+  };
+
   // Очистка всех фильтров
   const handleClearAll = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -646,6 +888,11 @@ function Container(props: HeaderProps) {
     setEnabledProjects(new Set());
     console.log("🧹 Все фильтры очищены");
   };
+
+  // Сброс поиска при смене вкладки
+  useEffect(() => {
+    setSearchQuery("");
+  }, [activeTab]);
 
   // Получение текущих данных для активной вкладки
   const getCurrentData = () => {
@@ -673,171 +920,264 @@ function Container(props: HeaderProps) {
 
   const { items, selectedIds, onToggle } = getCurrentData();
 
+  // Умная фильтрация по поисковому запросу
+  const filteredItems = items.filter((item) => {
+    if (!searchQuery) return true;
+
+    // Для проектов ищем по name и id
+    if ("backgroundColor" in item) {
+      const targetText = [item.name, item.id]
+        .filter(Boolean)
+        .join(" ");
+      return smartSearch(searchQuery, targetText);
+    }
+
+    // Для департаментов и компаний ищем только по name
+    return smartSearch(searchQuery, item.name);
+  });
+
   return (
     <div ref={containerRef} className="relative">
       {/* Кнопка "Фильтр" */}
       <div
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={toggleDropdown}
         className="box-border content-stretch flex gap-[6px] items-center justify-center px-[12px] py-[8px] relative rounded-[12px] shrink-0 cursor-pointer hover:bg-gray-50 transition-colors"
         data-name="container"
       >
         <div
           aria-hidden="true"
-          className="absolute border-[0.8px] border-[rgba(0,0,0,0.12)] border-solid inset-0 pointer-events-none rounded-[12px]"
+          className={`absolute border-[0.8px] ${totalFilters > 0 ? "border-[#0062FF]" : "border-[rgba(0,0,0,0.12)]"} border-solid inset-0 pointer-events-none rounded-[12px]`}
         />
 
-        <Filter className="w-[16px] h-[16px] text-black" />
-        <p className="font-medium leading-[20px] relative shrink-0 text-[12px] text-black text-nowrap whitespace-pre">
+        <div className="relative shrink-0 size-[20px] flex items-center justify-center">
+          <Filter
+            className={`w-[16px] h-[16px] ${totalFilters > 0 ? "text-[#0062FF]" : "text-black"}`}
+          />
+        </div>
+
+        <p
+          className={`font-medium leading-[20px] relative shrink-0 text-[12px] ${totalFilters > 0 ? "text-[#0062FF]" : "text-black"} text-nowrap whitespace-pre`}
+        >
           Фильтр
         </p>
-
-        {/* Счетчик активных фильтров */}
-        {totalFilters > 0 && (
-          <div className="flex items-center justify-center min-w-[18px] h-[18px] px-[5px] rounded-full bg-[#0062FF]">
-            <span className="text-white text-[11px] font-medium leading-none">
-              {totalFilters}
-            </span>
-          </div>
-        )}
       </div>
 
+      {/* Overlay для мобилки */}
+      {isOpen &&
+        createPortal(
+          <div
+            className="md:hidden fixed inset-0 bg-black/40 z-[9998] transition-opacity duration-300"
+            onClick={() => setIsOpen(false)}
+          />,
+          document.body,
+        )}
+
       {/* Дропдаун с вкладками */}
-      {isOpen && (
-        <div
-          ref={dropdownRef}
-          className="absolute top-[calc(100%+8px)] right-0 bg-white rounded-[12px] shadow-lg border border-gray-200 z-50 w-[340px] max-h-[450px] overflow-hidden flex flex-col"
-        >
-          {/* Заголовок с кнопкой "Очистить всё" */}
-          <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-            <h3 className="font-medium text-sm">Фильтры</h3>
-            {totalFilters > 0 && (
-              <button
-                onClick={handleClearAll}
-                className="text-xs text-[#0062FF] hover:text-[#0052CC] font-medium transition-colors"
-              >
-                Очистить всё
-              </button>
-            )}
-          </div>
-
-          {/* Вкладки */}
-          <div className="flex border-b border-gray-200 px-4">
-            <button
-              onClick={() => setActiveTab("project")}
-              className={`flex-1 px-3 py-2 text-xs font-medium transition-colors relative ${
-                activeTab === "project"
-                  ? "text-[#0062FF]"
-                  : "text-gray-600 hover:text-gray-900"
-              }`}
+      {isOpen &&
+        createPortal(
+          <div
+            ref={dropdownRef}
+            style={{
+              transform: `translateY(${dragOffset}px)`,
+              transition:
+                dragStartY === null
+                  ? "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)"
+                  : "none",
+              // Позиционирование для десктопа
+              ...(window.innerWidth >= 768 && {
+                position: "fixed",
+                top: `${dropdownPosition.top}px`,
+                right: `${dropdownPosition.right}px`,
+              }),
+            }}
+            className="md:w-[340px] md:max-h-[450px] md:rounded-[12px] max-md:fixed max-md:bottom-0 max-md:left-0 max-md:right-0 max-md:w-full max-md:h-[calc(100dvh-120px)] max-md:rounded-t-[28px] bg-white md:shadow-lg md:border md:border-gray-200 max-md:shadow-[0_-8px_32px_rgba(0,0,0,0.12)] z-[9999] overflow-hidden flex flex-col"
+          >
+            {/* Drag Handle (только на мобилке) */}
+            <div
+              className="md:hidden flex justify-center pt-4 pb-3 cursor-grab active:cursor-grabbing"
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
             >
-              Проекты
-              {enabledProjects.size > 0 && (
-                <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded-full bg-[#0062FF] text-white">
-                  {enabledProjects.size}
-                </span>
-              )}
-              {activeTab === "project" && (
-                <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#0062FF]" />
-              )}
-            </button>
-            <button
-              onClick={() => setActiveTab("department")}
-              className={`flex-1 px-3 py-2 text-xs font-medium transition-colors relative ${
-                activeTab === "department"
-                  ? "text-[#0062FF]"
-                  : "text-gray-600 hover:text-gray-900"
-              }`}
-            >
-              Департаменты
-              {enabledDepartments.size > 0 && (
-                <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded-full bg-[#0062FF] text-white">
-                  {enabledDepartments.size}
-                </span>
-              )}
-              {activeTab === "department" && (
-                <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#0062FF]" />
-              )}
-            </button>
-            <button
-              onClick={() => setActiveTab("company")}
-              className={`flex-1 px-3 py-2 text-xs font-medium transition-colors relative ${
-                activeTab === "company"
-                  ? "text-[#0062FF]"
-                  : "text-gray-600 hover:text-gray-900"
-              }`}
-            >
-              Компании
-              {enabledCompanies.size > 0 && (
-                <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded-full bg-[#0062FF] text-white">
-                  {enabledCompanies.size}
-                </span>
-              )}
-              {activeTab === "company" && (
-                <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#0062FF]" />
-              )}
-            </button>
-          </div>
+              <div className="w-12 h-[5px] bg-gray-300 rounded-full transition-colors active:bg-gray-400" />
+            </div>
 
-          {/* Список элементов */}
-          <div className="overflow-y-auto flex-1">
-            {items.length === 0 ? (
-              <div className="px-4 py-8 text-center text-sm text-gray-500">
-                Нет данных
-              </div>
-            ) : (
-              items.map((item) => {
-                const isSelected = selectedIds.has(item.id);
-                const isProject = "backgroundColor" in item;
-
-                return (
-                  <div
-                    key={item.id}
-                    onClick={() => onToggle(item.id)}
-                    className="px-4 py-2.5 hover:bg-gray-50 cursor-pointer flex items-center gap-2 transition-colors"
+            {/* Заголовок с поиском */}
+            <div className="px-4 border-b border-gray-200 h-[60px] shrink-0 flex items-center gap-2">
+              {/* Поле поиска */}
+              <div className="flex-1 relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) =>
+                    setSearchQuery(e.target.value)
+                  }
+                  placeholder="Поиск..."
+                  className="w-full h-9 pl-9 pr-8 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-[#0062FF] transition-colors"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-gray-100 rounded transition-colors"
+                    aria-label="Очистить поиск"
                   >
+                    <X className="w-3.5 h-3.5 text-gray-400" />
+                  </button>
+                )}
+              </div>
+
+              {/* Кнопка сброса фильтров */}
+              {totalFilters > 0 && (
+                <button
+                  onClick={handleClearAll}
+                  className="px-[12px] py-[10px] text-xs font-medium text-[#0062FF] bg-[#0062FF]/10 hover:bg-[#0062FF]/20 rounded-lg transition-colors shrink-0"
+                  aria-label="Очистить все фильтры"
+                >
+                  Сбросить
+                </button>
+              )}
+
+              {/* Кнопка закрытия (мобилка) */}
+              <button
+                onClick={() => setIsOpen(false)}
+                className="md:hidden p-2 hover:bg-gray-100 rounded-lg transition-colors shrink-0"
+                aria-label="Закрыть"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Вкладки */}
+            <div className="flex border-b border-gray-200 h-[52px] shrink-0">
+              <button
+                onClick={() => setActiveTab("project")}
+                className={`flex-1 text-sm max-md:text-[17px] font-medium transition-colors relative h-full flex items-center justify-center ${
+                  activeTab === "project"
+                    ? "text-[#0062FF]"
+                    : "text-gray-600 hover:text-gray-900"
+                }`}
+              >
+                Проекты
+                {enabledProjects.size > 0 && (
+                  <span className="ml-1.5 text-xs max-md:text-sm px-2 py-0.5 rounded-full bg-[#0062FF] text-white">
+                    {enabledProjects.size}
+                  </span>
+                )}
+                {activeTab === "project" && (
+                  <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#0062FF]" />
+                )}
+              </button>
+              <button
+                onClick={() => setActiveTab("department")}
+                className={`flex-1 text-sm max-md:text-[17px] font-medium transition-colors relative h-full flex items-center justify-center ${
+                  activeTab === "department"
+                    ? "text-[#0062FF]"
+                    : "text-gray-600 hover:text-gray-900"
+                }`}
+              >
+                Департаменты
+                {enabledDepartments.size > 0 && (
+                  <span className="ml-1.5 text-xs max-md:text-sm px-2 py-0.5 rounded-full bg-[#0062FF] text-white">
+                    {enabledDepartments.size}
+                  </span>
+                )}
+                {activeTab === "department" && (
+                  <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#0062FF]" />
+                )}
+              </button>
+              <button
+                onClick={() => setActiveTab("company")}
+                className={`flex-1 text-sm max-md:text-[17px] font-medium transition-colors relative h-full flex items-center justify-center ${
+                  activeTab === "company"
+                    ? "text-[#0062FF]"
+                    : "text-gray-600 hover:text-gray-900"
+                }`}
+              >
+                Компании
+                {enabledCompanies.size > 0 && (
+                  <span className="ml-1.5 text-xs max-md:text-sm px-2 py-0.5 rounded-full bg-[#0062FF] text-white">
+                    {enabledCompanies.size}
+                  </span>
+                )}
+                {activeTab === "company" && (
+                  <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#0062FF]" />
+                )}
+              </button>
+            </div>
+
+            {/* Список элементов */}
+            <div
+              ref={scrollRef}
+              className="overflow-y-auto flex-1"
+            >
+              {items.length === 0 ? (
+                <div className="px-4 py-8 text-center text-base max-md:text-[17px] text-gray-500">
+                  Нет данных
+                </div>
+              ) : filteredItems.length === 0 ? (
+                <div className="px-4 py-8 text-center text-base max-md:text-[17px] text-gray-500">
+                  Ничего не найдено
+                </div>
+              ) : (
+                filteredItems.map((item) => {
+                  const isSelected = selectedIds.has(item.id);
+                  const isProject = "backgroundColor" in item;
+
+                  return (
                     <div
-                      className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${
-                        isSelected
-                          ? "bg-[#0062FF] border-[#0062FF]"
-                          : "border-gray-300"
-                      }`}
+                      key={item.id}
+                      onClick={() => onToggle(item.id)}
+                      className="px-4 py-3 max-md:py-4 hover:bg-gray-50 active:bg-gray-100 cursor-pointer flex items-center gap-3 transition-colors min-h-[48px]"
                     >
-                      {isSelected && (
-                        <svg
-                          width="10"
-                          height="8"
-                          viewBox="0 0 10 8"
-                          fill="none"
-                        >
-                          <path
-                            d="M1 4L3.5 6.5L9 1"
-                            stroke="white"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                      )}
-                    </div>
-                    {isProject && (
                       <div
-                        className="w-3 h-3 rounded"
-                        style={{
-                          backgroundColor: (item as Project)
-                            .backgroundColor,
-                        }}
-                      />
-                    )}
-                    <span className="text-sm flex-1">
-                      {item.name}
-                    </span>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </div>
-      )}
+                        className={`w-5 h-5 max-md:w-6 max-md:h-6 rounded border-2 flex items-center justify-center transition-colors shrink-0 ${
+                          isSelected
+                            ? "bg-[#0062FF] border-[#0062FF]"
+                            : "border-gray-300"
+                        }`}
+                      >
+                        {isSelected && (
+                          <svg
+                            width="12"
+                            height="10"
+                            viewBox="0 0 10 8"
+                            fill="none"
+                            className="max-md:scale-110"
+                          >
+                            <path
+                              d="M1 4L3.5 6.5L9 1"
+                              stroke="white"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        )}
+                      </div>
+                      {isProject && (
+                        <div
+                          className="w-4 h-4 max-md:w-5 max-md:h-5 rounded shrink-0"
+                          style={{
+                            backgroundColor: (item as Project)
+                              .backgroundColor,
+                          }}
+                        />
+                      )}
+                      <span className="text-sm max-md:text-[17px] flex-1">
+                        <HighlightText
+                          text={item.name}
+                          query={searchQuery}
+                        />
+                      </span>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

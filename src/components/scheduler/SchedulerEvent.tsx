@@ -104,6 +104,17 @@ function SchedulerEventComponent({
     return '8px 12px';
   }, [height]);
 
+  // Track layout changes to disable transitions during scale switch (S/M/L)
+  // We want transitions for user interactions (drag/resize) but NOT for global layout changes
+  const prevLayoutRef = useRef({ weekPx: config.weekPx, eventRowH });
+  // Check if this render is caused by a layout change (weekPx or rowHeight changed)
+  const isLayoutChange = prevLayoutRef.current.weekPx !== config.weekPx || prevLayoutRef.current.eventRowH !== eventRowH;
+
+  // Update ref after render so next render (interaction) will have correct prev value
+  useEffect(() => {
+    prevLayoutRef.current = { weekPx: config.weekPx, eventRowH };
+  }, [config.weekPx, eventRowH]);
+
   // Generate scissor boundaries for multi-week events
   const scissorBoundaries = useMemo<number[]>(() => {
     if (!scissorsMode || event.weeksSpan <= 1) return [];
@@ -124,15 +135,16 @@ function SchedulerEventComponent({
   const handlePointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
     if ((e.target as HTMLElement).closest('.handle-container')) return;
-    // Блокируем перетаскивание в режиме ножниц и комментирования
-    if (!scissorsMode && !commentMode) {
+    
+    // ✅ БЛОКИРОВКА: запрещаем drag для pending и blocked событий
+    if (!scissorsMode && !commentMode && !isPending && !isBlocked) {
       onPointerDown(e, event);
     }
   };
 
   const handleClick = (e: React.MouseEvent) => {
-    // В режиме ножниц и комментирования не обрабатываем клики
-    if (scissorsMode || commentMode) return;
+    // В режиме ножниц и комментирования, а также для pending/blocked событий не обрабатываем клики
+    if (scissorsMode || commentMode || isPending || isBlocked) return;
     
     // Обычный клик для открытия модального окна
     onClick(e, event);
@@ -141,6 +153,7 @@ function SchedulerEventComponent({
   // Get project style - кэшируем стили
   const eventStyle = useMemo(() => {
     const baseStyle: React.CSSProperties = {
+      // left: `${left}px`, // left/top/width/height управляются через CSS классы для drag/resize
       left: `${left}px`,
       top: `${top}px`,
       width: `${Math.max(24, width)}px`,
@@ -149,7 +162,13 @@ function SchedulerEventComponent({
       transform: 'translateZ(0)',
       willChange: 'transform, opacity',
       backfaceVisibility: 'hidden',
-      opacity: 1
+      opacity: 1,
+      // Restore transitions for interactions (drag/resize) but disable for layout changes (S/M/L)
+      // When isLayoutChange is true (during S->M switch), we use only opacity transition
+      // When isLayoutChange is false (during drag/resize), we use full transitions for smooth movement
+      transition: isLayoutChange 
+        ? 'opacity 0.2s ease' 
+        : 'top 0.15s cubic-bezier(0.25, 0.1, 0.25, 1), height 0.15s cubic-bezier(0.25, 0.1, 0.25, 1), left 0.15s cubic-bezier(0.25, 0.1, 0.25, 1), width 0.15s cubic-bezier(0.25, 0.1, 0.25, 1), opacity 0.2s ease'
     };
     
     // Упрощённая логика v3.1: borderRadius на основе round* флагов
@@ -245,19 +264,23 @@ function SchedulerEventComponent({
 
     // Dimmed events override background to gray, set dark text, and reduce opacity
     // But preserve backgroundImage pattern if present
-    if (dimmed) {
+    if (dimmed && !commentMode) {
       baseStyle.backgroundColor = '#AAA';
       baseStyle.color = '#333';
       baseStyle.opacity = 0.2;
     }
 
-    // Context menu open - apply hover-like opacity
     if (isContextMenuOpen) {
       baseStyle.opacity = 0.9;
     }
 
+    // Comment mode - strict override (ensure it beats dimmed/contextMenu)
+    if (commentMode) {
+      baseStyle.opacity = 0.5;
+    }
+
     return baseStyle;
-  }, [left, top, width, height, getPadding, baseBorderRadius, roundTopLeft, roundTopRight, roundBottomLeft, roundBottomRight, config.gap, project, eventPatterns, dimmed, showGaps, showPatterns, innerTopLeftColor, innerBottomLeftColor, innerTopRightColor, innerBottomRightColor, isContextMenuOpen]);
+  }, [left, top, width, height, getPadding, baseBorderRadius, roundTopLeft, roundTopRight, roundBottomLeft, roundBottomRight, config.gap, project, eventPatterns, dimmed, showGaps, showPatterns, innerTopLeftColor, innerBottomLeftColor, innerTopRightColor, innerBottomRightColor, isContextMenuOpen, isLayoutChange, commentMode]);
 
   // Вычисляем hasInner* из цветов (для CSS классов ::before/::after)
   const hasInnerTopLeft = innerTopLeftColor !== 'transparent';
@@ -269,6 +292,8 @@ function SchedulerEventComponent({
     <div
       ref={eventRef}
       className={`scheduler-event absolute flex gap-2 select-none min-w-[40px] ${
+        commentMode ? 'pointer-events-none' : 'pointer-events-auto'
+      } ${
         event.unitsTall > 1 ? 'items-start' : ''
       } ${isCtrlPressed ? 'ctrl-move-mode' : ''} ${isPending || isBlocked ? 'pending' : ''} ${!('backgroundColor' in project && project.backgroundColor) ? `proj-${event.projectId}` : ''} ${
         showGaps && hasInnerTopLeft ? 'inner-tl' : ''
@@ -298,7 +323,7 @@ function SchedulerEventComponent({
         <div className="flex items-center" style={{ gap: '4px', minWidth: 0, flex: 1 }}>
           {!hideProjectName && (
             <div
-              className="ev-name pointer-events-auto"
+              className={`ev-name ${commentMode ? 'pointer-events-none' : 'pointer-events-auto'}`}
               style={{
                 fontWeight: 700,
                 fontSize: `${fontSize}px`,
@@ -334,7 +359,7 @@ function SchedulerEventComponent({
           )}
         </div>
         {showProjectWeight && (
-          <div className="ev-weight pointer-events-auto text-right" style={{ fontSize: `${fontSize}px`, opacity: 0.6, position: 'relative', zIndex: 2, transition: 'none' }}>
+          <div className={`ev-weight ${commentMode ? 'pointer-events-none' : 'pointer-events-auto'} text-right`} style={{ fontSize: `${fontSize}px`, opacity: 0.6, position: 'relative', zIndex: 2, transition: 'none' }}>
             {event.unitsTall * 25}%
           </div>
         )}
@@ -392,8 +417,8 @@ function SchedulerEventComponent({
         </div>
       )}
 
-      {/* Resize handles - скрываем для заблокированных событий */}
-      {!scissorsMode && !isCtrlPressed && !isBlocked && (
+      {/* Resize handles - скрываем для заблокированных и pending событий */}
+      {!scissorsMode && !commentMode && !isCtrlPressed && !isBlocked && !isPending && (
         <>
           {/* Top handle - 50% max height to avoid overlap */}
           <div

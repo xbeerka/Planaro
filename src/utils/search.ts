@@ -362,3 +362,13 @@ export function getMatchScore(query: string, target: string): number {
 export function smartSearch(query: string, target: string): boolean {
   return getMatchScore(query, target) < 100;
 }
+
+/** 
+ * Разбивает поисковый запрос на токены (слова)
+ * Используется для подсветки найденных слов в HighlightText
+ */
+export function getSearchTokens(query: string): string[] {
+  if (!query || !query.trim()) return [];
+  // Разбиваем по пробелам, запятым, точкам и дефисам
+  return query.split(/[\s,.-]+/).filter(s => s.length > 0).map(t => t.toLowerCase());
+}

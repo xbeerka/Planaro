@@ -6,18 +6,22 @@ export interface CreateResourceData {
   position: string;
   departmentId: string;
   workspace_id?: string;
-  grade?: string;
+  grade?: string;  // ✅ Название грейда (фронтенд)
+  gradeId?: string;  // ✅ ID грейда (передаём на бэкенд)
   companyId?: string;
   avatarUrl?: string;
+  isVisible?: boolean;
 }
 
 export interface UpdateResourceData {
   fullName?: string;
   position?: string;
   departmentId?: string;
-  grade?: string;
+  grade?: string;  // ✅ Название грейда (фронтенд)
+  gradeId?: string;  // ✅ ID грейда (передаём на бэкенд)
   companyId?: string;
   avatarUrl?: string;
+  isVisible?: boolean;
 }
 
 export const resourcesApi = {
@@ -29,16 +33,24 @@ export const resourcesApi = {
   create: (data: CreateResourceData, token?: string) =>
     apiRequest<Resource>('/resources', {
       method: 'POST',
-      body: data,
+      // Map fullName (frontend) to name (backend)
+      body: { ...data, name: data.fullName },
       token
     }),
     
-  update: (id: string, data: UpdateResourceData, token?: string) =>
-    apiRequest<Resource>(`/resources/${id}`, {
+  update: (id: string, data: UpdateResourceData, token?: string) => {
+    // Map fullName (frontend) to name (backend) if present
+    const payload = { ...data } as any;
+    if (data.fullName !== undefined) {
+      payload.name = data.fullName;
+    }
+    
+    return apiRequest<Resource>(`/resources/${id}`, {
       method: 'PUT',
-      body: data,
+      body: payload,
       token
-    }),
+    });
+  },
     
   delete: (id: string, token?: string) =>
     apiRequestNoResponse(`/resources/${id}`, {

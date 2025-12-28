@@ -14,15 +14,32 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
+  const [lastName, setlastName] = useState('');
+  const [displayName, setDisplayName] = useState('');
   const [otp, setOtp] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
-  const [resendTimer, setResendTimer] = useState(0);
-  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [resendTimer, setResendTimer] = useState(0);
+
+  // Helper function to safely parse JSON response
+  const safeJsonParse = async (response: Response) => {
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      try {
+        return await response.json();
+      } catch (e) {
+        console.error('JSON parse error:', e);
+        throw new Error('Ошибка парсинга ответа сервера');
+      }
+    } else {
+      const text = await response.text();
+      console.error('Non-JSON response:', text.substring(0, 200));
+      throw new Error('Сервер вернул некорректный ответ');
+    }
+  };
 
   // Countdown timer for OTP resend
   useEffect(() => {
@@ -70,7 +87,7 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
         setError('Можно загружать только изображения');
         return;
       }
-      setAvatarFile(file);
+      setSelectedFile(file);
       const reader = new FileReader();
       reader.onloadend = () => {
         setAvatarPreview(reader.result as string);
@@ -106,11 +123,11 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
       );
 
       if (!response.ok) {
-        const errorData = await response.json();
+        const errorData = await safeJsonParse(response);
         throw new Error(errorData.error || 'Ошибка отправки кода');
       }
 
-      const result = await response.json();
+      const result = await safeJsonParse(response);
       return result;
     } else {
       const response = await fetch(
@@ -130,7 +147,7 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
       );
 
       if (!response.ok) {
-        const errorData = await response.json();
+        const errorData = await safeJsonParse(response);
         throw new Error(errorData.error || 'Ошибка отправки кода');
       }
 
@@ -182,10 +199,27 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
         return;
       }
 
-      const result = await sendOTP(email, password, firstName, lastName, avatarFile);
-      setMode('verify-otp');
-      setMessage(result.message || 'Код подтверждения отправлен на ваш email');
-      setResendTimer(120);
+      const result = await sendOTP(email, password, firstName, lastName, selectedFile);
+      
+      // Проверяем, нужна ли верификация OTP или пользователь сразу залогинен
+      if (result.access_token && result.session_id) {
+        // Успешная регистрация и автоматический вход (v3.0+)
+        console.log('✅ Регистрация успешна, пользователь автоматически залогинен');
+        const displayName = `${firstName} ${lastName}`.trim();
+        onAuthSuccess(result.access_token, 'signup', displayName, result.session_id);
+      } else if (result.requiresOTP) {
+        // Старая логика с OTP (для обратной совместимости)
+        setMode('verify-otp');
+        setMessage(result.message || 'Код подтверждения отправлен на ваш email');
+        setResendTimer(120);
+      } else if (result.requiresSignIn) {
+        // Пользователь создан, но нужно войти вручную
+        setMode('signin');
+        setMessage('Регистрация успешна. Пожалуйста, войдите в систему.');
+      } else {
+        // Неизвестный ответ
+        setError('Произошла ошибка при регистрации. Попробуйте войти.');
+      }
     } catch (err: any) {
       if (err.message && (err.message.includes('уже зарегистрирован') || err.message.includes('already registered'))) {
         try {
@@ -257,11 +291,20 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
       );
 
       if (!response.ok) {
-        const errorData = await response.json();
+        const errorData = await safeJsonParse(response);
         throw new Error(errorData.error || 'Неверный email или пароль');
       }
 
       const data = await response.json();
+      
+      // Check if OTP is required (server handles unconfirmed email)
+      if (data.requiresOTP) {
+        setMode('verify-otp');
+        setMessage(data.message || 'Код подтверждения отправлен на ваш email');
+        setResendTimer(120);
+        setIsLoading(false);
+        return;
+      }
       
       if (!data.access_token) {
         throw new Error('Не удалось получить токен доступа');
@@ -302,7 +345,7 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
       );
 
       if (!response.ok) {
-        const errorData = await response.json();
+        const errorData = await safeJsonParse(response);
         throw new Error(errorData.error || 'Неверный код подтверждения');
       }
 
@@ -330,12 +373,14 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
   };
 
   return (
-    <div className="min-h-screen w-screen flex items-center justify-center bg-[#f0f4f8] p-4">
+    <div className="min-h-screen w-screen flex items-center justify-center bg-white p-4">
       <div className="w-full max-w-md">
-        {/* Card container - rounded-3xl, no shadow, border */}
-        <div className="bg-white rounded-[28px] border border-border/50 p-8 md:p-10">
+        {/* Card container - белый фон, обводка абсолютным позиционированием, скругление 16px */}
+        <div className="relative bg-white rounded-[16px] p-8 md:p-10">
+          <div className="absolute border border-[#f0f0f0] border-solid inset-0 pointer-events-none rounded-[16px]" />
+          
           {/* Header */}
-          <div className="text-center mb-6 bg-secondary/20 rounded-2xl py-6 px-4">
+          <div className="text-center mb-8 relative z-10">
             <div className="inline-flex items-center justify-center w-20 h-20 mb-4">
               <svg width="80" height="80" viewBox="0 0 310 310" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <g clipPath="url(#clip0_7774_71753)">
@@ -352,22 +397,24 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
                 </defs>
                 </svg>
             </div>
-            <h1 className="text-3xl font-normal text-foreground tracking-tight">
+            <h1 className="text-2xl text-black mb-1">
               Planaro
             </h1>
-
+            <p className="text-sm text-muted-foreground">
+              Управление ресурсами
+            </p>
           </div>
 
           {/* Error message */}
           {error && (
-            <div className="mb-6 p-4 rounded-xl bg-red-50/50 border border-red-200 text-sm flex gap-3 items-start">
+            <div className="mb-6 p-4 rounded-[10px] bg-red-50 border border-red-200 text-sm flex gap-3 items-start relative z-10">
               <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
               <div className="flex-1">
                 <p className="text-red-600 font-medium">
                   {(() => {
                     // Дружелюбные сообщения вместо технических
                     if (error.includes('Email не подтвержден')) {
-                      return 'Проверьте вашу почту и введите код подтверждения';
+                      return 'Email не подтвержден. Введите код из письма.';
                     }
                     if (error.includes('Пользователь не найден')) {
                       return 'Аккаунт с этой почтой не найден. Хотите зарегистрироваться?';
@@ -397,15 +444,15 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
                 
                 {error.includes('Email не подтвержден') && (
                   <Button 
-                    variant="link" 
-                    className="h-auto p-0 text-red-700 underline mt-2 font-normal"
+                    variant="outline" 
+                    size="sm"
+                    className="mt-3 h-8 text-red-700 hover:bg-red-100 hover:text-red-800 bg-white"
                     onClick={() => {
-                      setMode('signup');
+                      setMode('verify-otp');
                       setError('');
-                      setMessage('Введите данные для получения нового кода');
                     }}
                   >
-                    Получить новый код
+                    Ввести код подтверждения
                   </Button>
                 )}
                 
@@ -427,7 +474,7 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
 
           {/* Success message */}
           {message && (
-            <div className="mb-6 p-4 rounded-xl bg-emerald-50/50 border border-emerald-200 text-sm flex gap-3 items-center">
+            <div className="mb-6 p-4 rounded-[10px] bg-emerald-50 border border-emerald-200 text-sm flex gap-3 items-center relative z-10">
               <Check className="w-5 h-5 text-emerald-500 shrink-0" />
               <p className="text-emerald-700 font-medium">{message}</p>
             </div>
@@ -435,7 +482,7 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
 
           {/* OTP Verification Form */}
           {mode === 'verify-otp' && (
-            <form onSubmit={handleVerifyOTP} className="space-y-6">
+            <form onSubmit={handleVerifyOTP} className="space-y-6 relative z-10">
               <div className="space-y-2">
                 <Input
                   id="otp"
@@ -445,7 +492,7 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
                   placeholder="Код из письма (6 цифр)"
                   required
                   maxLength={6}
-                  className="text-center text-2xl tracking-[0.5em] h-16"
+                  className="text-2xl h-16"
                 />
                 <div className="flex justify-between text-xs text-muted-foreground px-1">
                   <span>Отправлено на {email}</span>
@@ -497,7 +544,7 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
 
           {/* Sign In Form */}
           {mode === 'signin' && (
-            <form onSubmit={handleSignIn} className="space-y-6">
+            <form onSubmit={handleSignIn} className="space-y-6 relative z-10">
               <div className="space-y-5">
                 <div className="space-y-2">
                   <div className="relative">
@@ -576,7 +623,7 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
 
           {/* Sign Up Form */}
           {mode === 'signup' && (
-            <form onSubmit={handleSignUp} className="space-y-6">
+            <form onSubmit={handleSignUp} className="space-y-6 relative z-10">
               <div className="space-y-5">
                 <div className="grid grid-cols-2 gap-5">
                   <Input
@@ -587,7 +634,7 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
                   />
                   <Input
                     value={lastName}
-                    onChange={(e) => setLastName(e.target.value)}
+                    onChange={(e) => setlastName(e.target.value)}
                     placeholder="Фамилия"
                     required
                   />

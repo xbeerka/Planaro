@@ -3,6 +3,7 @@ export interface Department {
   name: string;
   queue: number;
   visible: boolean;
+  usersCount?: number;
 }
 
 export interface Resource {
@@ -12,9 +13,12 @@ export interface Resource {
   fullName: string;
   position: string;
   departmentId: string;
-  grade?: string;
+  grade?: string;  // Название грейда (для отображения)
+  gradeId?: string;  // ID грейда (для бэкенда)
   companyId?: string;
   avatarUrl?: string; // Avatar URL from Supabase Storage
+  visible?: boolean;
+  isVisible?: boolean;  // ✅ Добавляем для совместимости
 }
 
 export interface Project {
@@ -35,11 +39,15 @@ export interface EventPattern {
 export interface Grade {
   id: string;
   name: string;
+  workspace_id: number;
+  sort_order: number;
 }
 
 export interface Company {
   id: string;
   name: string;
+  workspace_id: number;
+  sort_order: number;
 }
 
 export interface Workspace {
@@ -56,6 +64,8 @@ export interface WorkspaceSummary {
   id: string; // В view это поле называется 'id', а не 'workspace_id'
   project_count: number;
   member_count: number;
+  visible_count?: number; // ✅ Количество видимых пользователей
+  hidden_count?: number;  // ✅ Количество скрытых пользователей
   department_count: number;
   last_activity_at?: string;
   last_updated?: string;
@@ -77,13 +87,18 @@ export interface SchedulerEvent {
 }
 
 export interface Comment {
-  id: string;
-  resourceId: string;
-  week: number;
-  text: string;
-  createdBy: string; // email пользователя
+  id: string; // Changed from number to string for UUID support
+  workspaceId: string; // Changed from number to string to match Workspace.id
+  userId: string; // Resource ID
+  userDisplayName: string;
+  authorAvatarUrl?: string; // Author's avatar URL
+  comment: string;
+  weekDate: string; // ISO Date string
   createdAt: string;
-  updatedAt?: string;
+  updatedAt: string;
+  
+  // Frontend only props
+  weekIndex?: number; 
 }
 
 // ✨ Промежуток между двумя событиями (для двустороннего resize)

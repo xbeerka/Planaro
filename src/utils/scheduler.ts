@@ -1,7 +1,34 @@
 import { Department, Resource, SchedulerEvent, Month } from '../types/scheduler';
 
+// DEPRECATED: Use getWeeksInYear(year) instead for dynamic calculation
 export const WEEKS = 52;
 export const UNITS = 4;
+
+/**
+ * Вычисляет количество недель в году по стандарту ISO 8601
+ * @param year - Год
+ * @returns 52 или 53 недели
+ * 
+ * По ISO 8601 год имеет 53 недели если:
+ * - Начинается с четверга (Thu) ИЛИ
+ * - Високосный год И начинается со среды (Wed)
+ */
+export function getWeeksInYear(year: number): number {
+  const jan1 = new Date(year, 0, 1);
+  const jan1Day = jan1.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+  const jan1DayISO = jan1Day === 0 ? 7 : jan1Day; // Convert to ISO: 1=Mon, 7=Sun
+  
+  const isLeap = (year % 4 === 0 && year % 100 !== 0) || (year % 400 === 0);
+  
+  // Год имеет 53 недели если:
+  // - Начинается с четверга (4) ИЛИ
+  // - Високосный год И начинается со среды (3)
+  if (jan1DayISO === 4 || (isLeap && jan1DayISO === 3)) {
+    return 53;
+  }
+  
+  return 52;
+}
 
 // Sort resources by grade (descending), users without grade go to the end
 export function sortResourcesByGrade(resources: Resource[]): Resource[] {
@@ -47,10 +74,38 @@ export function getScheduleYearStart(year: number): Date {
   return addDays(jan1, -shift);
 }
 
-export function weekLabel(weekIndex: number, year: number): string {
+export function getWeekStartDate(year: number, weekIndex: number): Date {
+  const start = getScheduleYearStart(year);
+  return addDays(start, weekIndex * 7);
+}
+
+export function getWeekIndexFromDate(date: Date, year: number): number {
+  const start = getScheduleYearStart(year);
+  const diff = getDaysDifference(date, start);
+  return Math.floor(diff / 7);
+}
+
+export function weekLabel(weekIndex: number, year: number, weekWidth?: number): string {
   const scheduleStartDate = getScheduleYearStart(year);
   const start = addDays(scheduleStartDate, weekIndex * 7);
   const end = addDays(start, 6);
+  
+  // Очень компактный формат для XS (только цифры)
+  if (weekWidth !== undefined && weekWidth <= 72) {
+    const startDay = start.getDate();
+    const endDay = end.getDate();
+    return `${startDay}–${endDay}`;
+  }
+  
+  // Компактный формат для S (цифры + месяц)
+  if (weekWidth !== undefined && weekWidth <= 120) {
+    const startDay = start.getDate();
+    const endDay = end.getDate();
+    const monthNames = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+    const endMonth = monthNames[end.getMonth()];
+    return `${startDay} – ${endDay} ${endMonth}`;
+  }
+  
   return `${formatDate(start)} – ${formatDate(end)}`;
 }
 
@@ -58,7 +113,8 @@ export function getCurrentWeekIndex(year: number): number {
   const now = new Date();
   const scheduleStartDate = getScheduleYearStart(year);
   const diff = getDaysDifference(now, scheduleStartDate);
-  return Math.max(0, Math.min(WEEKS - 1, Math.floor(diff / 7)));
+  const weeksInYear = getWeeksInYear(year);
+  return Math.max(0, Math.min(weeksInYear - 1, Math.floor(diff / 7)));
 }
 
 export function generateMonths(year: number): Month[] {
@@ -68,13 +124,14 @@ export function generateMonths(year: number): Month[] {
   ];
   
   const scheduleStart = getScheduleYearStart(year);
+  const weeksInYear = getWeeksInYear(year);
   
   // Инициализируем счетчики недель для каждого месяца
   const monthWeekCounts = new Array(12).fill(0);
   
-  // Проходим по всем 52 неделям и определяем к какому месяцу относится каждая неделя
+  // Проходим по всем неделям года (52 или 53) и определяем к какому месяцу относится каждая неделя
   // Неделя относится к месяцу, если её понедельник (начало) приходится на этот месяц
-  for (let week = 0; week < WEEKS; week++) {
+  for (let week = 0; week < weeksInYear; week++) {
     const weekStartDate = addDays(scheduleStart, week * 7);
     const monthIndex = weekStartDate.getMonth();
     

@@ -1,7 +1,7 @@
 import { useRef, useCallback, useLayoutEffect } from 'react';
 import { SchedulerEvent, Resource, Department, Project } from '../types/scheduler';
 import { LayoutConfig, modelFromGeometry, topFor, heightFor, getResourceGlobalTop, getBorderRadiusForRowHeight } from '../utils/schedulerLayout';
-import { clamp, WEEKS, UNITS } from '../utils/scheduler';
+import { clamp, UNITS } from '../utils/scheduler';
 import { calculateEventNeighbors, MASK_ROUND_TL, MASK_ROUND_TR, MASK_ROUND_BL, MASK_ROUND_BR, MASK_FULL_LEFT, MASK_FULL_RIGHT } from '../utils/eventNeighbors';
 
 interface UseEventInteractionsProps {
@@ -22,6 +22,7 @@ interface UseEventInteractionsProps {
   updateHistoryEventId: (oldId: string, newId: string) => void; // ✅ Для обновления истории после flush
   getEvents: () => { events: SchedulerEvent[], projects: Project[], eventZOrder: Map<string, number> }; // ✅ Функция для получения свежего снапшота
   eventNeighbors?: Map<string, any>; // ✅ Оптимизация: принимаем готовые соседи
+  weeksInYear: number; // ✅ Динамическое количество недель (52 или 53)
 }
 
 interface PointerState {
@@ -57,7 +58,8 @@ export function useEventInteractions({
   flushPendingChanges,
   updateHistoryEventId,
   getEvents, // ✅ Получаем функцию для доступа к снапшоту
-  eventNeighbors
+  eventNeighbors,
+  weeksInYear
 }: UseEventInteractionsProps) {
   // ✅ Используем refs для events/projects/zOrder чтобы избежать stale closures в асинхронных onUp
   // Это критично для корректной работы истории (Undo/Redo) и предотвращения "группировки" действий
@@ -223,7 +225,9 @@ export function useEventInteractions({
       evData,
       resources,
       visibleDepartments,
-      config
+      config,
+      undefined,
+      weeksInYear
     );
 
     pointerStateRef.current = {
@@ -274,7 +278,7 @@ export function useEventInteractions({
 
       // 🔍 КРИТИЧНО: Используем РЕАЛЬНЫЕ padding (которые были применены при рендере)
       const desiredGridLeftRel = desiredGridLeftAbs - pointerStateRef.current.realPaddingLeft;
-      const maxLeftRel = Math.max(0, (WEEKS - pointerStateRef.current.evData.weeksSpan) * config.weekPx);
+      const maxLeftRel = Math.max(0, (weeksInYear - pointerStateRef.current.evData.weeksSpan) * config.weekPx);
       const clampedRel = clamp(desiredGridLeftRel, 0, maxLeftRel);
       const snappedWeek = Math.round(clampedRel / config.weekPx);
       const snappedRel = clamp(snappedWeek * config.weekPx, 0, maxLeftRel);
@@ -312,7 +316,8 @@ export function useEventInteractions({
           resources,
           visibleDepartments,
           config,
-          pointerStateRef.current.offsetUnit // ✅ Передаём offsetUnit для компенсации
+          pointerStateRef.current.offsetUnit, // ✅ Передаём offsetUnit для компенсации
+          weeksInYear
         );
       } catch (err) {
         console.error('❌ Error in modelFromGeometry:', err);
@@ -535,7 +540,7 @@ export function useEventInteractions({
       if (savedState.lastValidModel) {
         let newStart = savedState.lastValidModel.startWeek;
         const ws = savedState.evData.weeksSpan;
-        newStart = clamp(newStart, 0, Math.max(0, WEEKS - ws));
+        newStart = clamp(newStart, 0, Math.max(0, weeksInYear - ws));
 
         // ✅ Получаем АБСОЛЮТНО СВЕЖЕЕ состояние из истории
         let currentEvents = eventsRef.current;
@@ -864,7 +869,7 @@ export function useEventInteractions({
       newWidth = Math.max(newWidth, 24);
       newHeight = Math.max(newHeight, 4);
 
-      const maxLeftAbs = (WEEKS * config.weekPx) - 10;
+      const maxLeftAbs = (weeksInYear * config.weekPx) - 10;
       newLeft = clamp(newLeft, config.cellPaddingLeft, maxLeftAbs);
 
       // Snap to grid
@@ -889,9 +894,9 @@ export function useEventInteractions({
             deltaWeeks = pointerStateRef.current.originalWeeksSpan - 1;
           }
 
-          let newStartWeek = clamp(pointerStateRef.current.originalStartWeek + deltaWeeks, 0, WEEKS - 1);
-          let newWeeksSpan = clamp(pointerStateRef.current.originalWeeksSpan - deltaWeeks, 1, WEEKS - newStartWeek);
-          if (newStartWeek + newWeeksSpan > WEEKS) newWeeksSpan = WEEKS - newStartWeek;
+          let newStartWeek = clamp(pointerStateRef.current.originalStartWeek + deltaWeeks, 0, weeksInYear - 1);
+          let newWeeksSpan = clamp(pointerStateRef.current.originalWeeksSpan - deltaWeeks, 1, weeksInYear - newStartWeek);
+          if (newStartWeek + newWeeksSpan > weeksInYear) newWeeksSpan = weeksInYear - newStartWeek;
           
           // Чистая ширина
           newWidth = newWeeksSpan * config.weekPx - pointerStateRef.current.realPaddingLeft - pointerStateRef.current.realPaddingRight;
@@ -921,7 +926,7 @@ export function useEventInteractions({
             - (pointerStateRef.current.initialExpandRight || 0);
 
           let newWeeksSpan = Math.max(1, Math.round((logicalWidth + pointerStateRef.current.realPaddingLeft + pointerStateRef.current.realPaddingRight) / config.weekPx));
-          newWeeksSpan = clamp(newWeeksSpan, 1, WEEKS - pointerStateRef.current.originalStartWeek);
+          newWeeksSpan = clamp(newWeeksSpan, 1, weeksInYear - pointerStateRef.current.originalStartWeek);
           
           // Базовая ширина по сетке (без расширений)
           // Используем её как основу, к которой потом добавится актуальное расширение в конце onMove

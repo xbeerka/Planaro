@@ -100,7 +100,8 @@ class RequestThrottleManager {
    */
   cleanupStuckRequests(): void {
     const now = Date.now();
-    const STUCK_THRESHOLD = 20000; // 20 секунд
+    // Увеличиваем порог до 60 секунд, чтобы учитывать ретраи (20s timeout * 3 attempts = 60s)
+    const STUCK_THRESHOLD = 60000; 
     
     for (const [id, request] of this.pendingRequests.entries()) {
       // Очищаем только НЕ завершённые запросы (застрявшие)

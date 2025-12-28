@@ -1,336 +1,309 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useState, useRef } from "react";
 
 interface CustomScrollbarsProps {
   scrollRef: React.RefObject<HTMLDivElement>;
-  horizontalOffset: number;
-  verticalOffset: number;
-  trackThickness?: number;
-  thumbMinSize?: number;
-  trackPadding?: number;
-  rightPadding?: number;
-  bottomPadding?: number;
+  scrollTop: number;
+  scrollLeft: number;
+  scrollHeight: number;
+  scrollWidth: number;
+  clientHeight: number;
+  clientWidth: number;
+  verticalTopOffset?: number;
+  horizontalLeftOffset?: number;
+  isModalOpen?: boolean; // ✨ Новый проп для блокировки при открытом модальном окне
+  sidebarCollapsed?: boolean; // ✨ Для адаптации к ширине сайдбара
 }
 
-export function CustomScrollbars({
+export const CustomScrollbars = ({
   scrollRef,
-  horizontalOffset,
-  verticalOffset,
-  trackThickness = 10,
-  thumbMinSize = 24,
-  trackPadding = 2,
-  rightPadding = 8,
-  bottomPadding = 8,
-}: CustomScrollbarsProps) {
-  const trackHRef = useRef<HTMLDivElement>(null);
-  const thumbHRef = useRef<HTMLDivElement>(null);
-  const trackVRef = useRef<HTMLDivElement>(null);
-  const thumbVRef = useRef<HTMLDivElement>(null);
+  scrollTop,
+  scrollLeft,
+  scrollHeight,
+  scrollWidth,
+  clientHeight,
+  clientWidth,
+  verticalTopOffset = 0,
+  horizontalLeftOffset = 0,
+  isModalOpen = false, // ✨ По умолчанию модальное окно закрыто
+  sidebarCollapsed = false, // ✨ По умолчанию сайдбар не свернут
+}: CustomScrollbarsProps) => {
+  const [isDraggingV, setIsDraggingV] = useState(false);
+  const [isDraggingH, setIsDraggingH] = useState(false);
+  const [isHoveringV, setIsHoveringV] = useState(false);
+  const [isHoveringH, setIsHoveringH] = useState(false);
+  const startPosRef = useRef({
+    x: 0,
+    y: 0,
+    scrollTop: 0,
+    scrollLeft: 0,
+  });
+  const verticalThumbRef = useRef<HTMLDivElement>(null);
+  const horizontalThumbRef = useRef<HTMLDivElement>(null);
 
-  const [showHorizontal, setShowHorizontal] = useState(false);
-  const [showVertical, setShowVertical] = useState(false);
+  // Отступы для скроллбаров
+  const scrollbarThumbOffset = 8; // Отступ от края экрана до скроллбара
+  const scrollbarThickness = 10; // Толщина скроллбара
+  const verticalBottomOffset =
+    scrollbarThumbOffset * 2 + scrollbarThickness; // (8*2)+10 = 26px
 
-  // ============================================================
-  // UPDATE THUMBS POSITIONS
-  // ============================================================
-  const updateThumbs = useCallback(() => {
-    const wrap = scrollRef.current;
-    if (!wrap) return;
+  // Vertical Bar Logic (с учетом нижнего отступа)
+  const trackHeightAdjusted = Math.max(
+    0,
+    clientHeight - verticalTopOffset - verticalBottomOffset,
+  );
+  const showVerticalAdjusted =
+    scrollHeight > clientHeight && trackHeightAdjusted > 0;
+  const thumbHeightAdjusted =
+    scrollHeight > 0
+      ? Math.max(
+          30,
+          (clientHeight / scrollHeight) * trackHeightAdjusted,
+        )
+      : 0;
 
-    // HORIZONTAL
-    if (trackHRef.current && thumbHRef.current) {
-      const trackRect = trackHRef.current.getBoundingClientRect();
-      const maxScrollLeft = Math.max(0, wrap.scrollWidth - wrap.clientWidth);
-      const usableW = Math.max(1, trackRect.width - trackPadding * 2);
-      
-      const ratioH = wrap.clientWidth / wrap.scrollWidth;
-      let thumbW = Math.max(thumbMinSize, usableW * ratioH);
-      if (thumbW > usableW) thumbW = usableW;
+  const maxScrollTopAdjusted = Math.max(
+    0,
+    scrollHeight - clientHeight,
+  );
+  const maxThumbTopAdjusted = Math.max(
+    0,
+    trackHeightAdjusted - thumbHeightAdjusted,
+  );
+  const thumbTopAdjusted =
+    maxScrollTopAdjusted > 0
+      ? (scrollTop / maxScrollTopAdjusted) * maxThumbTopAdjusted
+      : 0;
 
-      const scrollFractionX = maxScrollLeft === 0 ? 0 : wrap.scrollLeft / maxScrollLeft;
-      const maxThumbLeft = usableW - thumbW;
-      const thumbLeft = maxThumbLeft * scrollFractionX;
+  // Horizontal Bar Logic
+  const horizontalRightOffset = scrollbarThumbOffset; // Отступ справа = 8px
+  const trackWidth = Math.max(
+    0,
+    clientWidth - horizontalLeftOffset - horizontalRightOffset,
+  );
+  const showHorizontal =
+    scrollWidth > clientWidth && trackWidth > 0;
 
-      thumbHRef.current.style.width = `${thumbW}px`;
-      thumbHRef.current.style.transform = `translateX(${thumbLeft}px)`;
+  // Вычисление ширины thumb: пропорция видимой части к общему контенту
+  const thumbWidth =
+    scrollWidth > 0
+      ? Math.max(30, (clientWidth / scrollWidth) * trackWidth)
+      : 0;
+
+  const maxScrollLeft = Math.max(0, scrollWidth - clientWidth);
+  const maxThumbLeft = Math.max(0, trackWidth - thumbWidth);
+  const thumbLeft =
+    maxScrollLeft > 0
+      ? (scrollLeft / maxScrollLeft) * maxThumbLeft
+      : 0;
+
+  // Drag Handlers с использованием Pointer Events для работы за пределами окна
+  const onDragStartV = (e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Захватываем pointer для отслеживания за пределами окна
+    if (verticalThumbRef.current) {
+      verticalThumbRef.current.setPointerCapture(e.pointerId);
     }
 
-    // VERTICAL
-    if (trackVRef.current && thumbVRef.current) {
-      const trackRect = trackVRef.current.getBoundingClientRect();
-      const maxScrollTop = Math.max(0, wrap.scrollHeight - wrap.clientHeight);
-      const usableH = Math.max(1, trackRect.height - trackPadding * 2);
+    setIsDraggingV(true);
+    startPosRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      scrollTop: scrollTop,
+      scrollLeft: scrollLeft,
+    };
+    document.body.style.userSelect = "none";
+  };
 
-      const ratioV = wrap.clientHeight / wrap.scrollHeight;
-      let thumbH = Math.max(thumbMinSize, usableH * ratioV);
-      if (thumbH > usableH) thumbH = usableH;
+  const onDragStartH = (e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
 
-      const scrollFractionY = maxScrollTop === 0 ? 0 : wrap.scrollTop / maxScrollTop;
-      const maxThumbTop = usableH - thumbH;
-      const thumbTop = maxThumbTop * scrollFractionY;
-
-      thumbVRef.current.style.height = `${thumbH}px`;
-      thumbVRef.current.style.transform = `translateY(${thumbTop}px)`;
+    // Захватываем pointer для отслеживания за пределами окна
+    if (horizontalThumbRef.current) {
+      horizontalThumbRef.current.setPointerCapture(e.pointerId);
     }
-  }, [scrollRef, trackPadding, thumbMinSize]);
 
-  // ============================================================
-  // REFRESH VISIBILITY
-  // ============================================================
-  const refreshVisibility = useCallback(() => {
-    const wrap = scrollRef.current;
-    if (!wrap) return;
-
-    setShowHorizontal(wrap.scrollWidth > wrap.clientWidth);
-    setShowVertical(wrap.scrollHeight > wrap.clientHeight);
-    updateThumbs();
-  }, [scrollRef, updateThumbs]);
-
-  // ============================================================
-  // HORIZONTAL DRAG (REACT HANDLERS)
-  // ============================================================
-  const handleHorizontalPointerDown = useCallback((ev: React.PointerEvent) => {
-    ev.preventDefault();
-    
-    const wrap = scrollRef.current;
-    const thumb = thumbHRef.current;
-    const track = trackHRef.current;
-    if (!wrap || !thumb || !track) return;
-
-    // Захват указателя
-    thumb.setPointerCapture(ev.pointerId);
-
-    const startPointerX = ev.clientX;
-    const startScrollLeft = wrap.scrollLeft;
-    
-    // Refresh metrics
-    const maxScrollLeft = Math.max(0, wrap.scrollWidth - wrap.clientWidth);
-    const trackRect = track.getBoundingClientRect();
-    const usableW = Math.max(1, trackRect.width - trackPadding * 2);
-    const thumbW = parseFloat(getComputedStyle(thumb).width) || thumb.getBoundingClientRect().width;
-    const maxThumbLeft = Math.max(1, usableW - thumbW);
-
-    const onMove = (e: PointerEvent) => {
-      const dx = e.clientX - startPointerX;
-      const scrollDelta = (dx / maxThumbLeft) * maxScrollLeft;
-      const newScroll = Math.max(0, Math.min(maxScrollLeft, Math.round(startScrollLeft + scrollDelta)));
-      
-      console.log('🚀 HORIZONTAL drag move:', { dx, newScroll });
-      
-      wrap.scrollLeft = newScroll;
-      
-      // Мгновенное обновление thumb
-      const scrollFraction = maxScrollLeft === 0 ? 0 : newScroll / maxScrollLeft;
-      const thumbPosition = maxThumbLeft * scrollFraction;
-      thumb.style.transform = `translateX(${thumbPosition}px)`;
+    setIsDraggingH(true);
+    startPosRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      scrollTop: scrollTop,
+      scrollLeft: scrollLeft,
     };
-
-    const onUp = () => {
-      console.log('🏁 HORIZONTAL drag end');
-      
-      try { 
-        thumb.releasePointerCapture(ev.pointerId); 
-      } catch (err) {
-        // Already released
-      }
-
-      thumb.removeEventListener('pointermove', onMove as any);
-      thumb.removeEventListener('pointerup', onUp as any);
-      thumb.removeEventListener('pointercancel', onUp as any);
-    };
-
-    thumb.addEventListener('pointermove', onMove as any);
-    thumb.addEventListener('pointerup', onUp as any);
-    thumb.addEventListener('pointercancel', onUp as any);
-  }, [scrollRef, trackPadding]);
-
-  // ============================================================
-  // VERTICAL DRAG (REACT HANDLERS)
-  // ============================================================
-  const handleVerticalPointerDown = useCallback((ev: React.PointerEvent) => {
-    ev.preventDefault();
-    
-    const wrap = scrollRef.current;
-    const thumb = thumbVRef.current;
-    const track = trackVRef.current;
-    if (!wrap || !thumb || !track) return;
-
-    thumb.setPointerCapture(ev.pointerId);
-
-    const startPointerY = ev.clientY;
-    const startScrollTop = wrap.scrollTop;
-    
-    const maxScrollTop = Math.max(0, wrap.scrollHeight - wrap.clientHeight);
-    const trackRect = track.getBoundingClientRect();
-    const usableH = Math.max(1, trackRect.height - trackPadding * 2);
-    const thumbH = parseFloat(getComputedStyle(thumb).height) || thumb.getBoundingClientRect().height;
-    const maxThumbTop = Math.max(1, usableH - thumbH);
-
-    const onMove = (e: PointerEvent) => {
-      const dy = e.clientY - startPointerY;
-      const scrollDelta = (dy / maxThumbTop) * maxScrollTop;
-      const newScroll = Math.max(0, Math.min(maxScrollTop, Math.round(startScrollTop + scrollDelta)));
-      
-      wrap.scrollTop = newScroll;
-      
-      const scrollFraction = maxScrollTop === 0 ? 0 : newScroll / maxScrollTop;
-      const thumbPosition = maxThumbTop * scrollFraction;
-      thumb.style.transform = `translateY(${thumbPosition}px)`;
-    };
-
-    const onUp = () => {
-      console.log('🏁 VERTICAL drag end');
-      
-      try { 
-        thumb.releasePointerCapture(ev.pointerId); 
-      } catch (err) {
-        // Already released
-      }
-
-      thumb.removeEventListener('pointermove', onMove as any);
-      thumb.removeEventListener('pointerup', onUp as any);
-      thumb.removeEventListener('pointercancel', onUp as any);
-    };
-
-    thumb.addEventListener('pointermove', onMove as any);
-    thumb.addEventListener('pointerup', onUp as any);
-    thumb.addEventListener('pointercancel', onUp as any);
-  }, [scrollRef, trackPadding]);
-
-  // ============================================================
-  // CLICK ON TRACK (JUMP)
-  // ============================================================
-  const handleTrackHClick = (e: React.MouseEvent) => {
-    if (!trackHRef.current || !scrollRef.current || e.target === thumbHRef.current) return;
-    
-    const rect = trackHRef.current.getBoundingClientRect();
-    const usable = Math.max(1, rect.width - trackPadding * 2);
-    const clickX = e.clientX - rect.left - trackPadding;
-    const maxScroll = Math.max(0, scrollRef.current.scrollWidth - scrollRef.current.clientWidth);
-    const ratio = clickX / usable;
-    scrollRef.current.scrollLeft = Math.round(maxScroll * ratio);
-    updateThumbs();
+    document.body.style.userSelect = "none";
   };
 
-  const handleTrackVClick = (e: React.MouseEvent) => {
-    if (!trackVRef.current || !scrollRef.current || e.target === thumbVRef.current) return;
-    
-    const rect = trackVRef.current.getBoundingClientRect();
-    const usable = Math.max(1, rect.height - trackPadding * 2);
-    const clickY = e.clientY - rect.top - trackPadding;
-    const maxScroll = Math.max(0, scrollRef.current.scrollHeight - scrollRef.current.clientHeight);
-    const ratio = clickY / usable;
-    scrollRef.current.scrollTop = Math.round(maxScroll * ratio);
-    updateThumbs();
+  const onPointerMoveV = (e: React.PointerEvent) => {
+    if (!isDraggingV || !scrollRef.current) return;
+
+    const deltaY = e.clientY - startPosRef.current.y;
+    if (maxThumbTopAdjusted > 0) {
+      const deltaScroll =
+        (deltaY / maxThumbTopAdjusted) * maxScrollTopAdjusted;
+      scrollRef.current.scrollTop = Math.min(
+        maxScrollTopAdjusted,
+        Math.max(
+          0,
+          startPosRef.current.scrollTop + deltaScroll,
+        ),
+      );
+    }
   };
 
-  // ============================================================
-  // SYNC WITH SCROLL & RESIZE
-  // ============================================================
-  useEffect(() => {
-    const wrap = scrollRef.current;
-    if (!wrap) return;
+  const onPointerMoveH = (e: React.PointerEvent) => {
+    if (!isDraggingH || !scrollRef.current) return;
 
-    wrap.addEventListener('scroll', updateThumbs, { passive: true });
-    
-    const handleResize = () => {
-      requestAnimationFrame(refreshVisibility);
-    };
-    window.addEventListener('resize', handleResize);
+    const deltaX = e.clientX - startPosRef.current.x;
+    if (maxThumbLeft > 0) {
+      const deltaScroll =
+        (deltaX / maxThumbLeft) * maxScrollLeft;
+      scrollRef.current.scrollLeft = Math.min(
+        maxScrollLeft,
+        Math.max(
+          0,
+          startPosRef.current.scrollLeft + deltaScroll,
+        ),
+      );
+    }
+  };
 
-    const ro = new ResizeObserver(() => updateThumbs());
-    ro.observe(wrap);
+  const onPointerUpV = (e: React.PointerEvent) => {
+    if (verticalThumbRef.current) {
+      verticalThumbRef.current.releasePointerCapture(
+        e.pointerId,
+      );
+    }
+    setIsDraggingV(false);
+    setIsHoveringV(false); // Сбрасываем hover при отпускании
+    document.body.style.userSelect = "";
+  };
 
-    // Initial
-    requestAnimationFrame(refreshVisibility);
+  const onPointerUpH = (e: React.PointerEvent) => {
+    if (horizontalThumbRef.current) {
+      horizontalThumbRef.current.releasePointerCapture(
+        e.pointerId,
+      );
+    }
+    setIsDraggingH(false);
+    setIsHoveringH(false); // Сбрасываем hover при отпускании
+    document.body.style.userSelect = "";
+  };
 
-    return () => {
-      wrap.removeEventListener('scroll', updateThumbs);
-      window.removeEventListener('resize', handleResize);
-      ro.disconnect();
-    };
-  }, [scrollRef, updateThumbs, refreshVisibility]);
+  // Обработчики для отмены drag (когда курсор покидает окно или теряется capture)
+  const onPointerCancelV = () => {
+    setIsDraggingV(false);
+    setIsHoveringV(false);
+    document.body.style.userSelect = "";
+  };
+
+  const onPointerCancelH = () => {
+    setIsDraggingH(false);
+    setIsHoveringH(false);
+    document.body.style.userSelect = "";
+  };
+
+  const onLostPointerCaptureV = () => {
+    setIsDraggingV(false);
+    setIsHoveringV(false);
+    document.body.style.userSelect = "";
+  };
+
+  const onLostPointerCaptureH = () => {
+    setIsDraggingH(false);
+    setIsHoveringH(false);
+    document.body.style.userSelect = "";
+  };
 
   return (
     <>
-      {/* HORIZONTAL SCROLLBAR */}
-      {showHorizontal && (
+      {showVerticalAdjusted && (
         <div
-          ref={trackHRef}
-          onClick={handleTrackHClick}
+          className="custom-scrollbar-vertical"
           style={{
-            position: 'fixed',
-            height: `${trackThickness}px`,
-            left: `${horizontalOffset}px`,
-            right: `${rightPadding}px`,
-            bottom: `${bottomPadding}px`,
-            background: 'rgba(0,0,0,0.05)',
-            borderRadius: '6px',
-            display: 'flex',
-            alignItems: 'center',
-            userSelect: 'none',
-            zIndex: 999999,
-            boxSizing: 'border-box',
-            padding: `${trackPadding}px`,
-            cursor: 'pointer',
-            pointerEvents: 'auto',
+            position: "fixed",
+            top: verticalTopOffset,
+            right: 0,
+            bottom: verticalBottomOffset, // Отступ снизу: (8*2)+10 = 26px
+            width:
+              scrollbarThickness + scrollbarThumbOffset * 2, // Область клика
+            zIndex: 4999, // ✅ Ниже чем модальные окна (z-[5000])
+            pointerEvents: isModalOpen ? "none" : "auto", // ✨ Блокируем при открытом модальном окне
+            opacity: isModalOpen ? 0.3 : 1, // ✨ Делаем полупрозрачным при блокировке
+            transition: "opacity 0.2s ease",
           }}
         >
+          {/* Track background for better visibility if needed */}
+          {/* <div className="absolute inset-0 bg-gray-100 opacity-0 hover:opacity-100 transition-opacity" /> */}
+
           <div
-            ref={thumbHRef}
-            onPointerDown={handleHorizontalPointerDown}
+            ref={verticalThumbRef}
             style={{
-              height: '100%',
-              minWidth: `${thumbMinSize}px`,
-              background: 'linear-gradient(90deg, #888, #444)',
-              borderRadius: '6px',
-              cursor: 'grab',
-              transition: 'none',
-              touchAction: 'none',
-              WebkitUserDrag: 'none',
-              userSelect: 'none',
+              position: "absolute",
+              top: thumbTopAdjusted,
+              right: scrollbarThumbOffset,
+              width: scrollbarThickness,
+              height: thumbHeightAdjusted,
+              backgroundColor:
+                isDraggingV || isHoveringV
+                  ? "#00000060"
+                  : "#00000030",
+              borderRadius: scrollbarThickness / 2,
+              cursor: "pointer",
             }}
+            onPointerDown={onDragStartV}
+            onPointerMove={onPointerMoveV}
+            onPointerUp={onPointerUpV}
+            onPointerEnter={() => setIsHoveringV(true)}
+            onPointerLeave={() => setIsHoveringV(false)}
+            onPointerCancel={onPointerCancelV}
+            onLostPointerCapture={onLostPointerCaptureV}
           />
         </div>
       )}
 
-      {/* VERTICAL SCROLLBAR */}
-      {showVertical && (
+      {showHorizontal && (
         <div
-          ref={trackVRef}
-          onClick={handleTrackVClick}
+          className="custom-scrollbar-horizontal"
           style={{
-            position: 'fixed',
-            width: `${trackThickness}px`,
-            top: `${verticalOffset}px`,
-            bottom: `${bottomPadding}px`,
-            right: `${rightPadding}px`,
-            background: 'rgba(0,0,0,0.05)',
-            borderRadius: '6px',
-            boxSizing: 'border-box',
-            padding: `${trackPadding}px`,
-            zIndex: 999999,
-            userSelect: 'none',
-            cursor: 'pointer',
-            pointerEvents: 'auto',
+            position: "fixed",
+            left: horizontalLeftOffset,
+            bottom: 0,
+            width: trackWidth,
+            height:
+              scrollbarThickness + scrollbarThumbOffset * 2, // Область клика
+            zIndex: 4999, // ✅ Ниже чем модальные окна (z-[5000])
+            pointerEvents: isModalOpen ? "none" : "auto", // ✨ Блокируем при открытом модальном окне
+            opacity: isModalOpen ? 0.3 : 1, // ✨ Делаем полупрозрачным при блокировке
+            transition: "opacity 0.2s ease",
           }}
         >
           <div
-            ref={thumbVRef}
-            onPointerDown={handleVerticalPointerDown}
+            ref={horizontalThumbRef}
             style={{
-              width: '100%',
-              minHeight: `${thumbMinSize}px`,
-              background: 'linear-gradient(#888, #444)',
-              borderRadius: '6px',
-              cursor: 'grab',
-              transition: 'none',
-              touchAction: 'none',
-              WebkitUserDrag: 'none',
-              userSelect: 'none',
+              position: "absolute",
+              left: thumbLeft,
+              bottom: scrollbarThumbOffset,
+              height: scrollbarThickness,
+              width: thumbWidth,
+              backgroundColor:
+                isDraggingH || isHoveringH
+                  ? "#00000060"
+                  : "#00000030",
+              borderRadius: scrollbarThickness / 2,
+              cursor: "pointer",
             }}
+            onPointerDown={onDragStartH}
+            onPointerMove={onPointerMoveH}
+            onPointerUp={onPointerUpH}
+            onPointerEnter={() => setIsHoveringH(true)}
+            onPointerLeave={() => setIsHoveringH(false)}
+            onPointerCancel={onPointerCancelH}
+            onLostPointerCapture={onLostPointerCaptureH}
           />
         </div>
       )}
     </>
   );
-}
+};

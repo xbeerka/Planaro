@@ -1,6 +1,7 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, forwardRef, useImperativeHandle } from 'react';
 import { Project, EventPattern, SchedulerEvent } from '../../types/scheduler';
 import { Search } from 'lucide-react';
+import { TextInput, SelectInput, ColorInput } from './management/SharedInputs';
 
 interface ProjectsManagementContentProps {
   projects: Project[];
@@ -22,7 +23,11 @@ interface LocalNewProject {
   patternId: string;
 }
 
-export function ProjectsManagementContent({
+export interface ProjectsManagementHandle {
+  onAdd: () => void;
+}
+
+export const ProjectsManagementContent = forwardRef<ProjectsManagementHandle, ProjectsManagementContentProps>(({
   projects,
   events,
   eventPatterns,
@@ -32,13 +37,18 @@ export function ProjectsManagementContent({
   onResetHistory,
   onHasChanges,
   onClose
-}: ProjectsManagementContentProps) {
+}, ref) => {
   const [editingProjects, setEditingProjects] = useState<Record<string, { name: string; backgroundColor?: string; textColor?: string; patternId?: string }>>({});
   const [localNewProjects, setLocalNewProjects] = useState<LocalNewProject[]>([]);
   const [deletedProjectIds, setDeletedProjectIds] = useState<string[]>([]);
   const [colorGenConfirmed, setColorGenConfirmed] = useState(false);
   const [editColorGenConfirmed, setEditColorGenConfirmed] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeDropdownId, setActiveDropdownId] = useState<string | null>(null);
+
+  useImperativeHandle(ref, () => ({
+    onAdd: handleAddNewProject
+  }));
 
   // Initialize editing state
   useEffect(() => {
@@ -57,6 +67,23 @@ export function ProjectsManagementContent({
     setColorGenConfirmed(false);
     setEditColorGenConfirmed(false);
   }, [projects]);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (activeDropdownId) {
+        const target = event.target as HTMLElement;
+        if (!target.closest('.project-actions-dropdown')) {
+          setActiveDropdownId(null);
+        }
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [activeDropdownId]);
 
   // Track changes
   useEffect(() => {
@@ -230,7 +257,10 @@ export function ProjectsManagementContent({
     });
   };
 
+  const [isSaving, setIsSaving] = useState(false);
+
   const handleSave = async () => {
+    setIsSaving(true);
     try {
       // Step 1: Delete projects
       if (deletedProjectIds.length > 0) {
@@ -302,6 +332,8 @@ export function ProjectsManagementContent({
       console.error('❌ Ошибка при сохранении изменений:', error);
       console.error('❌ Stack trace:', error instanceof Error ? error.stack : 'N/A');
       alert('Ошибка при сохранении изменений');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -353,14 +385,14 @@ export function ProjectsManagementContent({
     }
     
     return (
-      <div style={{ ...style, userSelect: 'none' }} className="w-16 h-8 rounded border border-gray-300 flex-shrink-0 flex items-center justify-center">
+      <div style={{ ...style, userSelect: 'none' }} className="w-[60px] h-9 rounded-[12px] border border-transparent flex-shrink-0 flex items-center justify-center shadow-sm">
         {showText && (
           <span style={{ 
             color: backgroundColor?.trim() ? (textColor || '#fff') : '#999', 
             fontSize: '14px', 
             fontWeight: 'bold' 
           }}>
-            {backgroundColor?.trim() ? 'A' : '?'}
+            {backgroundColor?.trim() ? 'Aa' : '?'}
           </span>
         )}
       </div>
@@ -399,13 +431,6 @@ export function ProjectsManagementContent({
               />
             </div>
           </div>
-          
-          <button
-            onClick={handleAddNewProject}
-            className="px-4 py-2 bg-blue-600 text-white rounded-[12px] hover:bg-blue-700 transition-colors font-medium text-[14px]"
-          >
-            Проект
-          </button>
         </div>
       </div>
 
@@ -414,63 +439,62 @@ export function ProjectsManagementContent({
         <div className="space-y-0">
           {/* New projects */}
           {localNewProjects.map(newProject => (
-            <div key={newProject.tempId} className="px-6 py-4 border-b border-gray-200 bg-blue-50">
+            <div key={newProject.tempId} className="px-6 py-3 border-b border-gray-100 bg-blue-50/30 group">
               <div className="flex items-center gap-3">
-                <input
-                  type="text"
-                  value={newProject.name}
-                  onChange={e => handleNewProjectChange(newProject.tempId, 'name', e.target.value)}
-                  className="flex-1 min-w-[150px] px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-[14px]"
-                  placeholder="Название проекта"
-                  autoFocus
-                />
-                
-                <select
-                  value={newProject.patternId}
-                  onChange={e => handleNewProjectChange(newProject.tempId, 'patternId', e.target.value)}
-                  className="flex-shrink-0 min-w-0 w-[140px] px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-[14px]"
-                >
-                  <option value="">Без паттерна</option>
-                  {eventPatterns.map((pattern) => (
-                    <option key={pattern.id} value={pattern.id}>
-                      {pattern.name}
-                    </option>
-                  ))}
-                </select>
-                
-                <input
-                  type="text"
-                  value={newProject.backgroundColor}
-                  onChange={e => handleNewProjectChange(newProject.tempId, 'backgroundColor', e.target.value)}
-                  className="flex-shrink-0 min-w-0 w-[100px] px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-[14px]"
-                  placeholder="#3498db"
-                />
-                
-                <div 
-                  onClick={() => handleNewProjectColorGen(newProject.tempId)} 
-                  title="Клик для генерации"
-                  className="flex-shrink-0"
-                >
-                  {renderPatternPreview(newProject.backgroundColor, newProject.patternId, newProject.textColor)}
+                <div className="grid grid-cols-[minmax(0,1fr)_120px_100px_min-content_100px] gap-3 items-center flex-1 min-w-0 w-full">
+                  <TextInput
+                    value={newProject.name}
+                    onChange={e => handleNewProjectChange(newProject.tempId, 'name', e.target.value)}
+                    className="min-w-0 w-full box-border h-9 px-3 bg-white border border-gray-200 rounded-lg text-[14px] leading-none outline-none placeholder:text-gray-400 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                    placeholder="Название проекта"
+                    autoFocus
+                  />
+                  
+                  <SelectInput
+                    value={newProject.patternId}
+                    onChange={e => handleNewProjectChange(newProject.tempId, 'patternId', e.target.value)}
+                    className="h-9 w-full pl-3 pr-8 bg-white border border-gray-200 rounded-lg text-[14px] leading-none transition-all outline-none cursor-pointer text-gray-700 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                  >
+                    <option value="">Без паттерна</option>
+                    {eventPatterns.map((pattern) => (
+                      <option key={pattern.id} value={pattern.id}>
+                        {pattern.name}
+                      </option>
+                    ))}
+                  </SelectInput>
+                  
+                  <ColorInput
+                    value={newProject.backgroundColor}
+                    onChange={e => handleNewProjectChange(newProject.tempId, 'backgroundColor', e.target.value)}
+                    className="min-w-0 w-full box-border h-9 px-3 bg-white border border-gray-200 rounded-lg text-[14px] leading-none outline-none placeholder:text-gray-400 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                    placeholder="#3498db"
+                  />
+                  
+                  <div 
+                    onClick={() => handleNewProjectColorGen(newProject.tempId)} 
+                    title="Клик для генерации"
+                    className="flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
+                  >
+                    {renderPatternPreview(newProject.backgroundColor, newProject.patternId, newProject.textColor)}
+                  </div>
+                  
+                  <ColorInput
+                    value={newProject.textColor}
+                    onChange={e => handleNewProjectChange(newProject.tempId, 'textColor', e.target.value)}
+                    className="min-w-0 w-full box-border h-9 px-3 bg-white border border-gray-200 rounded-lg text-[14px] leading-none outline-none placeholder:text-gray-400 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                    placeholder="#ffffff"
+                  />
                 </div>
-                
-                <input
-                  type="text"
-                  value={newProject.textColor}
-                  onChange={e => handleNewProjectChange(newProject.tempId, 'textColor', e.target.value)}
-                  className="flex-shrink-0 min-w-0 w-[100px] px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-[14px]"
-                  placeholder="#ffffff"
-                />
                 
                 <button
                   onClick={() => handleDeleteNewProject(newProject.tempId)}
-                  className="flex-shrink-0 p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                  className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-[12px] text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all"
                   title="Удалить"
                 >
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
-                    width="20"
-                    height="20"
+                    width="18"
+                    height="18"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
@@ -493,74 +517,104 @@ export function ProjectsManagementContent({
             if (!projectData) return null;
 
             return (
-              <div key={project.id} className="px-6 py-4 border-b border-gray-200 bg-white hover:bg-gray-50 transition-colors">
+              <div key={project.id} className="px-6 py-3 border-b border-gray-100 bg-white hover:bg-gray-50/50 transition-colors group">
                 <div className="flex items-center gap-3">
-                  <input
-                    type="text"
-                    value={projectData.name}
-                    onChange={e => handleChange(project.id, 'name', e.target.value)}
-                    className="flex-1 min-w-[150px] px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-[14px]"
-                    placeholder="Название проекта"
-                  />
-                  
-                  <select
-                    value={projectData.patternId || ''}
-                    onChange={e => handleChange(project.id, 'patternId', e.target.value)}
-                    className={`flex-shrink-0 min-w-0 w-[140px] px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-[14px] ${!projectData.patternId ? 'text-gray-400' : ''}`}
-                  >
-                    <option value="" className="text-gray-400">Без паттерна</option>
-                    {eventPatterns.map((pattern) => (
-                      <option key={pattern.id} value={pattern.id} className="text-black">
-                        {pattern.name}
-                      </option>
-                    ))}
-                  </select>
-                  
-                  <input
-                    type="text"
-                    value={projectData.backgroundColor || ''}
-                    onChange={e => handleChange(project.id, 'backgroundColor', e.target.value)}
-                    className="flex-shrink-0 min-w-0 w-[100px] px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-[14px]"
-                    placeholder="#3498db"
-                  />
-                  
-                  <div 
-                    onClick={() => handleEditingColorPreviewClick(project.id)} 
-                    title="Клик для генерации"
-                    className="flex-shrink-0"
-                  >
-                    {renderPatternPreview(projectData.backgroundColor || '', projectData.patternId || '', projectData.textColor || '')}
+                  <div className="grid grid-cols-[minmax(0,1fr)_120px_100px_min-content_100px] gap-3 items-center flex-1 min-w-0 w-full">
+                    <TextInput
+                      value={projectData.name}
+                      onChange={e => handleChange(project.id, 'name', e.target.value)}
+                      className="min-w-0 w-full box-border h-9 px-3 bg-white border border-gray-200 rounded-lg text-[14px] leading-none outline-none placeholder:text-gray-400 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                      placeholder="Название проекта"
+                    />
+                    
+                    <SelectInput
+                      value={projectData.patternId || ''}
+                      onChange={e => handleChange(project.id, 'patternId', e.target.value)}
+                      className="h-9 w-full pl-3 pr-8 bg-white border border-gray-200 rounded-lg text-[14px] leading-none transition-all outline-none cursor-pointer text-gray-700 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                    >
+                      <option value="">Без паттерна</option>
+                      {eventPatterns.map((pattern) => (
+                        <option key={pattern.id} value={pattern.id}>
+                          {pattern.name}
+                        </option>
+                      ))}
+                    </SelectInput>
+                    
+                    <ColorInput
+                      value={projectData.backgroundColor || ''}
+                      onChange={e => handleChange(project.id, 'backgroundColor', e.target.value)}
+                      className="min-w-0 w-full box-border h-9 px-3 bg-white border border-gray-200 rounded-lg text-[14px] leading-none outline-none placeholder:text-gray-400 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                      placeholder="#3498db"
+                    />
+                    
+                    <div 
+                      onClick={() => handleEditingColorPreviewClick(project.id)} 
+                      title="Клик для генерации"
+                      className="flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
+                    >
+                      {renderPatternPreview(projectData.backgroundColor || '', projectData.patternId || '', projectData.textColor || '')}
+                    </div>
+                    
+                    <ColorInput
+                      value={projectData.textColor || ''}
+                      onChange={e => handleChange(project.id, 'textColor', e.target.value)}
+                      className="min-w-0 w-full box-border h-9 px-3 bg-white border border-gray-200 rounded-lg text-[14px] leading-none outline-none placeholder:text-gray-400 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                      placeholder="#ffffff"
+                    />
                   </div>
                   
-                  <input
-                    type="text"
-                    value={projectData.textColor || ''}
-                    onChange={e => handleChange(project.id, 'textColor', e.target.value)}
-                    className="flex-shrink-0 min-w-0 w-[100px] px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-[14px]"
-                    placeholder="#ffffff"
-                  />
-                  
-                  <button
-                    onClick={() => handleDelete(project.id)}
-                    className="flex-shrink-0 p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                    title="Удалить"
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="20"
-                      height="20"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
+                  <div className="relative flex-shrink-0 project-actions-dropdown">
+                    <button
+                      onClick={() => setActiveDropdownId(activeDropdownId === project.id ? null : project.id)}
+                      className={`w-9 h-9 flex items-center justify-center rounded-[12px] text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all ${activeDropdownId === project.id ? 'bg-gray-100 text-gray-600' : ''}`}
+                      title="Действия"
                     >
-                      <path d="M3 6h18" />
-                      <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                      <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                    </svg>
-                  </button>
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="18"
+                        height="18"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <circle cx="12" cy="12" r="1" />
+                        <circle cx="12" cy="5" r="1" />
+                        <circle cx="12" cy="19" r="1" />
+                      </svg>
+                    </button>
+
+                    {activeDropdownId === project.id && (
+                      <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
+                        <button
+                          onClick={() => {
+                            setActiveDropdownId(null);
+                            handleDelete(project.id);
+                          }}
+                          className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2"
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M3 6h18" />
+                            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                          </svg>
+                          Удалить
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             );
@@ -584,11 +638,21 @@ export function ProjectsManagementContent({
       <div className="border-t bg-gray-50 px-6 py-4 flex items-center justify-end gap-3">
         <button
           onClick={handleSave}
-          className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+          disabled={isSaving}
+          className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          Сохранить
+          {isSaving ? (
+            <>
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              Сохранение...
+            </>
+          ) : (
+            'Сохранить'
+          )}
         </button>
       </div>
     </>
   );
-}
+});
+
+ProjectsManagementContent.displayName = 'ProjectsManagementContent';

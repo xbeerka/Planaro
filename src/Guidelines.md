@@ -13,7 +13,7 @@
 - **Следуй существующей структуре** - не меняй организацию папок без необходимости
 - **Все изменения только по кнопке "Сохранить"** - никаких автосохранений в модальных окнах
 - **Логирование обязательно** - детальные console.log на важных этапах для диагностики
-- **Параллельное выполнение** - используй Promise.all() для batch операций
+- **Параллельное выполнение** - используй Promise.all() для batch ��пераций
 
 ## 🗄️ База данных
 
@@ -25,8 +25,8 @@
 - `projects` - проекты с цветами (backgroundColor, textColor) и workspace_id
 - `events` - события с привязкой к сотруднику, проекту, паттерну
 - `event_patterns` - паттерны событий (vacation, bench, etc.)
-- `grades` - грейды сотрудников (junior, middle, senior, lead)
-- `companies` - компании
+- `grades` - грейды сотрудников с привязкой к воркспейсу (workspace_id)
+- `companies` - компании с привязкой к воркспейсу (workspace_id)
 
 ### Правила работы с БД
 - **Не создавай миграции** - используй существующую схему
@@ -66,7 +66,7 @@
   - **Математика**: `offsetUnit = floor(offsetY / unitStride)` при startDrag, `unitStart = floor(withinRow / unitStride) - offsetUnit` при move
 - **Resize** - 4 направления (top, bottom, left, right) с плавной анимацией
 - **Gap Handles (v1.5.0)** - двусторонний resize границ между событиями при зажатой Cmd/Ctrl
-  - При зажатой Cmd/Ctrl появляют��я синие пипки на промежутках между событиями
+  - При зажатой Cmd/Ctrl появляются синие пипки на промежутках между событиями
   - Вертикальные handles: между событиями сверху-снизу (одна неделя, касаются)
   - Горизонтальные handles: между событиями слева-справа (касаются, перекрываются)
   - Drag handle изменяет оба события одновременно (граница двигается)
@@ -212,7 +212,7 @@ const userId = getUserIdFromToken(accessToken);
 - `Space + drag` - Панорамирование
 - `Ctrl/Cmd + scroll` - Зум
 - `Esc` - Закрытие модалок
-- `?` - Справка по х��ткеям
+- `?` - Справка по хоткеям
 - `Ctrl/Cmd + hold` - Режим перемещения (скрывает ручки resize)
 
 ## ↩️ Система Undo/Redo
@@ -380,7 +380,7 @@ const userId = getUserIdFromToken(accessToken);
 
 ### Фильтрация проектов
 - **Частичная прозрачность (dimmed events)** - при активном фильтре проектов:
-  - Собы��ия выбранных проектов: отображаются нормально (100% opacity, оригинальные цвета)
+  - События выбранных проектов: отображаются нормально (100% opacity, оригинальные цвета)
   - События других проектов: `backgroundColor: #AAA`, `color: #333`, `opacity: 0.2`
   - Паттерны в `backgroundImage` сохраняются (накладываются поверх серого фона)
   - Плавный переход через `transition: opacity 0.2s ease` (globals.css)
@@ -425,7 +425,7 @@ console.log('✅ Событие создано:', eventId);
    - Если `/` - сбрасывает selectedWorkspace
    - Если `/workspace/:id` - загружает воркспейс из API
 
-4. **Прямая ссылка / Обн��вление страницы**:
+4. **Прямая ссылка / Обновление страницы**:
    - При монтировании после авторизации срабатывает useEffect
    - Проверяет URL, загружает нужный воркспейс или показывает список
    - Предотвращает повторную загрузку если воркспейс уже в state
@@ -505,7 +505,7 @@ console.log('✅ Событие создано:', eventId);
 
 ### DON'T ❌
 - Не создавай новые таблицы БД
-- Не делай авт��сохранение в модалках
+- Не делай автосохранение в модалках
 - Не меняй защищённые файлы
 - Не используй alert() - используй toast
 - Не делай последовательные await в циклах
@@ -514,9 +514,31 @@ console.log('✅ Событие создано:', eventId);
 
 ---
 
-**Версия документа**: 8.8.0 (2025-12-12)
-**Статус**: STABLE (Grid Alignment Fix)
+**Версия документа**: 8.13.0 (2025-12-26)
+**Статус**: STABLE (Comments Migration)
 **Последнее обновление**: 
+- **Comments System Migration (v8.13.0)**:
+  - ✅ **PostgreSQL Migration**: Комментарии перенесены из KV Store в таблицу `public.comments`.
+  - ✅ **Server Fix**: Исправлен бут-луп сервера из-за ошибки экспорта (`registerCommentsRoutes`).
+  - ✅ **Author Tracking**: Добавлено поле `auth_user_id` для отслеживания автора комментария.
+  - ✅ **Resource Mapping**: `user_id` теперь integer, корректный парсинг `u123` <-> `123`.
+- **Sticky Headers Fix (v8.12.0)**:
+  - ✅ **Dynamic Offset**: Исправлено позиционирование "липких" заголовков событий (`--sticky-name-left`).
+  - ✅ **Sidebar Awareness**: Отступ теперь учитывает ширину сайдбара (развернут/свернут).
+  - ✅ **Conditional Padding**: Добавлен адаптивный отступ (8px для свернутого, 12px для развернутого).
+  - ✅ **Файл**: `/components/scheduler/SchedulerGrid.tsx`.
+- **Event Interaction Fix (v8.11.0)**:
+  - ✅ **Pointer Events**: Enabled `pointer-events: auto` on SchedulerEvent to capture mouse events.
+  - ✅ **Bubbling Fix**: Modified `handleGlobalMouseMove` in SchedulerGridUnified to ignore events bubbling from `.scheduler-event`. This prevents the grid from showing highlights when the mouse is over an event.
+  - ✅ **Force Hide**: Added `hideHoverHighlight` method to SchedulerGridUnified for robust state clearing.
+  - ✅ **Side Effect**: Fixes dragging events by their body.
+- **Visual Improvements (v8.10.0)**:
+  - ✅ **Month Separators**: Added darker vertical lines to separate months in the scheduler grid. Implemented via CSS gradients on the interaction layer for performance.
+- **SchedulerGridUnified Highlight Fixes (v8.9.0)**:
+  - ✅ **Fixed Highlight Shifting**: Normalized coordinate system for hover highlight. Now renders inside Events Layer (relative to week start) instead of global container.
+  - ✅ **Fixed Ghost Highlight**: Removed duplicate highlight rendering in scroll container.
+  - ✅ **Fixed Padding Artifacts**: Added `unitIndex` validation to prevent highlight appearing in row padding areas (between rows).
+  - ✅ **Dynamic UNITS calculation**: Replaced hardcoded `UNITS` with dynamic calculation based on `eventRowH` and padding.
 - **Unified Grid Alignment (v8.8.0)**:
   - ✅ **Spacer Logic**: Фон сетки (градиент) теперь позиционируется с `0px` (ранее `4px` offset), что выравнивает вертикальные линии точно по границам недель.
   - ✅ **Exact Width**: Добавлено явное ограничение ширины строки ресурсов (`width: ${config.weekPx * WEEKS}px`), устраняющее "фантомную" 53-ю линию справа.
@@ -591,6 +613,15 @@ console.log('✅ Событие создано:', eventId);
   - ✅ **STAGE 2 - TOPOLOGY**: Классификация паттернов (А/Б/В/Г формы)
   - ✅ **STAGE 3 - RULES**: Явное применение правил расширения (независимо)
   - ✅ **STAGE 4 - CORNER FLAGS**: Определение скруглений углов
-  - ✅ **STAGE 5 - NAME HIDING**: Логика скрытия названий
+  - ✅ **STAGE 5 - NAME HIDING**: Ло��ика скрытия названий
   - ✅ **Предсказуемость**: Каждое правило изолировано, результат не зависит от порядка
-  - ✅ **Документация**: `/EVENT_NEIGHBORS_v8.0_CLEAN_ARCHITECTURE.md`
+  - ✅ **Отладка**: Логирование каждого этапа, можно точно определить проблему
+  - ✅ **Расширяемость**: Добавление нового правила не ломает существующие
+  - ✅ **Корректность**: Кейсы А/Б/В/Г обрабатываются явно через StackPattern
+  - ✅ **Документация**: `/EVENT_NEIGHBORS_v8.0_CLEAN_ARCHITECTURE.md`, `/QUICK_TEST_NEIGHBORS_v8.0.md`
+- **Решенные проблемы**:
+  - ❌ **v1.0-7.0**: Смешанная ответственность expandMultiplier (склейка + стекинг + откусывание)
+  - ❌ **v1.0-7.0**: Неявные зависимости между проходами
+  - ❌ **v1.0-7.0**: 8 типов покрытия, запутанная логика
+  - ❌ **v1.0-7.0**: Каждое исправление ломало другой кейс
+  - ✅ **v8.0**: Все исправлено через чистую архитектуру

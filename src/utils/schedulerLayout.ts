@@ -5,6 +5,7 @@ export interface LayoutConfig {
   weekPx: number;
   resourceW: number;
   rowH: number;
+  departmentRowH: number;
   eventRowH: number;
   gap: number;
   cellPaddingLeft: number;
@@ -15,7 +16,7 @@ export interface LayoutConfig {
   unitStride: number;
 }
 
-export const EVENTS_TOP_OFFSET = 88; // Дополнительный отступ для Events Layer (чтобы не залезали под шапку)
+export const EVENTS_TOP_OFFSET = 0; // Дополнительный отступ не нужен, так как getResourceGlobalTop уже учитывает шапку (72px)
 
 // Calculate gap based on size (for both row height and cell width)
 export function getGapForSize(size: number): number {
@@ -79,6 +80,7 @@ export function createLayoutConfig(
     weekPx,
     resourceW: 284,
     rowH: 36,
+    departmentRowH: 52,
     eventRowH,
     gap,
     cellPaddingLeft: cellPadding,
@@ -98,8 +100,16 @@ export function getResourceGlobalTop(
 ): number {
   let totalHeight = 2 * config.rowH;
   for (const dept of departments) {
-    totalHeight += config.rowH;
-    const deptResources = sortResourcesByGrade(resources.filter(r => r.departmentId === dept.id));
+    totalHeight += config.departmentRowH;
+    // For virtual "NO_DEPT" department, filter resources without department_id
+    // For real departments, filter by exact department ID match
+    const deptResources = sortResourcesByGrade(
+      resources.filter(r => 
+        dept.id === 'NO_DEPT' 
+          ? !r.departmentId  // Users without department
+          : r.departmentId === dept.id  // Users with this department
+      )
+    );
     for (const resource of deptResources) {
       if (resource.id === resourceId) return totalHeight;
       totalHeight += config.eventRowH;
@@ -136,8 +146,16 @@ export function findClosestResource(
 
   // First pass: check if topAbs is inside any resource row bounds
   for (const dept of departments) {
-    cur += config.rowH;
-    const deptR = sortResourcesByGrade(resources.filter(r => r.departmentId === dept.id));
+    cur += config.departmentRowH;
+    // For virtual "NO_DEPT" department, filter resources without department_id
+    // For real departments, filter by exact department ID match
+    const deptR = sortResourcesByGrade(
+      resources.filter(r => 
+        dept.id === 'NO_DEPT' 
+          ? !r.departmentId  // Users without department
+          : r.departmentId === dept.id  // Users with this department
+      )
+    );
     for (const r of deptR) {
       const rowTop = cur + EVENTS_TOP_OFFSET;
       const rowBottom = cur + config.eventRowH + EVENTS_TOP_OFFSET;
@@ -195,7 +213,8 @@ export function modelFromGeometry(
   resources: Resource[],
   departments: Department[],
   config: LayoutConfig,
-  offsetUnit?: number // ✅ Опциональный параметр: за какой юнит внутри события взялись при drag
+  offsetUnit?: number, // ✅ Опциональный параметр: за какой юнит внутри события взялись при drag
+  weeksInYear?: number // ✅ Динамическое количество недель (52 или 53)
 ): {
   startWeek: number;
   resourceId: string;
@@ -203,7 +222,8 @@ export function modelFromGeometry(
   unitsTall: number;
 } | null {
   const leftRel = leftAbs - config.resourceW - config.cellPaddingLeft;
-  const startWeek = Math.max(0, Math.min(WEEKS - 1, Math.round(leftRel / config.weekPx)));
+  const maxWeek = (weeksInYear || WEEKS) - 1; // ✅ Используем динамическое значение или fallback
+  const startWeek = Math.max(0, Math.min(maxWeek, Math.round(leftRel / config.weekPx)));
 
   // findClosestResource now returns null if cursor is not inside any resource row
   const closest = findClosestResource(topAbs, resources, departments, config);

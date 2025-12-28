@@ -78,7 +78,7 @@ export function HeaderOnlineUsers({ workspaceId, accessToken, className }: Heade
         }
       }
     } catch (err) {
-      console.warn('⚠️ HeaderOnlineUsers: ошибка чтения кэша:', err);
+      console.warn('⚠️ HeaderOnlineUsers: оши��ка чтения кэша:', err);
     }
     
     return false;
@@ -112,7 +112,7 @@ export function HeaderOnlineUsers({ workspaceId, accessToken, className }: Heade
       }
       
       if (heartbeatFailureCount.current >= 3) {
-        console.error(`❌ Heartbeat: ошибка (попытка ${heartbeatFailureCount.current})`);
+        console.error(`❌ Heartbeat: ошибка (п��пытка ${heartbeatFailureCount.current})`);
       }
     }
   }, [workspaceId, accessToken]);
@@ -194,16 +194,22 @@ export function HeaderOnlineUsers({ workspaceId, accessToken, className }: Heade
         {sortedUsers.map((user, index) => {
              const isCurrent = user.email?.toLowerCase().trim() === currentUserEmail?.toLowerCase().trim();
              return (
-                <Tooltip key={user.userId}>
-                  <TooltipTrigger asChild>
-                    <div 
-                      className={`relative rounded-[12px] shrink-0 size-[32px] flex items-center justify-center overflow-hidden border-2 border-white ${isCurrent ? 'z-10' : 'z-0'}`}
-                      style={{
-                        marginRight: index < sortedUsers.length - 1 ? '-8px' : '0',
-                        backgroundColor: user.avatarUrl ? 'transparent' : '#f6f6f6',
-                      }}
-                    >
-                      {user.avatarUrl ? (
+                <TooltipProvider key={user.userId} delayDuration={300}>
+                  <div 
+                    className={`shrink-0 flex items-center justify-center transition-all duration-200 ${isCurrent ? 'z-10' : 'z-0'} hover:z-[100]`}
+                    style={{
+                      marginRight: index < sortedUsers.length - 1 ? '-8px' : '0',
+                    }}
+                  >
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div 
+                          className={`relative rounded-[12px] size-[32px] flex items-center justify-center overflow-hidden border-2 border-white`}
+                          style={{
+                            backgroundColor: user.avatarUrl ? 'transparent' : '#f6f6f6',
+                          }}
+                        >
+                          {user.avatarUrl ? (
                         <ImageWithFallback 
                           src={user.avatarUrl} 
                           alt={getDisplayName(user)}
@@ -216,13 +222,30 @@ export function HeaderOnlineUsers({ workspaceId, accessToken, className }: Heade
                       )}
                     </div>
                   </TooltipTrigger>
-                  <TooltipContent side="bottom" className="z-[1000]">
-                    <p>
-                      {getDisplayName(user)}
-                      {isCurrent && <span className="text-green-400 ml-1.5">(вы)</span>}
-                    </p>
+                  <TooltipContent 
+                    side="bottom" 
+                    align="end" 
+                    className="z-[1000] bg-gray-900 text-white border-gray-700 px-3 py-2 animate-none data-[state=closed]:animate-none"
+                  >
+                    <div className="whitespace-nowrap">
+                      <div className="font-semibold text-[13px]">
+                        {getDisplayName(user)}
+                        {isCurrent && (
+                          <span className="text-green-400 ml-1.5">
+                            (вы)
+                          </span>
+                        )}
+                      </div>
+                      {user.email && (
+                        <div className="text-xs text-gray-400 mt-0.5">
+                          {user.email}
+                        </div>
+                      )}
+                    </div>
                   </TooltipContent>
                 </Tooltip>
+                  </div>
+                </TooltipProvider>
              );
         })}
       </div>
