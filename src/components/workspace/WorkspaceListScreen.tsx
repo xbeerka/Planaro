@@ -89,6 +89,8 @@ interface WorkspaceListScreenProps {
   accessToken?: string | null;
 }
 
+import Planaro from "../../imports/Planaro-824-597";
+
 export function WorkspaceListScreen({
   onSelectWorkspace,
   onSignOut,
@@ -533,36 +535,15 @@ export function WorkspaceListScreen({
       {/* Header - точная копия стиля календаря */}
       <div className="p-2">
         <div className="max-w-[1800px] mx-auto">
-          <div className="h-14 relative rounded-[16px] w-full flex items-center px-4">
+          <div className="h-14 relative rounded-[16px] w-full flex items-center px-[24px] pt-[0px] pr-[16px] pb-[0px] pl-[24px] py-[0px]">
             <div className="absolute border border-[#f0f0f0] border-solid inset-0 pointer-events-none rounded-[16px]" />
 
             <div className="flex items-center justify-between w-full relative z-10">
               <div className="flex items-center gap-3">
                 {/* Logo */}
-                <div className="w-8 h-8 rounded-[10px] bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 310 310"
-                    fill="none"
-                    xmlns="http://www.w3.org/2000/svg"
-                    className="text-white"
-                  >
-                    <path
-                      d="M245.732 225.863H267.872L267.392 165.327C264.438 158.235 261.189 151.061 257.937 144.087C248.871 124.654 240.379 104.964 231.552 85.4318L176.344 85.4698C157.43 127.128 140.373 169.865 121.304 211.483C119.165 216.152 117.097 220.891 115.133 225.638L162.931 225.819C164.899 221.181 167.104 215.585 169.199 211.085C188.844 210.352 211.144 210.851 230.982 210.845C226.293 200.107 220.618 186.796 215.416 176.393C205.085 176.403 193.931 176.6 183.657 176.385C189.681 161.054 196.399 145.732 202.644 130.429C213.917 154.227 224.353 178.639 235.575 202.487C239.186 210.161 242.608 217.975 245.732 225.863Z"
-                      fill="currentColor"
-                    />
-                    <path
-                      fillRule="evenodd"
-                      clipRule="evenodd"
-                      d="M89.5634 85.4772C116.314 85.4453 151.887 83.5109 166.768 108.811L131.09 190.398C116.395 192.487 100.159 191.781 85.5039 191.78L85.5166 225.606L39.5185 225.592C39.3794 179.39 38.8382 131.695 39.3457 85.5827L89.5634 85.4772ZM113.296 122.019C104.079 120.941 94.7669 121.447 85.4922 121.58L85.3867 156.198C97.1124 156.272 115.241 158.339 124.12 151.212C133.316 140.046 128.347 123.779 113.296 122.019Z"
-                      fill="currentColor"
-                    />
-                  </svg>
+                <div className="h-4 w-auto aspect-[987/143]">
+                  <Planaro />
                 </div>
-                <span className="font-medium text-base text-black">
-                  Planaro
-                </span>
               </div>
 
               <div className="flex items-center gap-3">
@@ -660,7 +641,10 @@ export function WorkspaceListScreen({
             <p className="text-sm text-[#868789]">
               {workspaces.length === 0
                 ? "Создайте рабочее пространство для управления проектами и командой"
-                : `${workspaces.length} ${workspaces.length === 1 ? "активное пространство" : "активных пространства"}`}
+                : `${workspaces.length} ${((n) => {
+                    const forms = ["активное пространство", "активных пространства", "активных пространств"];
+                    return forms[(n % 100 > 4 && n % 100 < 20) ? 2 : [2, 0, 1, 1, 1, 2][(n % 10 < 5) ? n % 10 : 5]];
+                  })(workspaces.length)}`}
             </p>
           </div>
 
@@ -771,39 +755,47 @@ export function WorkspaceListScreen({
                       </div>
 
                       {/* Stats Grid */}
-                      <div className="grid grid-cols-3 gap-2 mb-4">
-                        <div className="text-center p-3 bg-[#f6f6f6] rounded-[10px]">
-                          <div className="text-xl font-semibold text-black mb-0.5">
-                            {workspace.summary?.project_count ??
-                              (workspace.summary as any)
-                                ?.projects_count ??
-                              0}
+                      {(() => {
+                        const plural = (n: number, forms: string[]) => 
+                          forms[(n % 100 > 4 && n % 100 < 20) ? 2 : [2, 0, 1, 1, 1, 2][(n % 10 < 5) ? n % 10 : 5]];
+                        
+                        const projectCount = workspace.summary?.project_count ?? (workspace.summary as any)?.projects_count ?? 0;
+                        const peopleCount = workspace.summary?.visible_count ?? workspace.summary?.member_count ?? 0;
+                        const hiddenCount = workspace.summary?.hidden_count ?? 0;
+                        const deptCount = workspace.summary?.department_count ?? 0;
+
+                        return (
+                          <div className="grid grid-cols-3 gap-2 mb-4">
+                            <div className="text-center p-3 bg-[#f6f6f6] rounded-[10px]">
+                              <div className="text-xl font-semibold text-black mb-0.5">
+                                {projectCount}
+                              </div>
+                              <div className="text-[9px] uppercase tracking-wider text-[#868789] font-medium">
+                                {plural(projectCount, ['проект', 'проекта', 'проектов'])}
+                              </div>
+                            </div>
+                            <div className="text-center p-3 bg-[#f6f6f6] rounded-[10px]">
+                              <div className="text-xl font-semibold text-black mb-0.5">
+                                {peopleCount}
+                              </div>
+                              <div className="text-[9px] uppercase tracking-wider text-[#868789] font-medium">
+                                {plural(peopleCount, ['человек', 'человека', 'человек'])}
+                                {hiddenCount > 0 && (
+                                  <> ({hiddenCount} {plural(hiddenCount, ['скрыт', 'скрыто', 'скрыто'])})</>
+                                )}
+                              </div>
+                            </div>
+                            <div className="text-center p-3 bg-[#f6f6f6] rounded-[10px]">
+                              <div className="text-xl font-semibold text-black mb-0.5">
+                                {deptCount}
+                              </div>
+                              <div className="text-[9px] uppercase tracking-wider text-[#868789] font-medium">
+                                {plural(deptCount, ['отдел', 'отдела', 'отделов'])}
+                              </div>
+                            </div>
                           </div>
-                          <div className="text-[9px] uppercase tracking-wider text-[#868789] font-medium">
-                            Проектов
-                          </div>
-                        </div>
-                        <div className="text-center p-3 bg-[#f6f6f6] rounded-[10px]">
-                          <div className="text-xl font-semibold text-black mb-0.5">
-                            {workspace.summary?.visible_count ?? workspace.summary?.member_count ?? 0}
-                          </div>
-                          <div className="text-[9px] uppercase tracking-wider text-[#868789] font-medium">
-                            {workspace.summary?.hidden_count && workspace.summary.hidden_count > 0 
-                              ? `человек (${workspace.summary.hidden_count} скрыто)`
-                              : 'Человек'
-                            }
-                          </div>
-                        </div>
-                        <div className="text-center p-3 bg-[#f6f6f6] rounded-[10px]">
-                          <div className="text-xl font-semibold text-black mb-0.5">
-                            {workspace.summary
-                              ?.department_count ?? 0}
-                          </div>
-                          <div className="text-[9px] uppercase tracking-wider text-[#868789] font-medium">
-                            Отделов
-                          </div>
-                        </div>
-                      </div>
+                        );
+                      })()}
 
                       {/* Footer */}
                       <div className="flex items-center justify-between pt-3 border-t border-[#f0f0f0] h-[40px]">

@@ -2,6 +2,12 @@ import { useState, useEffect, useMemo, forwardRef, useImperativeHandle } from 'r
 import { Project, EventPattern, SchedulerEvent } from '../../types/scheduler';
 import { Search } from 'lucide-react';
 import { TextInput, SelectInput, ColorInput } from './management/SharedInputs';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "../ui/dropdown-menu";
 
 interface ProjectsManagementContentProps {
   projects: Project[];
@@ -44,7 +50,6 @@ export const ProjectsManagementContent = forwardRef<ProjectsManagementHandle, Pr
   const [colorGenConfirmed, setColorGenConfirmed] = useState(false);
   const [editColorGenConfirmed, setEditColorGenConfirmed] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeDropdownId, setActiveDropdownId] = useState<string | null>(null);
 
   useImperativeHandle(ref, () => ({
     onAdd: handleAddNewProject
@@ -67,23 +72,6 @@ export const ProjectsManagementContent = forwardRef<ProjectsManagementHandle, Pr
     setColorGenConfirmed(false);
     setEditColorGenConfirmed(false);
   }, [projects]);
-
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (activeDropdownId) {
-        const target = event.target as HTMLElement;
-        if (!target.closest('.project-actions-dropdown')) {
-          setActiveDropdownId(null);
-        }
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [activeDropdownId]);
 
   // Track changes
   useEffect(() => {
@@ -563,37 +551,34 @@ export const ProjectsManagementContent = forwardRef<ProjectsManagementHandle, Pr
                     />
                   </div>
                   
-                  <div className="relative flex-shrink-0 project-actions-dropdown">
-                    <button
-                      onClick={() => setActiveDropdownId(activeDropdownId === project.id ? null : project.id)}
-                      className={`w-9 h-9 flex items-center justify-center rounded-[12px] text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all ${activeDropdownId === project.id ? 'bg-gray-100 text-gray-600' : ''}`}
-                      title="Действия"
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="18"
-                        height="18"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <circle cx="12" cy="12" r="1" />
-                        <circle cx="12" cy="5" r="1" />
-                        <circle cx="12" cy="19" r="1" />
-                      </svg>
-                    </button>
-
-                    {activeDropdownId === project.id && (
-                      <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
+                  <div className="relative flex-shrink-0">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
                         <button
-                          onClick={() => {
-                            setActiveDropdownId(null);
-                            handleDelete(project.id);
-                          }}
-                          className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2"
+                          className="w-9 h-9 flex items-center justify-center rounded-[12px] text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all outline-none"
+                          title="Действия"
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="18"
+                            height="18"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <circle cx="12" cy="12" r="1" />
+                            <circle cx="12" cy="5" r="1" />
+                            <circle cx="12" cy="19" r="1" />
+                          </svg>
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-40">
+                        <DropdownMenuItem
+                          onClick={() => handleDelete(project.id)}
+                          className="text-red-600 focus:text-red-600 focus:bg-red-50 cursor-pointer"
                         >
                           <svg
                             xmlns="http://www.w3.org/2000/svg"
@@ -605,15 +590,16 @@ export const ProjectsManagementContent = forwardRef<ProjectsManagementHandle, Pr
                             strokeWidth="2"
                             strokeLinecap="round"
                             strokeLinejoin="round"
+                            className="mr-2"
                           >
                             <path d="M3 6h18" />
                             <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
                             <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
                           </svg>
                           Удалить
-                        </button>
-                      </div>
-                    )}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </div>
               </div>

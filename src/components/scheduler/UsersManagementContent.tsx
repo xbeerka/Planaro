@@ -20,6 +20,12 @@ import {
   SelectInput,
   SearchInput,
 } from "./management/SharedInputs";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "../ui/dropdown-menu";
 
 interface UsersManagementContentProps {
   resources: Resource[];
@@ -784,23 +790,17 @@ export const UsersManagementContent = forwardRef<
                           </h3>
                           <span className="text-sm text-gray-500">
                             {(() => {
-                              const deptUsers =
-                                groupedByDepartment.get(
-                                  dept.id,
-                                ) || [];
-                              const visibleCount =
-                                deptUsers.filter(
-                                  (u) =>
-                                    editingUsers[u.id]
-                                      ?.isVisible !== false,
-                                ).length;
-                              const hiddenCount =
-                                deptUsers.length - visibleCount;
+                              const deptUsers = groupedByDepartment.get(dept.id) || [];
+                              const visibleCount = deptUsers.filter((u) => editingUsers[u.id]?.isVisible !== false).length;
+                              const hiddenCount = deptUsers.length - visibleCount;
+
+                              const plural = (n: number, forms: string[]) => 
+                                forms[(n % 100 > 4 && n % 100 < 20) ? 2 : [2, 0, 1, 1, 1, 2][(n % 10 < 5) ? n % 10 : 5]];
 
                               if (hiddenCount > 0) {
-                                return `${visibleCount} человек (${hiddenCount} скрыто)`;
+                                return `${visibleCount} ${plural(visibleCount, ['человек', 'человека', 'человек'])} (${hiddenCount} ${plural(hiddenCount, ['скрыт', 'скрыто', 'скрыто'])})`;
                               }
-                              return `${visibleCount} человек`;
+                              return `${visibleCount} ${plural(visibleCount, ['человек', 'человека', 'человек'])}`;
                             })()}
                           </span>
                         </div>
@@ -1039,33 +1039,8 @@ const UserRow = forwardRef<HTMLDivElement, UserRowProps>(
     },
     ref,
   ) => {
-    const [showDropdown, setShowDropdown] = useState(false);
-    const dropdownRef = useRef<HTMLDivElement>(null);
-
-    // Close dropdown on outside click
-    useEffect(() => {
-      const handleClickOutside = (e: MouseEvent) => {
-        if (
-          dropdownRef.current &&
-          !dropdownRef.current.contains(e.target as Node)
-        ) {
-          setShowDropdown(false);
-        }
-      };
-
-      if (showDropdown) {
-        document.addEventListener(
-          "mousedown",
-          handleClickOutside,
-        );
-        return () =>
-          document.removeEventListener(
-            "mousedown",
-            handleClickOutside,
-          );
-      }
-    }, [showDropdown]);
-
+    // Removed manual dropdown state logic
+    
     return (
       <div
         ref={ref}
@@ -1222,41 +1197,35 @@ const UserRow = forwardRef<HTMLDivElement, UserRowProps>(
           </div>
 
           {/* Кнопка меню (не полупрозрачная) */}
-          <div
-            className="relative flex-shrink-0"
-            ref={dropdownRef}
-          >
-            <button
-              onClick={() => setShowDropdown(!showDropdown)}
-              className="w-9 h-9 flex items-center justify-center rounded-[12px] text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all"
-              title="Действия"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <circle cx="12" cy="12" r="1" />
-                <circle cx="12" cy="5" r="1" />
-                <circle cx="12" cy="19" r="1" />
-              </svg>
-            </button>
-
-            {showDropdown && (
-              <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50 opacity-100">
+          <div className="relative flex-shrink-0">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className="w-9 h-9 flex items-center justify-center rounded-[12px] text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all outline-none"
+                  title="Действия"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <circle cx="12" cy="12" r="1" />
+                    <circle cx="12" cy="5" r="1" />
+                    <circle cx="12" cy="19" r="1" />
+                  </svg>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-40">
                 {onToggleUserVisibility && (
-                  <button
-                    onClick={() => {
-                      setShowDropdown(false);
-                      onToggleUserVisibility(user.id);
-                    }}
-                    className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2"
+                  <DropdownMenuItem
+                    onClick={() => onToggleUserVisibility(user.id)}
+                    className="cursor-pointer"
                   >
                     {user.isVisible ? (
                       <svg
@@ -1269,6 +1238,7 @@ const UserRow = forwardRef<HTMLDivElement, UserRowProps>(
                         strokeWidth="2"
                         strokeLinecap="round"
                         strokeLinejoin="round"
+                        className="mr-2"
                       >
                         <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24" />
                         <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" />
@@ -1286,21 +1256,19 @@ const UserRow = forwardRef<HTMLDivElement, UserRowProps>(
                         strokeWidth="2"
                         strokeLinecap="round"
                         strokeLinejoin="round"
+                        className="mr-2"
                       >
                         <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
                         <circle cx="12" cy="12" r="3" />
                       </svg>
                     )}
                     {user.isVisible ? "Скрыть" : "Показать"}
-                  </button>
+                  </DropdownMenuItem>
                 )}
-
-                <button
-                  onClick={() => {
-                    setShowDropdown(false);
-                    onDelete();
-                  }}
-                  className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2"
+                
+                <DropdownMenuItem
+                  onClick={onDelete}
+                  className="text-red-600 focus:text-red-600 focus:bg-red-50 cursor-pointer"
                 >
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
@@ -1312,15 +1280,16 @@ const UserRow = forwardRef<HTMLDivElement, UserRowProps>(
                     strokeWidth="2"
                     strokeLinecap="round"
                     strokeLinejoin="round"
+                    className="mr-2"
                   >
                     <path d="M3 6h18" />
                     <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
                     <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
                   </svg>
                   Удалить
-                </button>
-              </div>
-            )}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </div>

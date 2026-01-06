@@ -12,6 +12,12 @@ import {
   TextInput,
   SearchInput,
 } from "./management/SharedInputs";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "../ui/dropdown-menu";
 
 interface DepartmentsManagementContentProps {
   departments: Department[];
@@ -77,46 +83,10 @@ export const DepartmentsManagementContent = forwardRef<
       number | null
     >(null);
     const contentRef = useRef<HTMLDivElement>(null);
-    const [openDropdownId, setOpenDropdownId] = useState<
-      string | null
-    >(null);
-    const dropdownRefs = useRef<
-      Record<string, HTMLDivElement | null>
-    >({});
 
     useImperativeHandle(ref, () => ({
       onAdd: handleAddNewDepartment,
     }));
-
-    // Close dropdown on outside click
-    useEffect(() => {
-      const handleClickOutside = (e: MouseEvent) => {
-        if (
-          openDropdownId &&
-          dropdownRefs.current[openDropdownId]
-        ) {
-          const dropdown = dropdownRefs.current[openDropdownId];
-          if (
-            dropdown &&
-            !dropdown.contains(e.target as Node)
-          ) {
-            setOpenDropdownId(null);
-          }
-        }
-      };
-
-      if (openDropdownId) {
-        document.addEventListener(
-          "mousedown",
-          handleClickOutside,
-        );
-        return () =>
-          document.removeEventListener(
-            "mousedown",
-            handleClickOutside,
-          );
-      }
-    }, [openDropdownId]);
 
     // Initialize local state
     useEffect(() => {
@@ -529,46 +499,33 @@ export const DepartmentsManagementContent = forwardRef<
                     </div>
 
                     {/* Menu button with dropdown */}
-                    <div
-                      className="relative flex-shrink-0"
-                      ref={(el) =>
-                        (dropdownRefs.current[dept.id] = el)
-                      }
-                    >
-                      <button
-                        onClick={() =>
-                          setOpenDropdownId(
-                            openDropdownId === dept.id
-                              ? null
-                              : dept.id,
-                          )
-                        }
-                        className="w-9 h-9 flex items-center justify-center rounded-[12px] text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all"
-                        title="Действия"
-                      >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          width="18"
-                          height="18"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <circle cx="12" cy="12" r="1" />
-                          <circle cx="12" cy="5" r="1" />
-                          <circle cx="12" cy="19" r="1" />
-                        </svg>
-                      </button>
-
-                      {/* Dropdown menu */}
-                      {openDropdownId === dept.id && (
-                        <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
+                    <div className="relative flex-shrink-0">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
                           <button
+                            className="w-9 h-9 flex items-center justify-center rounded-[12px] text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all outline-none"
+                            title="Действия"
+                          >
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              width="18"
+                              height="18"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <circle cx="12" cy="12" r="1" />
+                              <circle cx="12" cy="5" r="1" />
+                              <circle cx="12" cy="19" r="1" />
+                            </svg>
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-40">
+                          <DropdownMenuItem
                             onClick={() => {
-                              setOpenDropdownId(null);
                               setLocalDepartments((prev) =>
                                 prev.map((d) =>
                                   d.id === dept.id
@@ -580,7 +537,7 @@ export const DepartmentsManagementContent = forwardRef<
                                 ),
                               );
                             }}
-                            className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2"
+                            className="cursor-pointer"
                           >
                             {dept.visible ? (
                               <svg
@@ -593,6 +550,7 @@ export const DepartmentsManagementContent = forwardRef<
                                 strokeWidth="2"
                                 strokeLinecap="round"
                                 strokeLinejoin="round"
+                                className="mr-2"
                               >
                                 <path d="M9.88 9.88a 3 3 0 1 0 4.24 4.24" />
                                 <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" />
@@ -615,6 +573,7 @@ export const DepartmentsManagementContent = forwardRef<
                                 strokeWidth="2"
                                 strokeLinecap="round"
                                 strokeLinejoin="round"
+                                className="mr-2"
                               >
                                 <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
                                 <circle cx="12" cy="12" r="3" />
@@ -623,13 +582,12 @@ export const DepartmentsManagementContent = forwardRef<
                             {dept.visible
                               ? "Скрыть"
                               : "Показать"}
-                          </button>
-                          <button
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
                             onClick={() => {
-                              setOpenDropdownId(null);
                               handleDeleteDepartment(dept.id);
                             }}
-                            className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2"
+                            className="text-red-600 focus:text-red-600 focus:bg-red-50 cursor-pointer"
                           >
                             <svg
                               xmlns="http://www.w3.org/2000/svg"
@@ -641,15 +599,16 @@ export const DepartmentsManagementContent = forwardRef<
                               strokeWidth="2"
                               strokeLinecap="round"
                               strokeLinejoin="round"
+                              className="mr-2"
                             >
                               <path d="M3 6h18" />
                               <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
                               <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
                             </svg>
                             Удалить
-                          </button>
-                        </div>
-                      )}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   </div>
                 </div>
