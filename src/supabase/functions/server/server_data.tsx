@@ -287,7 +287,9 @@ export function registerDataRoutes(app: Hono) {
       }
       
       const body = await c.req.json();
-      const { name, year } = body;
+      // Support both year and timeline_year (legacy/compat)
+      const name = body.name;
+      const year = body.year || body.timeline_year;
       
       if (!name) {
         return c.json({ error: 'Workspace name is required' }, 400);
@@ -307,8 +309,7 @@ export function registerDataRoutes(app: Hono) {
       // Try to create with owner_id
       let insertData: any = {
         name,
-        year,
-        total_weeks: totalWeeks,
+        timeline_year: year,
         created_at: new Date().toISOString()
       };
       
@@ -354,7 +355,252 @@ export function registerDataRoutes(app: Hono) {
       
       if (error) {
         console.error('❌ Ошибка создания workspace:', error);
+        
+        // Handle duplicate name error explicitly
+        if (error.code === '23505' || error.message?.includes('duplicate key') || error.message?.includes('workspaces_name_key')) {
+          return c.json({ error: `Рабочее пространство с именем "${name}" уже существует. Пожалуйста, выберите другое имя.` }, 409);
+        }
+        
         return c.json({ error: `Failed to create workspace: ${error.message}` }, 500);
+      }
+      
+      // If base_workspace_id is provided, copy data
+      if (body.base_workspace_id && workspace?.id) {
+        console.log(`📋 Начало копирования данных из workspace ${body.base_workspace_id} в ${workspace.id}...`);
+        
+        // Helper to safe copy
+        const safeCopy = async (name: string, fn: () => Promise<void>) => {
+          try {
+            console.log(`  ▶ ${name} start...`);
+            await fn();
+            console.log(`  ✅ ${name} completed`);
+          } catch (e: any) {
+            console.error(`  ❌ Ошибка в этапе ${name}:`, e.message);
+          }
+        };
+
+        const deptMap = new Map<any, any>(); // oldId -> newId
+        const gradeMap = new Map<any, any>(); // oldId -> newId
+        const companyMap = new Map<any, any>(); // oldId -> newId
+
+        // Prepare independent tasks
+        const tasks = [];
+
+        // 1. Copy Departments
+        tasks.push(safeCopy('Departments', async () => {
+          const { data: sourceDepartments, error: fetchError } = await supabase
+            .from('departments')
+            .select('*')
+            .eq('workspace_id', body.base_workspace_id);
+            
+          if (fetchError) throw fetchError;
+          if (!sourceDepartments || sourceDepartments.length === 0) return;
+            
+          console.log(`    - Найдено ${sourceDepartments.length} департаментов`);
+          
+          // Use Promise.all for parallel insertion of departments
+          const insertPromises = sourceDepartments.map(async (dept) => {
+            const { data: newDept, error: insertError } = await supabase
+              .from('departments')
+              .insert({
+                name: dept.name,
+                queue: dept.queue,
+                visible: dept.visible,
+                workspace_id: workspace.id
+              })
+              .select('id')
+              .single();
+              
+            if (insertError) {
+              console.error(`    ❌ Не удалось скопировать департамент ${dept.name}:`, insertError.message);
+              return;
+            }
+              
+            if (newDept) {
+              deptMap.set(dept.id, newDept.id);
+            }
+          });
+
+          await Promise.all(insertPromises);
+        }));
+        
+        // 2. Copy Grades
+        tasks.push(safeCopy('Grades', async () => {
+          const { data: sourceGrades, error: fetchError } = await supabase
+            .from('grades')
+            .select('*')
+            .eq('workspace_id', body.base_workspace_id);
+
+          if (fetchError) throw fetchError;
+          if (!sourceGrades || sourceGrades.length === 0) return;
+            
+          console.log(`    - Найдено ${sourceGrades.length} грейдов`);
+          
+          // Use Promise.all for parallel insertion
+          const insertPromises = sourceGrades.map(async (grade) => {
+            const { data: newGrade, error: insertError } = await supabase
+              .from('grades')
+              .insert({
+                name: grade.name,
+                sort_order: grade.sort_order,
+                workspace_id: workspace.id
+              })
+              .select('id')
+              .single();
+
+            if (insertError) {
+               console.error(`    ❌ Не удалось скопировать грейд ${grade.name}:`, insertError.message);
+               return;
+            }
+              
+            if (newGrade) {
+              gradeMap.set(grade.id, newGrade.id);
+            }
+          });
+
+          await Promise.all(insertPromises);
+        }));
+        
+        // 3. Copy Companies
+        tasks.push(safeCopy('Companies', async () => {
+          const { data: sourceCompanies, error: fetchError } = await supabase
+            .from('companies')
+            .select('*')
+            .eq('workspace_id', body.base_workspace_id);
+
+          if (fetchError) throw fetchError;
+          if (!sourceCompanies || sourceCompanies.length === 0) return;
+
+          console.log(`    - Найдено ${sourceCompanies.length} компаний`);
+          
+          // Use Promise.all for parallel insertion
+          const insertPromises = sourceCompanies.map(async (company) => {
+            const { data: newCompany, error: insertError } = await supabase
+              .from('companies')
+              .insert({
+                name: company.name,
+                sort_order: company.sort_order,
+                workspace_id: workspace.id
+              })
+              .select('id')
+              .single();
+
+            if (insertError) {
+               console.error(`    ❌ Не удалось скопировать компанию ${company.name}:`, insertError.message);
+               return;
+            }
+              
+            if (newCompany) {
+              companyMap.set(company.id, newCompany.id);
+            }
+          });
+
+          await Promise.all(insertPromises);
+        }));
+
+        // 4. Copy Projects
+        tasks.push(safeCopy('Projects', async () => {
+          const { data: sourceProjects, error: fetchError } = await supabase
+            .from('projects')
+            .select('*')
+            .eq('workspace_id', body.base_workspace_id);
+            
+          if (fetchError) throw fetchError;
+          if (!sourceProjects || sourceProjects.length === 0) return;
+
+          console.log(`    - Найдено ${sourceProjects.length} проектов`);
+            
+          const projectsToInsert = sourceProjects.map(p => ({
+            name: p.name,
+            workspace_id: workspace.id,
+            backgroundColor: p.backgroundColor,
+            textColor: p.textColor,
+            pattern_id: p.pattern_id
+          }));
+            
+          // Batch insert for projects is efficient enough
+          const { error: insertError } = await supabase.from('projects').insert(projectsToInsert);
+          if (insertError) throw insertError;
+        }));
+        
+        // Execute independent tasks in parallel
+        console.log('⏳ Запуск параллельного копирования справочников...');
+        await Promise.all(tasks);
+        console.log('✅ Справочники скопированы, приступаем к пользователям...');
+        
+        // 5. Copy Users (Resources) - MUST be after maps are populated
+        await safeCopy('Users', async () => {
+          const { data: sourceUsers, error: fetchError } = await supabase
+            .from('users')
+            .select('*')
+            .eq('workspace_id', body.base_workspace_id);
+            
+          if (fetchError) throw fetchError;
+          if (!sourceUsers || sourceUsers.length === 0) return;
+
+          console.log(`    - Найдено ${sourceUsers.length} пользователей`);
+            
+          const usersToInsert = sourceUsers.map(user => {
+            // Map old department ID to new department ID
+            const newDeptId = user.department_id ? deptMap.get(user.department_id) : null;
+            
+            let newGradeId = user.grade_id;
+            if (user.grade_id && gradeMap.has(user.grade_id)) {
+              newGradeId = gradeMap.get(user.grade_id);
+            }
+            
+            let newCompanyId = user.company_id;
+            if (user.company_id && companyMap.has(user.company_id)) {
+              newCompanyId = companyMap.get(user.company_id);
+            }
+
+            // Based on schema: 
+            // "fullName" text not null
+            // position, department_id, grade_id, company_id, avatar_url, is_visible
+            // NO email, first_name, last_name, grade
+            return {
+              workspace_id: workspace.id,
+              fullName: user.fullName, 
+              position: user.position,
+              department_id: newDeptId,
+              grade_id: newGradeId,
+              company_id: newCompanyId,
+              avatar_url: user.avatar_url,
+              is_visible: user.is_visible
+            };
+          });
+          
+          // Insert in batches to avoid payload limits
+          // AND execute batches in parallel for speed!
+          const BATCH_SIZE = 50;
+          const userBatches = [];
+          
+          for (let i = 0; i < usersToInsert.length; i += BATCH_SIZE) {
+            const batch = usersToInsert.slice(i, i + BATCH_SIZE);
+            userBatches.push(
+              (async () => {
+                console.log(`    - Вставка батча пользователей ${i + 1}-${Math.min(i + BATCH_SIZE, usersToInsert.length)}...`);
+                const { error: batchError } = await supabase.from('users').insert(batch);
+                if (batchError) {
+                  console.error(`    ❌ Ошибка вставки батча пользователей:`, batchError.message);
+                }
+              })()
+            );
+          }
+          
+          await Promise.all(userBatches);
+        });
+        
+        console.log('🏁 Копирование данных завершено');
+      } else if (workspace?.id) {
+        // Create default department "Разработка" for new workspaces
+        console.log('✨ Создание департамента по умолчанию...');
+        await supabase.from('departments').insert({
+          name: 'Разработка',
+          workspace_id: workspace.id,
+          queue: 1,
+          visible: true
+        });
       }
       
       console.log(`✅ Workspace создан:`, workspace);
@@ -649,7 +895,7 @@ export function registerDataRoutes(app: Hono) {
       
       const body = await c.req.json();
       
-      console.log(`🔄 Обновление департамента ${departmentId}:`, body);
+      console.log(`🔄 О��новление департамента ${departmentId}:`, body);
       
       const { data, error } = await supabase
         .from('departments')
@@ -703,7 +949,7 @@ export function registerDataRoutes(app: Hono) {
         .eq('department_id', numericId);
       
       if (count && count > 0) {
-        console.error(`❌ Нельзя удалить департамент ${departmentId}: содержит ${count} пользователей`);
+        console.error(`��� Нельзя удалить департамент ${departmentId}: содержит ${count} пользователей`);
         return c.json({ 
           error: `Нельзя удалить департамент, содержащий ${count} сотрудников. Сначала переместите или удалите сотрудников.` 
         }, 400);
@@ -990,6 +1236,18 @@ export function registerDataRoutes(app: Hono) {
       const companyId = c.req.param('id');
       console.log(`🗑️ Удаление компании ${companyId}...`);
       
+      // 1. Unlink users from this company first (fix foreign key constraint)
+      const { error: unlinkError } = await supabase
+        .from('users')
+        .update({ company_id: null })
+        .eq('company_id', companyId);
+
+      if (unlinkError) {
+         console.error('❌ Ошибка отвязки пользователей от компании:', unlinkError);
+         return c.json({ error: `Failed to unlink users: ${unlinkError.message}` }, 500);
+      }
+      
+      // 2. Delete the company
       const { error } = await supabase
         .from('companies')
         .delete()

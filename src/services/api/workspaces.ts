@@ -43,7 +43,8 @@ export async function getWorkspaceSummary(workspaceId: string): Promise<Workspac
 export async function createWorkspace(payload: CreateWorkspacePayload): Promise<Workspace> {
   return apiRequest<Workspace>('/workspaces', {
     method: 'POST',
-    body: payload
+    body: payload,
+    timeout: 60000 // Увеличенный таймаут для копирования больших воркспейсов
   });
 }
 

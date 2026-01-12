@@ -55,6 +55,7 @@ export function CreateWorkspaceModal({ existingWorkspaces, onClose, onCreate }: 
       });
       
       onCreate();
+      onClose();
     } catch (err: any) {
       console.error('Failed to create workspace:', err);
       setError(err.message || 'Ошибка при создании пространства');

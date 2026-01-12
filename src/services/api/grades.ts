@@ -28,7 +28,9 @@ export const gradesApi = {
   updateSortOrder: (updates: Array<{ id: string; sortOrder: number }>, token?: string) =>
     apiRequest<{ success: boolean }>('/grades/sort-order', {
       method: 'PATCH',
-      body: { updates },
+      body: { 
+        grades: updates.map(u => ({ id: u.id, sort_order: u.sortOrder })) 
+      },
       token
     })
 };

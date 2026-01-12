@@ -101,7 +101,7 @@ export function WorkspaceManagementModal({
       
       const gradesState: Record<string, string> = {};
       grades.forEach(g => {
-        gradesState[g.id] = g.name;
+        gradesState[String(g.id)] = g.name;
       });
       setEditingGrades(gradesState);
       setLocalNewGrades([]);
@@ -110,7 +110,7 @@ export function WorkspaceManagementModal({
       
       const companiesState: Record<string, string> = {};
       companies.forEach(c => {
-        companiesState[c.id] = c.name;
+        companiesState[String(c.id)] = c.name;
       });
       setEditingCompanies(companiesState);
       setLocalNewCompanies([]);
@@ -220,7 +220,7 @@ export function WorkspaceManagementModal({
       // Update existing grades
       const gradeUpdatePromises: Promise<void>[] = [];
       for (const gradeId in editingGrades) {
-        const original = grades.find(g => g.id === gradeId);
+        const original = grades.find(g => String(g.id) === gradeId);
         if (original && editingGrades[gradeId] !== original.name) {
           gradeUpdatePromises.push(onUpdateGrade(gradeId, editingGrades[gradeId]));
         }
@@ -232,9 +232,9 @@ export function WorkspaceManagementModal({
       
       // 1. Detect sort order changes for Grades
       const remainingOriginalGradeIds = grades
-        .filter(g => !deletedGradeIds.includes(g.id))
-        .map(g => g.id);
-      const currentGradeIds = sortedGrades.map(g => g.id);
+        .filter(g => !deletedGradeIds.includes(String(g.id)))
+        .map(g => String(g.id));
+      const currentGradeIds = sortedGrades.map(g => String(g.id));
       const hasGradeOrderChanged = JSON.stringify(remainingOriginalGradeIds) !== JSON.stringify(currentGradeIds);
 
       console.log('[SORT_GRADE] Saving check:', {
@@ -246,7 +246,7 @@ export function WorkspaceManagementModal({
       // Update grades sort order (batch update)
       if (onUpdateGradesSortOrder && hasGradeOrderChanged) {
         const sortOrderUpdates = sortedGrades.map((grade, index) => ({
-          id: grade.id,
+          id: String(grade.id),
           sortOrder: index
         }));
         console.log('[SORT_GRADE] Saving updates payload:', JSON.stringify(sortOrderUpdates, null, 2));
@@ -274,7 +274,7 @@ export function WorkspaceManagementModal({
       // Update existing companies
       const companyUpdatePromises: Promise<void>[] = [];
       for (const companyId in editingCompanies) {
-        const original = companies.find(c => c.id === companyId);
+        const original = companies.find(c => String(c.id) === companyId);
         if (original && editingCompanies[companyId] !== original.name) {
           companyUpdatePromises.push(onUpdateCompany(companyId, editingCompanies[companyId]));
         }
@@ -286,15 +286,15 @@ export function WorkspaceManagementModal({
       
       // 2. Detect sort order changes for Companies
       const remainingOriginalCompanyIds = companies
-        .filter(c => !deletedCompanyIds.includes(c.id))
-        .map(c => c.id);
-      const currentCompanyIds = sortedCompanies.map(c => c.id);
+        .filter(c => !deletedCompanyIds.includes(String(c.id)))
+        .map(c => String(c.id));
+      const currentCompanyIds = sortedCompanies.map(c => String(c.id));
       const hasCompanyOrderChanged = JSON.stringify(remainingOriginalCompanyIds) !== JSON.stringify(currentCompanyIds);
 
       // Update companies sort order (batch update)
       if (onUpdateCompaniesSortOrder && hasCompanyOrderChanged) {
         const sortOrderUpdates = sortedCompanies.map((company, index) => ({
-          id: company.id,
+          id: String(company.id),
           sortOrder: index
         }));
         try {

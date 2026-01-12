@@ -28,7 +28,9 @@ export const companiesApi = {
   updateSortOrder: (updates: Array<{ id: string; sortOrder: number }>, token?: string) =>
     apiRequest<{ success: boolean }>('/companies/sort-order', {
       method: 'PATCH',
-      body: { updates },
+      body: { 
+        companies: updates.map(u => ({ id: u.id, sort_order: u.sortOrder })) 
+      },
       token
     })
 };
