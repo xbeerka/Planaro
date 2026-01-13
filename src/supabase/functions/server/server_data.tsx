@@ -510,13 +510,26 @@ export function registerDataRoutes(app: Hono) {
 
           console.log(`    - Найдено ${sourceProjects.length} проектов`);
             
-          const projectsToInsert = sourceProjects.map(p => ({
-            name: p.name,
-            workspace_id: workspace.id,
-            backgroundColor: p.backgroundColor,
-            textColor: p.textColor,
-            pattern_id: p.pattern_id
-          }));
+          const projectsToInsert = sourceProjects.map(p => {
+            // Robust property access (handle both camelCase and snake_case inputs)
+            const bgColor = p.backgroundColor || p.background_color || '#3B82F6';
+            const txtColor = p.textColor || p.text_color || '#FFFFFF';
+            // Explicitly check for pattern_id
+            const patId = p.pattern_id;
+            
+            // Log if pattern is found to verify it's being copied
+            if (patId) {
+               console.log(`      > Проект "${p.name}" копируется с паттерном ID: ${patId}`);
+            }
+
+            return {
+              name: p.name,
+              workspace_id: workspace.id,
+              backgroundColor: bgColor,
+              textColor: txtColor,
+              pattern_id: patId
+            };
+          });
             
           // Batch insert for projects is efficient enough
           const { error: insertError } = await supabase.from('projects').insert(projectsToInsert);
@@ -1655,8 +1668,8 @@ export function registerDataRoutes(app: Hono) {
       const project = {
         id: `p${data.id}`,
         name: data.name,
-        backgroundColor: data.backgroundColor,
-        textColor: data.textColor,
+        backgroundColor: data.backgroundColor || data.background_color || '#3B82F6',
+        textColor: data.textColor || data.text_color || '#FFFFFF',
         patternId: data.pattern_id ? `ep${data.pattern_id}` : undefined  // ✅ Возвращаем patternId
       };
       
@@ -1705,8 +1718,8 @@ export function registerDataRoutes(app: Hono) {
       const project = {
         id: `p${data.id}`,
         name: data.name,
-        backgroundColor: data.backgroundColor,
-        textColor: data.textColor,
+        backgroundColor: data.backgroundColor || data.background_color || '#3B82F6',
+        textColor: data.textColor || data.text_color || '#FFFFFF',
         patternId: data.pattern_id ? `ep${data.pattern_id}` : undefined  // ✅ Возвращаем patternId
       };
       

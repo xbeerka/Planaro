@@ -142,9 +142,9 @@ export const ResourceRowWithMenu = memo(function ResourceRowWithMenu({
           }}
         >
           <p
-            className="font-medium text-sm text-black w-full"
+            className={`font-medium ${isExtraSmall ? "text-xs" : "text-sm"} text-black w-full`}
             style={{
-              lineHeight: "20px",
+              lineHeight: isExtraSmall ? "16px" : "20px",
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",

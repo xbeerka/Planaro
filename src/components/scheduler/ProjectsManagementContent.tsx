@@ -521,11 +521,18 @@ export const ProjectsManagementContent = forwardRef<ProjectsManagementHandle, Pr
                       className="h-9 w-full pl-3 pr-8 bg-white border border-gray-200 rounded-lg text-[14px] leading-none transition-all outline-none cursor-pointer text-gray-700 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                     >
                       <option value="">Без паттерна</option>
-                      {eventPatterns.map((pattern) => (
-                        <option key={pattern.id} value={pattern.id}>
-                          {pattern.name}
-                        </option>
-                      ))}
+                      {eventPatterns.map((pattern) => {
+                        // Fix: Ensure pattern ID matches the project patternId format (ep prefix)
+                        const patternId = String(pattern.id).startsWith('ep') 
+                          ? String(pattern.id) 
+                          : `ep${pattern.id}`;
+                          
+                        return (
+                          <option key={pattern.id} value={patternId}>
+                            {pattern.name}
+                          </option>
+                        );
+                      })}
                     </SelectInput>
                     
                     <ColorInput

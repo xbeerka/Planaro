@@ -23,6 +23,7 @@ interface UseEventInteractionsProps {
   getEvents: () => { events: SchedulerEvent[], projects: Project[], eventZOrder: Map<string, number> }; // ✅ Функция для получения свежего снапшота
   eventNeighbors?: Map<string, any>; // ✅ Оптимизация: принимаем готовые соседи
   weeksInYear: number; // ✅ Динамическое количество недель (52 или 53)
+  grades?: any[]; // ✅ Added grades
 }
 
 interface PointerState {
@@ -59,18 +60,21 @@ export function useEventInteractions({
   updateHistoryEventId,
   getEvents, // ✅ Получаем функцию для доступа к снапшоту
   eventNeighbors,
-  weeksInYear
+  weeksInYear,
+  grades = [] // ✅ Added grades
 }: UseEventInteractionsProps) {
   // ✅ Используем refs для events/projects/zOrder чтобы избежать stale closures в асинхронных onUp
   // Это критично для корректной работы истории (Undo/Redo) и предотвращения "группировки" действий
   const eventsRef = useRef(events);
   const projectsRef = useRef(projects);
   const eventZOrderRef = useRef(eventZOrder);
+  const gradesRef = useRef(grades); // ✅ Added ref for grades
 
   // Обновляем refs при изменении props
   eventsRef.current = events;
   projectsRef.current = projects;
   eventZOrderRef.current = eventZOrder;
+  gradesRef.current = grades; // ✅ Added ref for grades
 
   const pointerStateRef = useRef<PointerState | null>(null);
 
@@ -227,7 +231,8 @@ export function useEventInteractions({
       visibleDepartments,
       config,
       undefined,
-      weeksInYear
+      weeksInYear,
+      gradesRef.current // ✅ Pass grades
     );
 
     pointerStateRef.current = {
@@ -317,7 +322,8 @@ export function useEventInteractions({
           visibleDepartments,
           config,
           pointerStateRef.current.offsetUnit, // ✅ Передаём offsetUnit для компенсации
-          weeksInYear
+          weeksInYear,
+          gradesRef.current // ✅ Pass grades
         );
       } catch (err) {
         console.error('❌ Error in modelFromGeometry:', err);
@@ -463,7 +469,8 @@ export function useEventInteractions({
           pointerStateRef.current.lastValidModel.unitStart,
           resources,
           visibleDepartments,
-          config
+          config,
+          gradesRef.current
         );
         
         // 🔍 Позиция перетаскиваемого события зависит ТОЛЬКО от startWeek и padding
@@ -588,7 +595,7 @@ export function useEventInteractions({
           let correctLeft = savedState.evData.startWeek * config.weekPx + savedState.realPaddingLeft;
           correctLeft -= (savedState.expandLeftAmount || 0); // ⚠️ Вычитаем расширение влево!
           
-          const correctTop = topFor(savedState.evData.resourceId, savedState.evData.unitStart, resources, visibleDepartments, config);
+          const correctTop = topFor(savedState.evData.resourceId, savedState.evData.unitStart, resources, visibleDepartments, config, gradesRef.current);
           const correctHeight = heightFor(savedState.evData.unitsTall, config);
           
           savedState.el.style.left = `${correctLeft}px`;
@@ -961,7 +968,7 @@ export function useEventInteractions({
 
           
           newHeight = heightFor(newUnitsTall, config);
-          newTop = topFor(pointerStateRef.current.evData.resourceId, newUnitStart, resources, visibleDepartments, config);
+          newTop = topFor(pointerStateRef.current.evData.resourceId, newUnitStart, resources, visibleDepartments, config, gradesRef.current);
           currentUnitsTall = newUnitsTall;
           
 

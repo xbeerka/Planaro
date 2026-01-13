@@ -19,7 +19,7 @@ interface SettingsContextType {
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
-  const [weekPx, setWeekPxState] = useState(220); // Default L
+  const [weekPx, setWeekPxState] = useState(192); // Default L (192px)
   const [eventRowH, setEventRowHState] = useState(144); // Default L
   const [showGaps, setShowGapsState] = useState(true);
   const [showPatterns, setShowPatternsState] = useState(true);
@@ -41,7 +41,16 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         const savedShowProjectWeight = await getStorageItem('scheduler_showProjectWeight');
         const savedShowSeparators = await getStorageItem('scheduler_showSeparators');
         
-        if (savedWeekPx) setWeekPxState(Number(savedWeekPx));
+        if (savedWeekPx) {
+          const px = Number(savedWeekPx);
+          // Validate preset values: XS=48, S=96, M=144, L=192
+          if ([48, 96, 144, 192].includes(px)) {
+            setWeekPxState(px);
+          } else {
+            setWeekPxState(192); // Reset to Default L if invalid/custom
+          }
+        }
+        
         if (savedEventRowH) setEventRowHState(Number(savedEventRowH));
         
         // Handle migration

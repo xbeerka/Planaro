@@ -510,8 +510,17 @@ export function SchedulerMain({
 
   const handleDeleteProject = useCallback(async (id: string) => {
     isUserProjectChangeRef.current = true;
+    
+    // ✅ Удаляем все события связанные с проектом
+    const eventsToDelete = events.filter(e => e.projectId === id);
+    if (eventsToDelete.length > 0) {
+      console.log(`🗑️ Удаление проекта ${id}: удаляем ${eventsToDelete.length} связанных событий...`);
+      // Используем Promise.all для параллельного удаления
+      await Promise.all(eventsToDelete.map(e => deleteEvent(e.id)));
+    }
+    
     await deleteProject(id);
-  }, [deleteProject]);
+  }, [deleteProject, events, deleteEvent]);
 
   const { isSpacePressed, isCtrlPressed } =
     useKeyboardShortcuts({
@@ -588,6 +597,7 @@ export function SchedulerMain({
     getEvents: getSnapshot,
     eventNeighbors,
     weeksInYear,
+    grades
   });
   
   const { startGapDrag } = useGapInteractions({
@@ -635,6 +645,7 @@ export function SchedulerMain({
     saveHistory,
     weeksInYear,
     updateHistoryEventId,
+    grades,
   });
 
   const handleCellMouseMove = useCallback(
@@ -666,6 +677,7 @@ export function SchedulerMain({
           filteredResources,
           filteredDepartments,
           config,
+          grades
         ) - config.rowPaddingTop + gap;
         setHoverHighlight({
           visible: true,
@@ -711,6 +723,7 @@ export function SchedulerMain({
           filteredResources,
           filteredDepartments,
           config,
+          grades
         );
         setHoverHighlight({
           visible: true,
@@ -771,6 +784,7 @@ export function SchedulerMain({
         filteredResources,
         filteredDepartments,
         config,
+        grades
       );
       let width =
         event.weeksSpan * config.weekPx -
@@ -1132,7 +1146,7 @@ export function SchedulerMain({
         showToast({
           type: 'error',
           message: 'Ошибка переименования',
-          description: errorData.error || 'Неизвестная ошибка',
+          description: errorData.error || 'Неи��вестная ошибка',
         });
       } else {
         console.log('✅ Workspace saved');
@@ -1161,6 +1175,7 @@ export function SchedulerMain({
       visibleDepartments={filteredDepartments}
       isCommandKeyHeld={isCtrlPressed}
       onGapMouseDown={startGapDrag}
+      grades={grades}
     />
   ), [eventGaps, config, filteredResources, filteredDepartments, isCtrlPressed, startGapDrag]);
 

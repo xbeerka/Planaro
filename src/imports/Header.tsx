@@ -530,9 +530,9 @@ function Input6({ sidebarCollapsed }: HeaderProps) {
                 <div className="grid grid-cols-4 gap-2">
                   {[
                     { label: "XS", value: 48 },
-                    { label: "S", value: 120 },
-                    { label: "M", value: 180 },
-                    { label: "L", value: 220 },
+                    { label: "S", value: 96 },
+                    { label: "M", value: 144 },
+                    { label: "L", value: 192 },
                   ].map((preset) => (
                     <button
                       key={preset.value}

@@ -1,4 +1,4 @@
-import { Department, Resource, SchedulerEvent, Month } from '../types/scheduler';
+import { Department, Resource, SchedulerEvent, Month, Grade } from '../types/scheduler';
 
 // DEPRECATED: Use getWeeksInYear(year) instead for dynamic calculation
 export const WEEKS = 52;
@@ -30,15 +30,33 @@ export function getWeeksInYear(year: number): number {
   return 52;
 }
 
-// Sort resources by grade (descending), users without grade go to the end
-export function sortResourcesByGrade(resources: Resource[]): Resource[] {
+// Sort resources by grade (using sort_order from settings), users without grade go to the end
+export function sortResourcesByGrade(resources: Resource[], grades: Grade[] = []): Resource[] {
+  // Create a map for fast lookup of sort_order by grade ID or Name
+  // sort_order is ascending (0 = top, 1 = second, etc.)
+  const gradeOrderMap = new Map<string, number>();
+  grades.forEach(g => {
+    gradeOrderMap.set(String(g.id), g.sort_order);
+    if (g.name) {
+      gradeOrderMap.set(g.name, g.sort_order); // Fallback for resources with only grade name
+    }
+  });
+
   return [...resources].sort((a, b) => {
+    const gradeA = a.gradeId || a.grade;
+    const gradeB = b.gradeId || b.grade;
+
     // Users without grade go to the end
-    if (!a.grade && !b.grade) return 0;
-    if (!a.grade) return 1;
-    if (!b.grade) return -1;
-    // Sort by grade ID descending (higher grade first)
-    return Number(b.grade) - Number(a.grade);
+    if (!gradeA && !gradeB) return 0;
+    if (!gradeA) return 1;
+    if (!gradeB) return -1;
+
+    // Get sort order (default to 9999 if not found)
+    const orderA = gradeOrderMap.get(String(gradeA)) ?? 9999;
+    const orderB = gradeOrderMap.get(String(gradeB)) ?? 9999;
+
+    // Sort ascending (lower sort_order first)
+    return orderA - orderB;
   });
 }
 

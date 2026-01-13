@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { flushSync } from "react-dom";
 import { toast } from "sonner@2.0.3";
-import { SchedulerEvent, Workspace, Resource, Department, Project } from "../types/scheduler";
+import { SchedulerEvent, Workspace, Resource, Department, Project, Grade } from "../types/scheduler";
 import { useScheduler } from "../contexts/SchedulerContext";
 import { useUI } from "../contexts/UIContext";
 import { useSettings } from "../contexts/SettingsContext";
@@ -22,6 +22,7 @@ interface UseSchedulerEventActionsProps {
   saveHistory: (events: SchedulerEvent[], eventZOrder: Map<string, number>, projects: Project[]) => void;
   weeksInYear: number;
   updateHistoryEventId: (tempId: string, realId: string) => void;
+  grades: Grade[];
 }
 
 export function useSchedulerEventActions({
@@ -38,6 +39,7 @@ export function useSchedulerEventActions({
   saveHistory,
   weeksInYear,
   updateHistoryEventId,
+  grades,
 }: UseSchedulerEventActionsProps) {
   
   const {
@@ -86,7 +88,7 @@ export function useSchedulerEventActions({
       // ⛔ CRITICAL: Prevent cutting events that are saving
       if (pendingEventIds.has(evId) || evId.startsWith('ev_temp_')) {
         toast.warning("Подождите", {
-          description: "Событие сохраняется в базу данных",
+          description: "Событие сохраняется в базу дан��ых",
         });
         console.log(`⏸️ SCISSORS: Blocked cutting pending event ${evId}`);
         return;
@@ -422,7 +424,7 @@ export function useSchedulerEventActions({
   }, [contextMenu.event, setCopiedEvent, setContextMenu]);
 
   const handleCellContextMenu = useCallback(
-    (e: React.MouseEvent, resourceId: string, week: number) => {
+    (e: React.MouseEvent, resourceId: string, week: number, unitIndex: number) => {
       e.preventDefault();
       
       setContextMenu({
@@ -431,12 +433,6 @@ export function useSchedulerEventActions({
         y: 0,
         event: null,
       });
-      
-      const rect = e.currentTarget.getBoundingClientRect();
-      const y = e.clientY - rect.top;
-      const unitIndex = Math.floor(
-        (y - config.rowPaddingTop) / config.unitStride,
-      );
       
       const free = getAvailableFreeSpace(
         resourceId,
@@ -454,6 +450,7 @@ export function useSchedulerEventActions({
           filteredResources,
           filteredDepartments,
           config,
+          grades
         );
         setHoverHighlight({
           visible: true,
@@ -493,13 +490,23 @@ export function useSchedulerEventActions({
       visibleEvents,
     );
     
-    if (free < copiedEvent.unitsTall) {
-      toast.warning("Недостаточно места", {
-        description: `Для вставки требуется ${copiedEvent.unitsTall} юнит${copiedEvent.unitsTall > 1 ? 'а' : ''}`,
+    // Разрешаем вставку, если есть хотя бы 1 свободный юнит
+    // Если места меньше чем нужно, обрезаем высоту события
+    if (free === 0) {
+      toast.warning("Нет свободного места", {
+        description: "В этой ячейке нет места для нового события",
       });
       setEmptyCellContextMenu(prev => ({ ...prev, isVisible: false }));
       setHoverHighlight(prev => ({ ...prev, visible: false }));
       return;
+    }
+
+    const unitsTallToUse = Math.min(copiedEvent.unitsTall, free);
+    
+    if (unitsTallToUse < copiedEvent.unitsTall) {
+       toast.info("Высота адаптирована", {
+          description: `Событие уменьшено до ${unitsTallToUse} юнитов, чтобы поместиться`
+       });
     }
     
     const maxWeeks = weeksInYear - week;
@@ -520,7 +527,7 @@ export function useSchedulerEventActions({
       startWeek: week,
       weeksSpan: validWeeksSpan,
       unitStart: unitIndex,
-      unitsTall: copiedEvent.unitsTall,
+      unitsTall: unitsTallToUse, // Испольуем адаптированную высоту
       projectId: copiedEvent.projectId,
     };
     

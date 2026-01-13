@@ -87,6 +87,7 @@ interface SchedulerGridProps {
     e: React.MouseEvent,
     resourceId: string,
     week: number,
+    unitIndex: number,
   ) => void;
   onCellMouseMove: (
     e: React.MouseEvent,
@@ -970,6 +971,7 @@ export const SchedulerGrid = memo(forwardRef<
               ? !r.departmentId
               : r.departmentId === dept.id,
           ),
+          grades
         );
 
         items.push({
@@ -1320,9 +1322,20 @@ export const SchedulerGrid = memo(forwardRef<
           return;
         }
 
-        const rect = scrollRef.current.getBoundingClientRect();
-        const relativeY = e.clientY - rect.top + scrollTop;
-        const dataY = relativeY - TOTAL_TOP_HEIGHT;
+        let dataY: number;
+        // Optimization & Fix: If event triggered on the interactive overlay, use its rect directly.
+        // This avoids issues with external headers/offsets affecting scrollRef calculation.
+        // The overlay is positioned exactly over the resources area (below headers).
+        const isOverlay = e.currentTarget !== scrollRef.current;
+        
+        if (isOverlay) {
+          const rect = e.currentTarget.getBoundingClientRect();
+          dataY = e.clientY - rect.top;
+        } else {
+          const rect = scrollRef.current.getBoundingClientRect();
+          const relativeY = e.clientY - rect.top + scrollTop;
+          dataY = relativeY - TOTAL_TOP_HEIGHT;
+        }
 
         if (dataY < 0) {
           updateHoverHighlight({
@@ -1338,8 +1351,11 @@ export const SchedulerGrid = memo(forwardRef<
           const sidebarWidth = sidebarCollapsed
             ? LEFT_SIDEBAR_WIDTH_COLLAPSED
             : LEFT_SIDEBAR_WIDTH;
-          const relativeX = e.clientX - rect.left + scrollLeft;
-          const weekStartX = sidebarWidth + 4;
+            
+          // Calculate X relative to scroll container for consistent horizontal positioning
+          const scrollRect = scrollRef.current.getBoundingClientRect();
+          const relativeX = e.clientX - scrollRect.left + scrollLeft;
+          const weekStartX = sidebarWidth + 8;
 
           if (relativeX < weekStartX) {
             updateHoverHighlight({
@@ -1375,7 +1391,7 @@ export const SchedulerGrid = memo(forwardRef<
               onCellMouseMove(e, item.resource.id, week, unitIndex);
               
               // ✅ Если есть внешний обработчик, отключаем внутренний хайлайт
-              // Это передаёт полный контроль родителю (SchedulerMain), который может скрыть хайлайт над событиями
+              // Это передаёт полный контроль родителю (SchedulerMain), который может скрыть хайлайт над событи��ми
               if (internalHoverHighlight.visible) {
                 updateHoverHighlight({
                   ...internalHoverHighlight,
@@ -1445,6 +1461,13 @@ export const SchedulerGrid = memo(forwardRef<
     );
 
     const handleGlobalMouseLeave = useCallback(() => {
+      // ✅ СБРОС REF, чтобы при возврате на ту же ячейку хайлайт сработал
+      lastHoverRef.current = {
+        resourceId: null,
+        week: null,
+        unitIndex: null,
+      };
+
       if (onCellMouseLeave) {
         onCellMouseLeave();
       }
@@ -1671,10 +1694,17 @@ export const SchedulerGrid = memo(forwardRef<
                     xInGrid / config.weekPx,
                   );
 
+                  const yInRow = dataY - item.offset;
+                  const unitIndex = Math.floor(
+                    (yInRow - config.rowPaddingTop) /
+                      config.unitStride,
+                  );
+
                   onCellContextMenu(
                     e,
                     item.resource.id,
                     week,
+                    unitIndex,
                   );
                 }
               }}
@@ -1696,7 +1726,7 @@ export const SchedulerGrid = memo(forwardRef<
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: `${sidebarCollapsed ? LEFT_SIDEBAR_WIDTH_COLLAPSED : LEFT_SIDEBAR_WIDTH}px 0px 4px repeat(${weeksInYear}, ${config.weekPx}px) 4px`,
+              gridTemplateColumns: `${sidebarCollapsed ? LEFT_SIDEBAR_WIDTH_COLLAPSED : LEFT_SIDEBAR_WIDTH}px 0px ${sidebarCollapsed ? 0 : 8}px repeat(${weeksInYear}, ${config.weekPx}px) 4px`,
               minWidth: "max-content",
             }}
           >
@@ -1727,6 +1757,23 @@ export const SchedulerGrid = memo(forwardRef<
               </SidePaddedBox>
             </div>
 
+            {/* Spacer Column for Months */}
+            {!sidebarCollapsed && (
+              <div
+                style={{
+                  gridColumn: 3,
+                  gridRow: 1,
+                  position: "sticky",
+                  top: 0,
+                  height: `${MONTH_ROW_HEIGHT}px`,
+                  backgroundColor: "#fff",
+                  zIndex: 301,
+                }}
+              >
+                <div className="w-[8px] shrink-0 h-full bg-white" />
+              </div>
+            )}
+
             {/* Month Headers */}
             {months.map((month, idx) => {
               const startCol =
@@ -1740,7 +1787,7 @@ export const SchedulerGrid = memo(forwardRef<
               if (isFirst && isLast) {
                 paddingClass = "px-1";
               } else if (isFirst) {
-                paddingClass = "pl-1 pr-0.5";
+                paddingClass = sidebarCollapsed ? "pl-1 pr-0.5" : "pl-0 pr-0.5";
               } else if (isLast) {
                 paddingClass = "pl-0.5 pr-1";
               }
@@ -1789,6 +1836,23 @@ export const SchedulerGrid = memo(forwardRef<
               <SidePaddedBox>{null}</SidePaddedBox>
             </div>
 
+            {/* Spacer Column for Weeks */}
+            {!sidebarCollapsed && (
+              <div
+                style={{
+                  gridColumn: 3,
+                  gridRow: 2,
+                  position: "sticky",
+                  top: `${MONTH_ROW_HEIGHT}px`,
+                  height: `${WEEK_ROW_HEIGHT}px`,
+                  backgroundColor: "#fff",
+                  zIndex: 166,
+                }}
+              >
+                <div className="w-[8px] shrink-0 h-full bg-white" />
+              </div>
+            )}
+
             {/* Week Headers */}
             {Array.from({ length: weeksInYear }).map((_, w) => (
               <div
@@ -1800,7 +1864,7 @@ export const SchedulerGrid = memo(forwardRef<
                   top: `${MONTH_ROW_HEIGHT}px`,
                   height: `${WEEK_ROW_HEIGHT}px`,
                   backgroundColor: "#fff",
-                  zIndex: 150,
+                  zIndex: 165,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -2010,7 +2074,7 @@ export const SchedulerGrid = memo(forwardRef<
                         top: `${MONTH_ROW_HEIGHT + WEEK_ROW_HEIGHT}px`,
                         height: `${DEPARTMENT_ROW_HEIGHT}px`,
                         backgroundColor: "#fff",
-                        zIndex: 150,
+                        zIndex: 165,
                       }}
                     />
                   </React.Fragment>
@@ -2113,7 +2177,7 @@ export const SchedulerGrid = memo(forwardRef<
                           return gradients.length > 0 ? gradients.join(", ") : "none";
                         })(),
                         backgroundSize: `${config.weekPx * weeksInYear}px 100%`,
-                        backgroundPosition: "4px 0",
+                        backgroundPosition: "9px 0",
                         backgroundRepeat: "no-repeat",
                         cursor: "pointer",
                         borderBottom:
@@ -2180,7 +2244,7 @@ export const SchedulerGrid = memo(forwardRef<
                 style={{
                   position: "absolute",
                   top: 0,
-                  left: -4,
+                  left: -9,
                   right: 0,
                   height: "100vh",
                   pointerEvents: "none",
@@ -2194,7 +2258,7 @@ export const SchedulerGrid = memo(forwardRef<
                         top: 0,
                         left: 0,
                         height: "100%",
-                        width: `${currentWeekIndex * config.weekPx + 4}px`,
+                        width: `${currentWeekIndex * config.weekPx + 9}px`,
                         backgroundColor:
                           "rgba(255, 255, 255, 0.6)",
                         pointerEvents: "none",
@@ -2206,7 +2270,7 @@ export const SchedulerGrid = memo(forwardRef<
                     style={{
                       position: "absolute",
                       top: 0,
-                      left: `${currentWeekIndex * config.weekPx + 4}px`,
+                      left: `${currentWeekIndex * config.weekPx + 9}px`,
                       height: "100%",
                       width: "1px",
                       backgroundColor: "#0062FF",
@@ -2282,7 +2346,7 @@ export const SchedulerGrid = memo(forwardRef<
                           ? hoverHighlight.height
                           : internalHoverHighlight.height,
                         backgroundColor: "rgba(59, 130, 246, 0.15)",
-                        borderRadius: "12px",
+                        borderRadius: showGaps ? "12px" : "0px",
                         pointerEvents: "none",
                         zIndex: commentMode ? 150 : -1,
                       }}

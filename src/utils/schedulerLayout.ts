@@ -1,4 +1,4 @@
-import { Department, Resource, SchedulerEvent } from '../types/scheduler';
+import { Department, Resource, SchedulerEvent, Grade } from '../types/scheduler';
 import { UNITS, WEEKS, sortResourcesByGrade } from './scheduler';
 
 export interface LayoutConfig {
@@ -96,7 +96,8 @@ export function getResourceGlobalTop(
   resourceId: string,
   resources: Resource[],
   departments: Department[],
-  config: LayoutConfig
+  config: LayoutConfig,
+  grades: Grade[] = []
 ): number {
   let totalHeight = 2 * config.rowH;
   for (const dept of departments) {
@@ -108,7 +109,8 @@ export function getResourceGlobalTop(
         dept.id === 'NO_DEPT' 
           ? !r.departmentId  // Users without department
           : r.departmentId === dept.id  // Users with this department
-      )
+      ),
+      grades
     );
     for (const resource of deptResources) {
       if (resource.id === resourceId) return totalHeight;
@@ -123,9 +125,10 @@ export function topFor(
   unitStart: number,
   resources: Resource[],
   departments: Department[],
-  config: LayoutConfig
+  config: LayoutConfig,
+  grades: Grade[] = []
 ): number {
-  return getResourceGlobalTop(resourceId, resources, departments, config) +
+  return getResourceGlobalTop(resourceId, resources, departments, config, grades) +
     unitStart * config.unitStride +
     config.rowPaddingTop +
     EVENTS_TOP_OFFSET;
@@ -139,7 +142,8 @@ export function findClosestResource(
   topAbs: number,
   resources: Resource[],
   departments: Department[],
-  config: LayoutConfig
+  config: LayoutConfig,
+  grades: Grade[] = []
 ): Resource | null {
   // EVENTS_TOP_OFFSET используется глобально
   let cur = 2 * config.rowH;
@@ -154,7 +158,8 @@ export function findClosestResource(
         dept.id === 'NO_DEPT' 
           ? !r.departmentId  // Users without department
           : r.departmentId === dept.id  // Users with this department
-      )
+      ),
+      grades
     );
     for (const r of deptR) {
       const rowTop = cur + EVENTS_TOP_OFFSET;
@@ -214,7 +219,8 @@ export function modelFromGeometry(
   departments: Department[],
   config: LayoutConfig,
   offsetUnit?: number, // ✅ Опциональный параметр: за какой юнит внутри события взялись при drag
-  weeksInYear?: number // ✅ Динамическое количество недель (52 или 53)
+  weeksInYear?: number, // ✅ Динамическое количество недель (52 или 53)
+  grades: Grade[] = []
 ): {
   startWeek: number;
   resourceId: string;
@@ -226,10 +232,10 @@ export function modelFromGeometry(
   const startWeek = Math.max(0, Math.min(maxWeek, Math.round(leftRel / config.weekPx)));
 
   // findClosestResource now returns null if cursor is not inside any resource row
-  const closest = findClosestResource(topAbs, resources, departments, config);
+  const closest = findClosestResource(topAbs, resources, departments, config, grades);
   if (!closest) return null;
 
-  const resourceTop = getResourceGlobalTop(closest.id, resources, departments, config);
+  const resourceTop = getResourceGlobalTop(closest.id, resources, departments, config, grades);
   
   // ✅ ВАЖНО: Компенсируем EVENTS_TOP_OFFSET, так как topFor теперь добавляет его
   const withinRow = topAbs - resourceTop - config.rowPaddingTop - EVENTS_TOP_OFFSET;

@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import type { EventGap, Resource, Department } from '../../types/scheduler';
+import type { EventGap, Resource, Department, Grade } from '../../types/scheduler';
 import type { LayoutConfig } from '../../utils/schedulerLayout';
 import { getResourceGlobalTop, EVENTS_TOP_OFFSET } from '../../utils/schedulerLayout';
 
@@ -10,6 +10,7 @@ interface EventGapHandlesProps {
   visibleDepartments: Department[];
   isCommandKeyHeld: boolean;
   onGapMouseDown: (gap: EventGap, e: React.PointerEvent) => void;
+  grades: Grade[];
 }
 
 export const EventGapHandles: React.FC<EventGapHandlesProps> = React.memo(({
@@ -19,21 +20,33 @@ export const EventGapHandles: React.FC<EventGapHandlesProps> = React.memo(({
   visibleDepartments,
   isCommandKeyHeld,
   onGapMouseDown,
+  grades,
 }) => {
   // Показываем handles только при зажатой Cmd
   if (!isCommandKeyHeld) return null;
   
+  // ✅ FIX: Фильтруем департаменты так же, как в SchedulerGrid (скрываем пустые)
+  // Иначе getResourceGlobalTop будет учитывать высоту скрытых заголовков департаментов
+  const effectiveDepartments = useMemo(() => {
+    const activeDeptIds = new Set<string>();
+    resources.forEach(r => {
+       activeDeptIds.add(r.departmentId || "NO_DEPT");
+    });
+    
+    return visibleDepartments.filter(d => activeDeptIds.has(d.id));
+  }, [resources, visibleDepartments]);
+
   // Вычисляем позицию ресурса в сетке
   const resourcePositions = useMemo(() => {
     const positions = new Map<string, number>();
     
     resources.forEach(resource => {
-      const top = getResourceGlobalTop(resource.id, resources, visibleDepartments || [], config);
+      const top = getResourceGlobalTop(resource.id, resources, effectiveDepartments, config, grades);
       positions.set(resource.id, top);
     });
     
     return positions;
-  }, [resources, visibleDepartments, config]);
+  }, [resources, effectiveDepartments, config, grades]);
   
   return (
     <div className="event-gap-handles" style={{ pointerEvents: 'none' }}>
@@ -141,7 +154,8 @@ export const EventGapHandles: React.FC<EventGapHandlesProps> = React.memo(({
           const overlapUnits = overlapUnitEnd - overlapUnitStart;
           const centerUnit = overlapUnitStart + overlapUnits / 2;
           // ✅ FIX: Добавляем EVENTS_TOP_OFFSET (88px) чтобы соответствовать рендерингу событий
-          const top = resourceTop + config.rowPaddingTop + (centerUnit * config.unitStride) + EVENTS_TOP_OFFSET;
+          // Также вычитаем gap/2, так как unitStride включает полный gap, а центр события визуально выше
+          const top = resourceTop + config.rowPaddingTop + (centerUnit * config.unitStride) - (config.gap / 2) + EVENTS_TOP_OFFSET;
           
           // Позиция по горизонтали - СМЕЩАЕМ ВЛЕВО на 1 gap
           const left = config.cellPaddingLeft + (gap.weekBoundary! * config.weekPx) - config.gap;
