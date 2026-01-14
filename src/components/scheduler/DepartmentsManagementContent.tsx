@@ -494,7 +494,7 @@ export const DepartmentsManagementContent = forwardRef<
                     {/* Users count */}
                     <div className="text-sm text-gray-500 min-w-[80px] text-right flex-shrink-0">
                       <span className="bg-gray-100 px-2 py-1 rounded-md text-xs font-medium text-gray-600">
-                        {dept.usersCount ?? 0} сотр.
+                        {dept.usersCount ?? 0} чел.
                       </span>
                     </div>
 
@@ -523,7 +523,10 @@ export const DepartmentsManagementContent = forwardRef<
                             </svg>
                           </button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-40">
+                        <DropdownMenuContent
+                          align="end"
+                          className="w-40"
+                        >
                           <DropdownMenuItem
                             onClick={() => {
                               setLocalDepartments((prev) =>

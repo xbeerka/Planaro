@@ -358,7 +358,7 @@ function SchedulerEventComponent({
             />
           )}
         </div>
-        {showProjectWeight && (
+        {showProjectWeight && !(config.weekPx <= 48 && event.weeksSpan <= 1) && (
           <div className={`ev-weight ${commentMode ? 'pointer-events-none' : 'pointer-events-auto'} text-right`} style={{ fontSize: `${fontSize}px`, opacity: 0.6, position: 'relative', zIndex: 2, transition: 'none' }}>
             {event.unitsTall * 25}%
           </div>

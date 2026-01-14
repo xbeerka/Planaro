@@ -4,6 +4,7 @@ import {
   useRef,
   forwardRef,
   useImperativeHandle,
+  useMemo,
 } from "react";
 import {
   Resource,
@@ -190,6 +191,15 @@ export const UsersManagementContent = forwardRef<
       setSelectedDepartment("all");
       setSortBy("department");
     }, [resources]);
+
+    // Sort departments for dropdowns
+    const sortedDepartments = useMemo(() => {
+      return [...departments].sort((a, b) => {
+        const queueA = a.queue || 999;
+        const queueB = b.queue || 999;
+        return queueA - queueB;
+      });
+    }, [departments]);
 
     // Auto-scroll to highlighted user
     useEffect(() => {
@@ -648,7 +658,7 @@ export const UsersManagementContent = forwardRef<
                 >
                   <option value="all">Все департаменты</option>
                   <option value="none">Без департамента</option>
-                  {departments.map((dept) => (
+                  {sortedDepartments.map((dept) => (
                     <option key={dept.id} value={dept.id}>
                       {dept.name}
                     </option>
@@ -687,7 +697,7 @@ export const UsersManagementContent = forwardRef<
                       avatarUrl: newUser.avatarUrl,
                       isVisible: newUser.isVisible,
                     }}
-                    departments={departments}
+                    departments={sortedDepartments}
                     grades={grades}
                     companies={companies}
                     uploadingAvatar={
@@ -829,7 +839,7 @@ export const UsersManagementContent = forwardRef<
                                 avatarUrl: userData.avatarUrl,
                                 isVisible: userData.isVisible,
                               }}
-                              departments={departments}
+                              departments={sortedDepartments}
                               grades={grades}
                               companies={companies}
                               uploadingAvatar={
@@ -908,7 +918,7 @@ export const UsersManagementContent = forwardRef<
                               avatarUrl: userData.avatarUrl,
                               isVisible: userData.isVisible,
                             }}
-                            departments={departments}
+                            departments={sortedDepartments}
                             grades={grades}
                             companies={companies}
                             uploadingAvatar={

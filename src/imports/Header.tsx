@@ -1,7 +1,7 @@
 import { X, Filter, Search } from "lucide-react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import svgPaths from "./svg-yurl9oiucn";
 import svgPathsNew from "./svg-bl5oypf3kt";
@@ -14,6 +14,7 @@ import { Switch } from "../components/ui/switch";
 import { useFilters } from "../contexts/FilterContext";
 import { useSettings } from "../contexts/SettingsContext";
 import { useUI } from "../contexts/UIContext";
+import { useScheduler } from "../contexts/SchedulerContext";
 import { HeaderOnlineUsers } from "../components/scheduler/HeaderOnlineUsers";
 import { smartSearch } from "../utils/search";
 import { Company } from "../types/Company";
@@ -530,9 +531,9 @@ function Input6({ sidebarCollapsed }: HeaderProps) {
                 <div className="grid grid-cols-4 gap-2">
                   {[
                     { label: "XS", value: 48 },
-                    { label: "S", value: 96 },
-                    { label: "M", value: 144 },
-                    { label: "L", value: 192 },
+                    { label: "S", value: 72 },
+                    { label: "M", value: 96 },
+                    { label: "L", value: 120 },
                   ].map((preset) => (
                     <button
                       key={preset.value}
@@ -782,6 +783,8 @@ function Container(props: HeaderProps) {
     setEnabledProjects,
   } = useFilters();
 
+  const { events } = useScheduler();
+
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<
     "company" | "department" | "project"
@@ -802,6 +805,35 @@ function Container(props: HeaderProps) {
     top: 0,
     right: 0,
   });
+
+  // Подсчет использования проектов (кол-во сотрудников)
+  const projectUsageMap = useMemo(() => {
+    const counts = new Map<string, Set<string>>();
+    events.forEach(event => {
+      if (event.projectId && event.resourceId) {
+        if (!counts.has(event.projectId)) {
+          counts.set(event.projectId, new Set());
+        }
+        counts.get(event.projectId)!.add(event.resourceId);
+      }
+    });
+    
+    const usage = new Map<string, number>();
+    counts.forEach((resources, projectId) => {
+      usage.set(projectId, resources.size);
+    });
+    return usage;
+  }, [events]);
+
+  // Сортировка проектов по использованию
+  const sortedProjects = useMemo(() => {
+    return [...projects].sort((a, b) => {
+      const countA = projectUsageMap.get(a.id) || 0;
+      const countB = projectUsageMap.get(b.id) || 0;
+      if (countB !== countA) return countB - countA;
+      return a.name.localeCompare(b.name);
+    });
+  }, [projects, projectUsageMap]);
 
   // Общий счетчик активных фильтров
   const totalFilters =
@@ -894,6 +926,15 @@ function Container(props: HeaderProps) {
     setSearchQuery("");
   }, [activeTab]);
 
+  // Сортировка департаментов (как в модалке управления)
+  const sortedDepartments = useMemo(() => {
+    return [...departments].sort((a, b) => {
+      const queueA = a.queue || 999;
+      const queueB = b.queue || 999;
+      return queueA - queueB;
+    });
+  }, [departments]);
+
   // Получение текущих данных для активной вкладки
   const getCurrentData = () => {
     switch (activeTab) {
@@ -905,13 +946,13 @@ function Container(props: HeaderProps) {
         };
       case "department":
         return {
-          items: departments,
+          items: sortedDepartments,
           selectedIds: enabledDepartments,
           onToggle: toggleDepartment,
         };
       case "project":
         return {
-          items: projects,
+          items: sortedProjects,
           selectedIds: enabledProjects,
           onToggle: toggleProject,
         };
@@ -1164,12 +1205,17 @@ function Container(props: HeaderProps) {
                           }}
                         />
                       )}
-                      <span className="text-sm max-md:text-[17px] flex-1">
+                      <span className="text-sm max-md:text-[17px] flex-1 truncate">
                         <HighlightText
                           text={item.name}
                           query={searchQuery}
                         />
                       </span>
+                      {isProject && (
+                        <span className="text-xs text-gray-400 ml-2 shrink-0">
+                          {projectUsageMap.get(item.id) || 0} чел
+                        </span>
+                      )}
                     </div>
                   );
                 })

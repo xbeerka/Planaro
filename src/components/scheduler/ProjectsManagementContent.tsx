@@ -373,7 +373,7 @@ export const ProjectsManagementContent = forwardRef<ProjectsManagementHandle, Pr
     }
     
     return (
-      <div style={{ ...style, userSelect: 'none' }} className="w-[60px] h-9 rounded-[12px] border border-transparent flex-shrink-0 flex items-center justify-center shadow-sm">
+      <div style={{ ...style, userSelect: 'none' }} className="w-[60px] h-9 rounded-[12px] border border-transparent flex-shrink-0 flex items-center justify-center">
         {showText && (
           <span style={{ 
             color: backgroundColor?.trim() ? (textColor || '#fff') : '#999', 
