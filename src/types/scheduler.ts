@@ -4,6 +4,7 @@ export interface Department {
   queue: number;
   visible: boolean;
   usersCount?: number;
+  last_activity_at?: string;
 }
 
 export interface Resource {

@@ -726,13 +726,14 @@ export function registerDataRoutes(app: Hono) {
           name: dept.name,
           queue: dept.queue || 999,
           visible: dept.visible !== undefined ? dept.visible : true,
-          usersCount: dept.users?.[0]?.count ?? 0
+          usersCount: dept.users?.[0]?.count ?? 0,
+          last_activity_at: dept.last_activity_at
         }));
         
         return c.json(departments);
       }
       
-      console.log('⚠️ Таблица departments пустая для воркспейса:', workspaceId);
+      console.log('��️ Таблица departments пустая для воркспейса:', workspaceId);
       return c.json([]);
       
     } catch (error: any) {
@@ -1313,58 +1314,84 @@ export function registerDataRoutes(app: Hono) {
       const workspaceId = c.req.query('workspace_id');
       console.log('👥 Запрос ресурсов для workspace:', workspaceId || 'все');
       
-      let query = supabase
-        .from('users')
-        .select(`
-          *,
-          department:departments(id, name),
-          grade:grades(id, name),
-          company:companies(id, name)
-        `);
+      // Retry logic for unstable connections
+      let retries = 3;
+      let lastError;
       
-      if (workspaceId) {
-        query = query.eq('workspace_id', workspaceId);
+      while (retries > 0) {
+        try {
+          let query = supabase
+            .from('users')
+            .select(`
+              *,
+              department:departments(id, name),
+              grade:grades(id, name),
+              company:companies(id, name)
+            `);
+          
+          if (workspaceId) {
+            query = query.eq('workspace_id', workspaceId);
+          }
+          
+          const { data: users, error } = await query.order('id', { ascending: true });
+          
+          if (error) {
+            throw error; // Throw to catch block for retry logic
+          }
+          
+          console.log(`✓ Получено ${users?.length || 0} ресурсов`);
+          
+          // Map to frontend format
+          const resources = users?.map(user => {
+            // Split full name into first/last (если есть пробел)
+            const fullName = user.full_name || user.fullName || user.name || '';  // ✅ ИСПРАВЛЕНО: читаем full_name/fullName из БД
+            const nameParts = fullName.trim().split(' ');
+            const firstName = nameParts[0] || '';
+            const lastName = nameParts.slice(1).join(' ') || '';
+            
+            return {
+              id: `u${user.id}`,
+              firstName,           // ✅ Разбиваем fullName на части
+              lastName,            // ✅ Все после первого пробела
+              fullName,            // ✅ Полное имя из БД
+              position: user.position || '',  // ✅ Должность из БД
+              departmentId: user.department_id ? `d${user.department_id}` : null,
+              grade: user.grade?.name || '',  // ✅ Название грейда
+              companyId: user.company_id || null,
+              avatarUrl: user.avatar_url || null,
+              isVisible: user.is_visible !== undefined ? user.is_visible : true,
+              department: user.department,
+              company: user.company
+            };
+          }) || [];
+          
+          return c.json(resources);
+          
+        } catch (error: any) {
+          lastError = error;
+          console.warn(`⚠️ Ошибка загрузки ресурсов (попытка ${4 - retries}/3):`, error.message);
+          
+          // Check if retryable error (connection issues)
+          if (error.message && (
+             error.message.includes('connection error') || 
+             error.message.includes('connection reset') ||
+             error.message.includes('network error')
+          )) {
+            retries--;
+            if (retries > 0) {
+              await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1s
+              continue;
+            }
+          } else {
+             // Non-retryable error
+             break;
+          }
+        }
       }
       
-      const { data: users, error } = await query.order('id', { ascending: true });
-      
-      if (error) {
-        console.error('❌ Ошибка загрузки ресурсов:', error);
-        return c.json({ error: `Failed to fetch resources: ${error.message}` }, 500);
-      }
-      
-      console.log(`✓ Получено ${users?.length || 0} ресурсов`);
-      
-      // 🔍 DEBUG: Log first user to see DB structure
-      if (users && users.length > 0) {
-        console.log('🔍 ПЕРВЫЙ ПОЛЬЗОВАТЕЛЬ ИЗ БД:', JSON.stringify(users[0], null, 2));
-      }
-      
-      // Map to frontend format
-      const resources = users?.map(user => {
-        // Split full name into first/last (если есть пробел)
-        const fullName = user.full_name || user.fullName || user.name || '';  // ✅ ИСПРАВЛЕНО: читаем full_name/fullName из БД
-        const nameParts = fullName.trim().split(' ');
-        const firstName = nameParts[0] || '';
-        const lastName = nameParts.slice(1).join(' ') || '';
-        
-        return {
-          id: `u${user.id}`,
-          firstName,           // ✅ Разбиваем fullName на части
-          lastName,            // ✅ Все после первого пробела
-          fullName,            // ✅ Полное имя из БД
-          position: user.position || '',  // ✅ Должность из БД
-          departmentId: user.department_id ? `d${user.department_id}` : null,
-          grade: user.grade?.name || '',  // ✅ Название грейда
-          companyId: user.company_id || null,
-          avatarUrl: user.avatar_url || null,
-          isVisible: user.is_visible !== undefined ? user.is_visible : true,
-          department: user.department,
-          company: user.company
-        };
-      }) || [];
-      
-      return c.json(resources);
+      console.error('❌ Ошибка загрузки ресурсов (все попытки исчерпаны):', lastError);
+      return c.json({ error: `Failed to fetch resources: ${lastError?.message}` }, 500);
+
     } catch (error: any) {
       return handleError(c, 'Fetch Resources', error);
     }
@@ -1590,38 +1617,64 @@ export function registerDataRoutes(app: Hono) {
       const workspaceId = c.req.query('workspace_id');
       console.log('📂 Запрос проектов для workspace:', workspaceId || 'все');
       
-      let query = supabase
-        .from('projects')
-        .select('*');
+      // Retry logic for unstable connections
+      let retries = 3;
+      let lastError;
       
-      if (workspaceId) {
-        query = query.eq('workspace_id', workspaceId);
+      while (retries > 0) {
+        try {
+          let query = supabase
+            .from('projects')
+            .select('*');
+          
+          if (workspaceId) {
+            query = query.eq('workspace_id', workspaceId);
+          }
+          
+          const { data: projects, error } = await query.order('created_at', { ascending: false });
+          
+          if (error) {
+            throw error; // Throw to catch block for retry logic
+          }
+          
+          console.log(`✓ Получено ${projects?.length || 0} проектов`);
+          
+          // Map to frontend format
+          const mappedProjects = projects?.map(p => ({
+            id: `p${p.id}`,
+            name: p.name,
+            backgroundColor: p.backgroundColor || p.background_color || '#3B82F6',
+            textColor: p.textColor || p.text_color || '#FFFFFF',
+            patternId: p.pattern_id ? `ep${p.pattern_id}` : undefined  // ✅ Добавляем patternId если есть
+          })) || [];
+          
+          return c.json(mappedProjects);
+          
+        } catch (error: any) {
+          lastError = error;
+          console.warn(`⚠️ Ошибка загрузки проектов (попытка ${4 - retries}/3):`, error.message);
+          
+          // Check if retryable error (connection issues)
+          if (error.message && (
+             error.message.includes('connection error') || 
+             error.message.includes('connection reset') ||
+             error.message.includes('network error')
+          )) {
+            retries--;
+            if (retries > 0) {
+              await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1s
+              continue;
+            }
+          } else {
+             // Non-retryable error
+             break;
+          }
+        }
       }
       
-      const { data: projects, error } = await query.order('created_at', { ascending: false });
-      
-      if (error) {
-        console.error('❌ Ошибка загрузки проектов:', error);
-        return c.json({ error: `Failed to fetch projects: ${error.message}` }, 500);
-      }
-      
-      console.log(`✓ Получено ${projects?.length || 0} проектов`);
-      
-      // 🔍 DEBUG: Log first project to see DB structure
-      if (projects && projects.length > 0) {
-        console.log('🔍 ПЕРВЫЙ ПРОЕКТ ИЗ БД:', JSON.stringify(projects[0], null, 2));
-      }
-      
-      // Map to frontend format
-      const mappedProjects = projects?.map(p => ({
-        id: `p${p.id}`,
-        name: p.name,
-        backgroundColor: p.backgroundColor || p.background_color || '#3B82F6',
-        textColor: p.textColor || p.text_color || '#FFFFFF',
-        patternId: p.pattern_id ? `ep${p.pattern_id}` : undefined  // ✅ Добавляем patternId если есть
-      })) || [];
-      
-      return c.json(mappedProjects);
+      console.error('❌ Ошибка загрузки проектов (все попытки исчерпаны):', lastError);
+      return c.json({ error: `Failed to fetch projects: ${lastError?.message}` }, 500);
+
     } catch (error: any) {
       return handleError(c, 'Fetch Projects', error);
     }

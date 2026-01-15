@@ -538,6 +538,25 @@ export function SchedulerMain({
     setCommentMode(false);
   }, [workspace.id, setScissorsMode, setCommentMode]);
 
+  // 💾 Auto-Backup on workspace load
+  useEffect(() => {
+    // Don't backup if workspace is loading or invalid
+    if (!workspace.id || workspace.id === 'loading') return;
+    
+    // Slight delay to not block initial rendering
+    const timer = setTimeout(async () => {
+      try {
+        console.log('💾 Auto-Backup: Triggering...');
+        const { backupsApi } = await import('../../services/api/backups');
+        await backupsApi.create(String(workspace.id));
+      } catch (error) {
+        console.error('❌ Auto-Backup failed:', error);
+      }
+    }, 5000); // 5s delay
+    
+    return () => clearTimeout(timer);
+  }, [workspace.id]);
+
   const sortedEventsWithZOrder = useMemo(() => {
     const filteredResourceIds = new Set(
       filteredResources.map((r) => r.id),
@@ -1300,6 +1319,7 @@ export function SchedulerMain({
         }}
         managementModalTab={managementModalTab}
         
+        workspaceId={String(workspace?.id || '')}
         workspaceName={workspace?.name || ''}
         workspaceYear={workspace?.year || new Date().getFullYear()}
         updateWorkspaceName={async (name: string) => {

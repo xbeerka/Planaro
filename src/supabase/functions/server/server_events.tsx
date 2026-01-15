@@ -727,7 +727,55 @@ export function registerEventsRoutes(app: Hono) {
             }
             
             if (!data) {
-              console.warn(`⚠️ BATCH update: событие ${eventId} не найдено в БД`);
+              console.warn(`⚠️ BATCH update: событие ${eventId} не найдено в БД. Попытка восстановления (Auto-Upsert)...`);
+              
+              // Проверяем наличие обязательных полей для создания
+              // При Undo клиент отправляет полный объект события, поэтому поля должны быть
+              const canRecover = 
+                updateData.user_id !== undefined && 
+                updateData.project_id !== undefined && 
+                updateData.start_week !== undefined && 
+                op.workspace_id !== undefined;
+                
+              if (canRecover) {
+                 const recoverData = {
+                   id: numericId,
+                   ...updateData,
+                   workspace_id: op.workspace_id,
+                   weeks_span: updateData.weeks_span || 1,
+                   unit_start: updateData.unit_start || 0,
+                   units_tall: updateData.units_tall || 1
+                 };
+                 
+                 const { data: recoveredData, error: recoverError } = await supabase
+                    .from('events')
+                    .upsert(recoverData)
+                    .select('*')
+                    .maybeSingle();
+                    
+                 if (recoverError) {
+                    console.error(`❌ BATCH auto-recover error:`, recoverError.message);
+                    return { error: { id: eventId, message: `Event not found and recovery failed: ${recoverError.message}` } };
+                 }
+                 
+                 if (recoveredData) {
+                   console.log(`✅ BATCH auto-recover success: ${eventId}`);
+                   return {
+                     success: {
+                       id: `e${recoveredData.id}`,
+                       resourceId: `u${recoveredData.user_id}`,
+                       projectId: `p${recoveredData.project_id}`,
+                       startWeek: (recoveredData.start_week || 1) - 1,
+                       weeksSpan: recoveredData.weeks_span || 1,
+                       unitStart: recoveredData.unit_start || 0,
+                       unitsTall: recoveredData.units_tall || 1,
+                       patternId: recoveredData.pattern_id ? `ep${recoveredData.pattern_id}` : undefined
+                     }
+                   };
+                 }
+              }
+
+              console.warn(`⚠️ BATCH auto-recover impossible: missing fields (u=${updateData.user_id}, p=${updateData.project_id}, w=${op.workspace_id})`);
               return { error: { id: eventId, message: 'Event not found' } };
             }
             
@@ -815,6 +863,187 @@ export function registerEventsRoutes(app: Hono) {
       return c.json({ deleted: count });
     } catch (error: any) {
       return handleError(c, 'Clear Events', error);
+    }
+  });
+
+  // ==================== BACKUPS (AUTO-SAVE) ====================
+
+  const BACKUP_BUCKET = 'make-73d66528-backups';
+
+  // 1. Create Backup (Snapshot)
+  app.post("/make-server-73d66528/events/backup", async (c) => {
+    try {
+      const { workspaceId } = await c.req.json();
+      
+      if (!workspaceId) {
+        return c.json({ error: 'Workspace ID required' }, 400);
+      }
+
+      console.log(`💾 BACKUP: Creating snapshot for workspace ${workspaceId}...`);
+      
+      // 1. Create bucket if not exists
+      const { data: buckets } = await supabase.storage.listBuckets();
+      if (!buckets?.some(b => b.name === BACKUP_BUCKET)) {
+        await supabase.storage.createBucket(BACKUP_BUCKET, { public: false });
+        console.log(`📦 Created bucket ${BACKUP_BUCKET}`);
+      }
+      
+      // 2. Fetch ALL events for workspace (Raw DB format)
+      // Use pagination to get all events if > 1000
+      const PAGE_SIZE = 1000;
+      let allEvents: any[] = [];
+      let currentPage = 0;
+      let hasMore = true;
+      
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from('events')
+          .select('*')
+          .eq('workspace_id', workspaceId)
+          .range(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE - 1);
+          
+        if (error) throw error;
+        
+        if (data && data.length > 0) {
+          allEvents = allEvents.concat(data);
+        }
+        
+        hasMore = data?.length === PAGE_SIZE;
+        currentPage++;
+      }
+      
+      console.log(`📦 Fetched ${allEvents.length} events for backup`);
+      
+      // 3. Save to Storage
+      const timestamp = Date.now();
+      const filename = `${workspaceId}/backup_${timestamp}.json`;
+      const fileContent = JSON.stringify({
+        timestamp,
+        workspaceId,
+        count: allEvents.length,
+        events: allEvents
+      });
+      
+      const { error: uploadError } = await supabase.storage
+        .from(BACKUP_BUCKET)
+        .upload(filename, fileContent, {
+          contentType: 'application/json',
+          upsert: true
+        });
+        
+      if (uploadError) throw uploadError;
+      
+      console.log(`✅ Backup saved: ${filename}`);
+      
+      // 4. Rotation (Keep last 5)
+      const { data: files } = await supabase.storage
+        .from(BACKUP_BUCKET)
+        .list(`${workspaceId}`, {
+          sortBy: { column: 'created_at', order: 'desc' }
+        });
+        
+      if (files && files.length > 5) {
+        const toDelete = files.slice(5).map(f => `${workspaceId}/${f.name}`);
+        await supabase.storage.from(BACKUP_BUCKET).remove(toDelete);
+        console.log(`🗑️ Rotation: Deleted ${toDelete.length} old backups`);
+      }
+      
+      return c.json({ success: true, timestamp, count: allEvents.length });
+    } catch (error: any) {
+      return handleError(c, 'Create Backup', error);
+    }
+  });
+
+  // 2. List Backups
+  app.get("/make-server-73d66528/events/backups/:workspaceId", async (c) => {
+    try {
+      const workspaceId = c.req.param('workspaceId');
+      
+      const { data: files, error } = await supabase.storage
+        .from(BACKUP_BUCKET)
+        .list(`${workspaceId}`, {
+          sortBy: { column: 'created_at', order: 'desc' }
+        });
+        
+      if (error) {
+        // If bucket doesn't exist, return empty list
+        if (error.message.includes('Bucket not found')) return c.json([]);
+        throw error;
+      }
+      
+      const backups = files.map((f, index) => ({
+        id: f.name, // using filename as ID
+        timestamp: new Date(f.created_at).getTime(),
+        label: 'Автосохранение',
+        version: files.length - index,
+        size: f.metadata?.size
+      }));
+      
+      return c.json(backups);
+    } catch (error: any) {
+      return handleError(c, 'List Backups', error);
+    }
+  });
+
+  // 3. Restore Backup
+  app.post("/make-server-73d66528/events/restore", async (c) => {
+    try {
+      const { workspaceId, backupId } = await c.req.json();
+      console.log(`♻️ RESTORE: Restoring backup ${backupId} for workspace ${workspaceId}...`);
+      
+      // 1. Download Backup
+      const { data: blob, error: downloadError } = await supabase.storage
+        .from(BACKUP_BUCKET)
+        .download(`${workspaceId}/${backupId}`);
+        
+      if (downloadError) throw downloadError;
+      
+      const backupData = JSON.parse(await blob.text());
+      const eventsToRestore = backupData.events;
+      
+      if (!Array.isArray(eventsToRestore)) {
+        throw new Error('Invalid backup format: events array missing');
+      }
+      
+      console.log(`📦 Backup contains ${eventsToRestore.length} events`);
+      
+      // 2. Delete ALL current events (Transaction-like)
+      // Note: Supabase/PostgREST doesn't support explicit transactions in HTTP API easily.
+      // Ideally, this should be a stored procedure (RPC).
+      // But we will do Delete -> Insert sequence.
+      
+      const { error: deleteError } = await supabase
+        .from('events')
+        .delete()
+        .eq('workspace_id', workspaceId);
+        
+      if (deleteError) throw deleteError;
+      
+      console.log('🗑️ Cleared current events');
+      
+      // 3. Insert Backup Events (Batch)
+      // Use chunks of 1000
+      const CHUNK_SIZE = 1000;
+      for (let i = 0; i < eventsToRestore.length; i += CHUNK_SIZE) {
+        const chunk = eventsToRestore.slice(i, i + CHUNK_SIZE);
+        const { error: insertError } = await supabase
+          .from('events')
+          .insert(chunk);
+          
+        if (insertError) {
+          console.error('❌ Insert error during restore:', insertError);
+          // Critical failure: Data deleted but insert failed.
+          // In a real app, we should have a way to rollback or use RPC.
+          throw insertError;
+        }
+      }
+      
+      await updateWorkspaceSummary(workspaceId, `restored backup ${backupId}`);
+      console.log(`✅ Successfully restored ${eventsToRestore.length} events`);
+      
+      return c.json({ success: true, count: eventsToRestore.length });
+    } catch (error: any) {
+      return handleError(c, 'Restore Backup', error);
     }
   });
 

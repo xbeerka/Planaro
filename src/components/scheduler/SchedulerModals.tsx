@@ -39,6 +39,7 @@ interface SchedulerModalsProps {
   setWorkspaceManagementModalOpen?: (open: boolean) => void;
   
   // Workspace props
+  workspaceId: string;
   workspaceName: string;
   workspaceYear: number;
   updateWorkspaceName: (name: string) => Promise<void>;
@@ -131,6 +132,7 @@ export const SchedulerModals = React.memo<SchedulerModalsProps>((props) => {
     setWorkspaceManagementModalOpen,
     
     // Workspace
+    workspaceId,
     workspaceName,
     workspaceYear,
     updateWorkspaceName,
@@ -281,6 +283,7 @@ export const SchedulerModals = React.memo<SchedulerModalsProps>((props) => {
         onClose={() => setWorkspaceManagementModalOpen?.(false)}
         
         // Workspace props
+        workspaceId={workspaceId}
         workspaceName={workspaceName}
         workspaceYear={workspaceYear}
         onUpdateWorkspaceName={updateWorkspaceName}

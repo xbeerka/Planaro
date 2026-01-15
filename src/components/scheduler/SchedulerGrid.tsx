@@ -2055,10 +2055,15 @@ export const SchedulerGrid = memo(forwardRef<
                     >
                       <SidePaddedBox>
                         {!sidebarCollapsed && (
-                          <div className="px-4 h-full flex items-center">
-                            <p className="font-medium text-xs text-[#868789] uppercase">
+                          <div className="px-4 h-full flex items-center justify-between">
+                            <p className="font-medium text-xs text-[#868789] uppercase truncate mr-2">
                               {item.dept.name}
                             </p>
+                            {item.dept.last_activity_at && (
+                              <p className="text-[10px] text-[#A3A3A3] font-normal uppercase whitespace-nowrap">
+                                upd {new Date(item.dept.last_activity_at).getDate().toString().padStart(2, '0')}.{(new Date(item.dept.last_activity_at).getMonth() + 1).toString().padStart(2, '0')}
+                              </p>
+                            )}
                           </div>
                         )}
                       </SidePaddedBox>

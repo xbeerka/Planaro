@@ -22,6 +22,7 @@ import {
   publicAnonKey,
 } from "./utils/supabase/info";
 import { checkServerHealth } from "./utils/healthCheck";
+import { decodeSupabaseJWT } from "./utils/jwt";
 import "./utils/debugCommands"; // Enable debug commands in console
 
 function AppContent() {
@@ -185,6 +186,20 @@ function AppContent() {
         }
 
         if (token && sessionId) {
+          // 🛡️ Проверяем срок действия токена локально перед использованием
+          const payload = decodeSupabaseJWT(token);
+          const isExpired = payload?.exp ? (payload.exp * 1000) < Date.now() : true;
+
+          if (isExpired) {
+            console.log("⚠️ Token expired locally, clearing auth");
+            await removeStorageItem("auth_access_token");
+            await removeStorageItem("auth_session_id");
+            setIsAuthenticated(false);
+            setAccessToken(null);
+            setIsCheckingAuth(false);
+            return;
+          }
+
           // ✅ Сразу устанавливаем токен - не блокируем UI
           setAccessToken(token);
           setIsAuthenticated(true);
@@ -448,6 +463,16 @@ function AppContent() {
 
   // ✅ Убран блокирующий спиннер - проверка авторизации происходит в фоне
   // Скелетон воркспейсов покажет loading состояние
+
+  // 🔄 Показываем загрузку пока проверяем локальный токен
+  // Это предотвращает мигание формы входа при обновлении страницы
+  if (isCheckingAuth) {
+    return (
+      <div className="h-screen w-screen flex items-center justify-center bg-white">
+        <LoadingScreen />
+      </div>
+    );
+  }
 
   if (!isAuthenticated) {
     return <AuthScreen onAuthSuccess={handleAuthSuccess} />;

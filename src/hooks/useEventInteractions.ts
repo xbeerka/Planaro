@@ -174,7 +174,7 @@ export function useEventInteractions({
     // 🔧 ВРЕМЕННОЕ РЕШЕНИЕ: меняем z-index напрямую
     el.style.zIndex = '1000';
 
-    // ✅ Блокируем Delta Sync (polling) во время перетаскивания
+    // ✅ Блокируем Delta Sync (polling) во время перета��кивания
     setIsUserInteracting(true);
 
     // 🛡️ FALLBACK: Если ref недоступен, используем offsetParent
@@ -188,19 +188,25 @@ export function useEventInteractions({
       return;
     }
 
+    // ✅ Calculate container position relative to document (stable during scroll)
+    const containerPageX = tableRect.left + window.scrollX;
+    const containerPageY = tableRect.top + window.scrollY;
+
     const startLeft = parseFloat(el.style.left || '0');
     const startTop = parseFloat(el.style.top || '0');
-    const offsetX = e.clientX - tableRect.left - startLeft;
+    
+    // ✅ Use pageX/Y for stable offsets during scroll
+    const offsetX = e.pageX - containerPageX - startLeft;
     
     // ✅ FIX JITTER: Calculate offset relative to GRID START (ignoring expansion)
     // This ensures snapping logic uses stable grid coordinates, not visual expanded coordinates
     const gridStartLeft = evData.startWeek * config.weekPx + config.cellPaddingLeft;
-    const offsetXFromGrid = e.clientX - tableRect.left - gridStartLeft;
+    const offsetXFromGrid = e.pageX - containerPageX - gridStartLeft;
     
-    const offsetY = e.clientY - tableRect.top - startTop;
+    const offsetY = e.pageY - containerPageY - startTop;
     const offsetUnit = Math.floor(offsetY / config.unitStride);
 
-    // ✅ КРИТИЧНО: Всегда вычисляем соседей на месте, чтобы использовать СВЕЖИЕ данные из eventsRef
+    // ✅ КРИТИЧНО: Всегд�� вычисляем соседей на месте, чтобы использовать СВЕЖИЕ данные из eventsRef
     // Это реш��ет проблему "кэширования" и stale closures (когда events из пропсов пустой при первом рендере)
     let neighborsMap;
     try {
@@ -239,6 +245,8 @@ export function useEventInteractions({
       type: 'drag',
       id: evData.id,
       pointerId: e.pointerId,
+      containerPageX, // ✅ Store container page coordinates
+      containerPageY,
       offsetX,
       offsetXFromGrid, // ✅ Store grid-based offset
       offsetY,
@@ -268,13 +276,14 @@ export function useEventInteractions({
     const onMove = (ev: PointerEvent) => {
       if (!pointerStateRef.current || pointerStateRef.current.pointerId !== ev.pointerId) return;
 
-      const desiredTopAbs = ev.clientY - pointerStateRef.current.tableRect.top - pointerStateRef.current.offsetY;
-      const cursorTopAbs = ev.clientY - pointerStateRef.current.tableRect.top;
+      // ✅ Use pageY and containerPageY for stable calculation during scroll
+      const desiredTopAbs = ev.pageY - pointerStateRef.current.containerPageY - pointerStateRef.current.offsetY;
+      const cursorTopAbs = ev.pageY - pointerStateRef.current.containerPageY;
       
       // ✅ FIX JITTER: Use Grid-based offset for snapping
       // This decouples the snapping logic from the visual expansion
       const offsetFromGrid = pointerStateRef.current.offsetXFromGrid ?? pointerStateRef.current.offsetX;
-      const desiredGridLeftAbs = ev.clientX - pointerStateRef.current.tableRect.left - offsetFromGrid;
+      const desiredGridLeftAbs = ev.pageX - pointerStateRef.current.containerPageX - offsetFromGrid;
       
       // 🐛 DEBUG: Логируем координаты для диагностики
       // const debugLog = false; // ✅ ВЫКЛЮЧЕНО v4.0.13
@@ -790,8 +799,9 @@ export function useEventInteractions({
     const startTop = parseFloat(el.style.top || '0');
     const startWidth = el.offsetWidth;
     const startHeight = el.offsetHeight;
-    const startX = e.clientX;
-    const startY = e.clientY;
+    // ✅ Use pageX/pageY to support scrolling during resize
+    const startX = e.pageX;
+    const startY = e.pageY;
 
     // 🔍 КРИТИЧНО: Вычисляем РЕАЛЬНЫЕ padding события ПЕРЕД ресайзом
     let neighborsMap;
@@ -850,8 +860,9 @@ export function useEventInteractions({
     const onMove = (ev: PointerEvent) => {
       if (!pointerStateRef.current || pointerStateRef.current.pointerId !== ev.pointerId) return;
 
-      const dx = ev.clientX - pointerStateRef.current.startX;
-      const dy = ev.clientY - pointerStateRef.current.startY;
+      // ✅ Use pageX/pageY to correctly calculate delta even when scrolling
+      const dx = ev.pageX - pointerStateRef.current.startX;
+      const dy = ev.pageY - pointerStateRef.current.startY;
 
       let newLeft = pointerStateRef.current.startLeft;
       let newTop = pointerStateRef.current.startTop;

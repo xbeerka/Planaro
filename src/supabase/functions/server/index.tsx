@@ -9,6 +9,7 @@ import { registerEventsRoutes } from './server_events.tsx';
 import { registerPresenceRoutes } from './server_presence.tsx';
 import { registerProfileRoutes } from './server_profile.tsx';
 import { registerCommentsRoutes } from './server_comments.tsx';
+import { registerBackupRoutes } from './server_backups.tsx';
 
 const app = new Hono();
 
@@ -80,7 +81,11 @@ registerProfileRoutes(app);
 console.log('  💬 Comments routes...');
 registerCommentsRoutes(app);
 
-console.log('✅ Все маршруты зарегистрированы (66 endpoints)');
+// 7. Backup routes (3 endpoints)
+console.log('  💾 Backup routes...');
+registerBackupRoutes(app);
+
+console.log('✅ Все маршруты зарегистрированы (69 endpoints)');
 console.log('🌐 Сервер готов к приёму запросов');
 
 // ==================== START SERVER ====================
