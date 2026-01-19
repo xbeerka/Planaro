@@ -111,6 +111,12 @@ export const DepartmentsManagementContent = forwardRef<
 
     // Track changes
     useEffect(() => {
+      // 🛡️ Guard: If departments are loaded but localDepartments is empty/mismatch during init, skip check
+      // This prevents "flickering" badge when switching tabs or loading data
+      if (departments.length > 0 && localDepartments.length === 0 && deletedDeptIds.length === 0) {
+        return;
+      }
+
       const hasNewDepts = localNewDepartments.length > 0;
       const hasDeletedDepts = deletedDeptIds.length > 0;
 

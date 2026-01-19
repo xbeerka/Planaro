@@ -1,4 +1,10 @@
-import React, { useMemo, useState, useRef, useEffect, memo } from "react";
+import React, {
+  useMemo,
+  useState,
+  useRef,
+  useEffect,
+  memo,
+} from "react";
 import { createPortal } from "react-dom";
 import { MoreVertical, Edit, EyeOff } from "lucide-react";
 import {
@@ -98,7 +104,10 @@ function ProjectsContainer({
   const containerRef = useRef<HTMLDivElement>(null);
   const MAX_VISIBLE_PROJECTS = 5;
 
-  const visibleProjects = projects.slice(0, MAX_VISIBLE_PROJECTS);
+  const visibleProjects = projects.slice(
+    0,
+    MAX_VISIBLE_PROJECTS,
+  );
   const hiddenProjects = projects.slice(MAX_VISIBLE_PROJECTS);
   const overflowCount = hiddenProjects.length;
 
@@ -116,7 +125,8 @@ function ProjectsContainer({
           key={project.id}
           className="rounded-[4px] px-[6px] py-[1px] max-w-[100px] shrink-0"
           style={{
-            backgroundColor: project.backgroundColor || "#aeeb3d",
+            backgroundColor:
+              project.backgroundColor || "#aeeb3d",
           }}
           title={project.name}
         >
@@ -158,11 +168,16 @@ function ProjectsContainer({
               >
                 <div className="flex flex-col gap-2">
                   {hiddenProjects.map((project) => (
-                    <div key={project.id} className="flex items-center gap-2">
+                    <div
+                      key={project.id}
+                      className="flex items-center gap-2"
+                    >
                       <div
                         className="rounded-[2px] shrink-0"
                         style={{
-                          backgroundColor: project.backgroundColor || "#aeeb3d",
+                          backgroundColor:
+                            project.backgroundColor ||
+                            "#aeeb3d",
                           width: "6px",
                           height: "14px",
                         }}
@@ -216,7 +231,10 @@ export const ResourceSidebarCell = memo(
     sidebarCollapsed?: boolean;
     showSeparators?: boolean;
     isLastInDept?: boolean;
-    getUserInitials: (displayName?: string, email?: string) => string;
+    getUserInitials: (
+      displayName?: string,
+      email?: string,
+    ) => string;
   }) => {
     const { toggleUserVisibility } = useScheduler();
     const [isHovered, setIsHovered] = React.useState(false);
@@ -291,7 +309,7 @@ export const ResourceSidebarCell = memo(
           style={{
             borderBottom:
               showSeparators && !isLastInDept
-                ? "1px solid #DFE7EE"
+                ? "1px solid #f0f0f0"
                 : "none",
           }}
         >
@@ -400,7 +418,10 @@ export const ResourceSidebarCell = memo(
                       await toggleUserVisibility(resource.id);
                       setShowMenu(false);
                     } catch (error) {
-                      console.error('❌ Ошибка при скрыти�� сотрудника:', error);
+                      console.error(
+                        "❌ Ошибка при скрыти�� сотрудника:",
+                        error,
+                      );
                     }
                   }}
                   className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2 text-red-600 transition-colors"

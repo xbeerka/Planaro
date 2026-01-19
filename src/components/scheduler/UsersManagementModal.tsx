@@ -12,8 +12,8 @@ interface UsersManagementModalProps {
   departments: Department[];
   grades: Grade[];
   companies: Company[];
-  onCreateUser: (userData: { fullName: string; position: string; departmentId: string; grade?: string; companyId?: string; avatarUrl?: string }) => Promise<void>;
-  onUpdateUser: (userId: string, userData: { fullName: string; position: string; departmentId: string; grade?: string; companyId?: string; avatarUrl?: string }) => Promise<void>;
+  onCreateUser: (userData: { fullName: string; position: string; departmentId: string; grade?: string; companyId?: string | null; avatarUrl?: string }) => Promise<void>;
+  onUpdateUser: (userId: string, userData: { fullName: string; position: string; departmentId: string; grade?: string; companyId?: string | null; avatarUrl?: string }) => Promise<void>;
   onDeleteUser: (userId: string) => Promise<void>;
   onResetHistory?: () => void;
   highlightUserId?: string; // ID пользователя для подсветки и скролла
@@ -71,7 +71,7 @@ export function UsersManagementModal({
           position: r.position,
           departmentId: r.departmentId,
           grade: r.grade || '',
-          companyId: r.companyId || '1',
+          companyId: r.companyId || '',
           avatarUrl: r.avatarUrl
         };
       });
@@ -103,7 +103,7 @@ export function UsersManagementModal({
         editedData.position !== originalData.position ||
         editedData.departmentId !== originalData.departmentId ||
         editedData.grade !== (originalData.grade || '') ||
-        editedData.companyId !== (originalData.companyId || '1') ||
+        editedData.companyId !== (originalData.companyId || '') ||
         editedData.avatarUrl !== originalData.avatarUrl
       )) {
         hasExistingChanges = true;
@@ -174,7 +174,7 @@ export function UsersManagementModal({
               position: u.position,
               departmentId: u.departmentId,
               grade: u.grade || undefined,
-              companyId: u.companyId || '1',
+              companyId: (u.companyId && companies.some(c => String(c.id) === String(u.companyId))) ? u.companyId : null,
               avatarUrl: u.avatarUrl
             })
           )
@@ -190,9 +190,12 @@ export function UsersManagementModal({
         const editedData = editingUsers[userId];
         const originalData = resources.find(r => r.id === userId);
         
+        // Validate companyId against available companies to prevent FK errors
+        const isValidCompany = editedData.companyId && companies.some(c => String(c.id) === String(editedData.companyId));
+        
         const dataToSave = {
           ...editedData,
-          companyId: editedData.companyId || '1'
+          companyId: isValidCompany ? editedData.companyId : null // Send null to clear invalid or empty company
         };
         
         if (originalData && (
@@ -200,7 +203,7 @@ export function UsersManagementModal({
           editedData.position !== originalData.position ||
           editedData.departmentId !== originalData.departmentId ||
           editedData.grade !== (originalData.grade || '') ||
-          editedData.companyId !== (originalData.companyId || '1') ||
+          editedData.companyId !== (originalData.companyId || '') ||
           editedData.avatarUrl !== originalData.avatarUrl
         )) {
           updatePromises.push(onUpdateUser(userId, dataToSave));

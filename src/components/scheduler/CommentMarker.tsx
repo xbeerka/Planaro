@@ -1,4 +1,9 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+} from "react";
 import { createPortal } from "react-dom";
 import { Comment } from "../../types/scheduler";
 import {
@@ -16,6 +21,8 @@ interface CommentMarkerProps {
   onDelete?: () => void;
   onDragStart?: (e: React.PointerEvent) => void; // Add drag start handler
   gap?: number; // Gap from layout config
+  isOpen?: boolean; // Controlled state
+  onToggle?: (isOpen: boolean) => void; // State change handler
 }
 
 function ActionButton({
@@ -66,11 +73,25 @@ export function CommentMarker({
   onDelete,
   onDragStart,
   gap = 0,
+  isOpen: isOpenProp,
+  onToggle,
 }: CommentMarkerProps) {
-  const [isOpen, setIsOpen] = useState(false);
+  const [internalIsOpen, setInternalIsOpen] = useState(false);
   const miniRef = useRef<HTMLDivElement>(null);
   const maxiRef = useRef<HTMLDivElement>(null);
-  const [position, setPosition] = useState({ top: 0, left: 0 });
+  const [position, setPosition] = useState<{ top: number; left: number } | null>(
+    null,
+  );
+
+  const isControlled = isOpenProp !== undefined;
+  const isOpen = isControlled ? isOpenProp : internalIsOpen;
+
+  const handleOpenChange = (newOpen: boolean) => {
+    if (!isControlled) {
+      setInternalIsOpen(newOpen);
+    }
+    onToggle?.(newOpen);
+  };
 
   const handlePointerDown = (e: React.PointerEvent) => {
     // Only handle active state styles here, dragging logic should be handled by parent
@@ -87,6 +108,13 @@ export function CommentMarker({
         .slice(0, 2)
     : "?";
 
+  // Reset position when closed to avoid "stale jump" on next open
+  useEffect(() => {
+    if (!isOpen) {
+      setPosition(null);
+    }
+  }, [isOpen]);
+
   useEffect(() => {
     if (!isOpen) return;
 
@@ -95,7 +123,7 @@ export function CommentMarker({
         maxiRef.current &&
         !maxiRef.current.contains(e.target as Node)
       ) {
-        setIsOpen(false);
+        handleOpenChange(false);
       }
     };
 
@@ -110,18 +138,87 @@ export function CommentMarker({
         handleClickOutside,
       );
     };
-  }, [isOpen]);
+  }, [isOpen]); // Depend on isOpen, not handleOpenChange (assuming stable)
 
-  const handleToggle = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    e.preventDefault(); // Prevent drag from starting
-    if (!isOpen && miniRef.current) {
+  // Calculate position whenever isOpen becomes true
+  useLayoutEffect(() => {
+    if (isOpen && miniRef.current) {
       const rect = miniRef.current.getBoundingClientRect();
       setPosition({
         top: rect.top,
         left: rect.left,
       });
-      setIsOpen(true);
+    }
+  }, [isOpen]);
+
+  // Update position on scroll/resize to keep maxi attached to mini
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const updatePos = () => {
+      if (miniRef.current) {
+        const rect = miniRef.current.getBoundingClientRect();
+        setPosition({ top: rect.top, left: rect.left });
+      }
+    };
+
+    window.addEventListener("scroll", updatePos, {
+      capture: true,
+      passive: true,
+    });
+    window.addEventListener("resize", updatePos, { passive: true });
+
+    return () => {
+      window.removeEventListener("scroll", updatePos, {
+        capture: true,
+      });
+      window.removeEventListener("resize", updatePos);
+    };
+  }, [isOpen]);
+
+  // Auto-scroll if maxi comment is out of bounds
+  useLayoutEffect(() => {
+    // Only run if position is set (portal is rendered) and we have refs
+    if (isOpen && position && maxiRef.current && miniRef.current) {
+      const maxiRect = maxiRef.current.getBoundingClientRect();
+      const viewportHeight = window.innerHeight;
+      const paddingBottom = 26; // Desired margin from bottom
+
+      if (maxiRect.bottom > viewportHeight - paddingBottom) {
+        const overflow =
+          maxiRect.bottom - (viewportHeight - paddingBottom);
+
+        // Find scroll parent
+        let parent = miniRef.current.parentElement;
+        let scrollContainer: HTMLElement | Window = window;
+
+        while (parent) {
+          const style = window.getComputedStyle(parent);
+          if (
+            (style.overflowY === "auto" ||
+              style.overflowY === "scroll") &&
+            parent.scrollHeight > parent.clientHeight
+          ) {
+            scrollContainer = parent;
+            break;
+          }
+          parent = parent.parentElement;
+        }
+
+        scrollContainer.scrollBy({
+          top: overflow,
+          behavior: "auto",
+        });
+      }
+    }
+  }, [isOpen, position]);
+
+  const handleToggle = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault(); // Prevent drag from starting
+    if (!isOpen) {
+      // Position will be calculated by useLayoutEffect
+      handleOpenChange(true);
     }
   };
 
@@ -135,11 +232,11 @@ export function CommentMarker({
     <>
       {/* Backdrop - catches all clicks outside */}
       <div
-        className="fixed inset-0 z-[5000] bg-white/[0.001] pointer-events-auto"
-        onClick={() => setIsOpen(false)}
+        className="fixed inset-0 z-[550] bg-white/[0.001] pointer-events-auto"
+        onClick={() => handleOpenChange(false)}
         onPointerDown={(e) => {
           e.stopPropagation();
-          setIsOpen(false);
+          handleOpenChange(false);
         }}
         onMouseMove={(e) => e.stopPropagation()}
         onMouseEnter={(e) => e.stopPropagation()}
@@ -149,15 +246,15 @@ export function CommentMarker({
         onPointerMove={(e) => e.stopPropagation()}
         onPointerUp={(e) => e.stopPropagation()}
       />
-      
+
       {/* Maxi Comment Card */}
       <div
         ref={maxiRef}
-        className="fixed z-[5001] w-[260px] min-h-[100px]"
+        className="fixed z-[551] w-[260px] min-h-[100px]"
         style={{
-          // Position near the mini comment (we'll need to calculate this)
-          top: position.top,
-          left: position.left,
+          // Position near the mini comment
+          top: position?.top ?? 0,
+          left: position?.left ?? 0,
         }}
         onClick={(e) => e.stopPropagation()}
         onPointerDown={handlePointerDownMaxi}
@@ -193,10 +290,16 @@ export function CommentMarker({
               {/* Content Frame */}
               <div className="basis-0 content-stretch flex flex-col grow items-start justify-center min-h-px min-w-px relative shrink-0">
                 {/* User Name */}
-                <p className="font-medium leading-[18px] relative shrink-0 text-[10px] text-[rgba(0,0,0,0.5)] text-nowrap mb-0.5">
-                  {comment.userDisplayName}
-                </p>
-
+                <div className="flex w-full justify-between items-baseline gap-2">
+                  <p className="font-medium leading-[18px] relative shrink-0 text-[10px] text-[rgba(0,0,0,0.5)] text-nowrap mb-0.5">
+                    {comment.userDisplayName}
+                  </p>
+                  <span className="text-[10px] text-[rgba(0,0,0,0.3)] shrink-0">
+                    {new Date(
+                      comment.createdAt,
+                    ).toLocaleDateString()}
+                  </span>
+                </div>
                 {/* Comment Text */}
                 <p className="font-normal leading-normal min-w-full relative shrink-0 text-[12px] text-black w-full break-words whitespace-pre-wrap mb-2">
                   {comment.comment}
@@ -207,7 +310,7 @@ export function CommentMarker({
                   <ActionButton
                     label="Изменить"
                     onClick={() => {
-                      setIsOpen(false);
+                      handleOpenChange(false);
                       onEdit?.();
                     }}
                   />
@@ -232,7 +335,7 @@ export function CommentMarker({
         ref={miniRef}
         className={cn(
           "h-[28px] relative cursor-pointer group w-fit",
-          isOpen && "invisible" // Hide mini when maxi is open
+          isOpen && "invisible", // Hide mini when maxi is open
         )}
         style={{ maxWidth: cellWidth, marginTop: offsetValue }}
         onClick={handleToggle}
@@ -280,9 +383,12 @@ export function CommentMarker({
           </div>
         </div>
       </div>
-      
+
       {/* Maxi View - Rendered in portal */}
-      {isOpen && typeof document !== 'undefined' && createPortal(maxiContent, document.body)}
+      {isOpen &&
+        position &&
+        typeof document !== "undefined" &&
+        createPortal(maxiContent, document.body)}
     </>
   );
 }

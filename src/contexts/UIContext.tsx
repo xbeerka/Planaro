@@ -18,6 +18,8 @@ interface UIContextType {
   setIsLoadingCompanies: (value: boolean) => void;
   isLoadingEvents: boolean;
   setIsLoadingEvents: (value: boolean) => void;
+  isLoadingComments: boolean;
+  setIsLoadingComments: (value: boolean) => void;
   
   // Computed global loading state
   isLoading: boolean;
@@ -145,11 +147,12 @@ export function UIProvider({ children }: { children: ReactNode }) {
   const [isLoadingEventPatterns, setIsLoadingEventPatterns] = useState(true);
   const [isLoadingCompanies, setIsLoadingCompanies] = useState(true);
   const [isLoadingEvents, setIsLoadingEvents] = useState(true);
+  const [isLoadingComments, setIsLoadingComments] = useState(true);
 
   const isLoading = useMemo(() => {
     return isLoadingDepartments || isLoadingResources || isLoadingProjects || 
-           isLoadingGrades || isLoadingEventPatterns || isLoadingCompanies || isLoadingEvents;
-  }, [isLoadingDepartments, isLoadingResources, isLoadingProjects, isLoadingGrades, isLoadingEventPatterns, isLoadingCompanies, isLoadingEvents]);
+           isLoadingGrades || isLoadingEventPatterns || isLoadingCompanies || isLoadingEvents || isLoadingComments;
+  }, [isLoadingDepartments, isLoadingResources, isLoadingProjects, isLoadingGrades, isLoadingEventPatterns, isLoadingCompanies, isLoadingEvents, isLoadingComments]);
 
   // --- Modes ---
   const [scissorsMode, setScissorsMode] = useState(false);
@@ -278,6 +281,7 @@ export function UIProvider({ children }: { children: ReactNode }) {
       isLoadingEventPatterns, setIsLoadingEventPatterns,
       isLoadingCompanies, setIsLoadingCompanies,
       isLoadingEvents, setIsLoadingEvents,
+      isLoadingComments, setIsLoadingComments,
       isLoading,
 
       // Modes

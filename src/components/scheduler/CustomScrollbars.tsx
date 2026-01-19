@@ -10,6 +10,7 @@ interface CustomScrollbarsProps {
   clientWidth: number;
   verticalTopOffset?: number;
   horizontalLeftOffset?: number;
+  rightOffset?: number; // ✨ Отступ справа (для Right Panel)
   isModalOpen?: boolean; // ✨ Новый проп для блокировки при открытом модальном окне
   sidebarCollapsed?: boolean; // ✨ Для адаптации к ширине сайдбара
 }
@@ -24,6 +25,7 @@ export const CustomScrollbars = ({
   clientWidth,
   verticalTopOffset = 0,
   horizontalLeftOffset = 0,
+  rightOffset = 0,
   isModalOpen = false, // ✨ По умолчанию модальное окно закрыто
   sidebarCollapsed = false, // ✨ По умолчанию сайдбар не свернут
 }: CustomScrollbarsProps) => {
@@ -75,7 +77,7 @@ export const CustomScrollbars = ({
       : 0;
 
   // Horizontal Bar Logic
-  const horizontalRightOffset = scrollbarThumbOffset; // Отступ справа = 8px
+  const horizontalRightOffset = scrollbarThumbOffset + rightOffset; // Отступ справа + rightOffset
   const trackWidth = Math.max(
     0,
     clientWidth - horizontalLeftOffset - horizontalRightOffset,
@@ -224,14 +226,14 @@ export const CustomScrollbars = ({
           style={{
             position: "fixed",
             top: verticalTopOffset,
-            right: 0,
+            right: rightOffset, // ✨ Сдвигаем влево при открытом Right Panel
             bottom: verticalBottomOffset, // Отступ снизу: (8*2)+10 = 26px
             width:
               scrollbarThickness + scrollbarThumbOffset * 2, // Область клика
             zIndex: 4999, // ✅ Ниже чем модальные окна (z-[5000])
             pointerEvents: isModalOpen ? "none" : "auto", // ✨ Блокируем при открытом модальном окне
             opacity: isModalOpen ? 0.3 : 1, // ✨ Делаем полупрозрачным при блокировке
-            transition: "opacity 0.2s ease",
+            transition: "opacity 0.2s ease, right 0.2s ease-in-out", // ✨ Анимация сдвига
           }}
         >
           {/* Track background for better visibility if needed */}
@@ -276,7 +278,7 @@ export const CustomScrollbars = ({
             zIndex: 4999, // ✅ Ниже чем модальные окна (z-[5000])
             pointerEvents: isModalOpen ? "none" : "auto", // ✨ Блокируем при открытом модальном окне
             opacity: isModalOpen ? 0.3 : 1, // ✨ Делаем полупрозрачным при блокировке
-            transition: "opacity 0.2s ease",
+            transition: "opacity 0.2s ease, width 0.2s ease-in-out", // ✨ Анимация ширины
           }}
         >
           <div

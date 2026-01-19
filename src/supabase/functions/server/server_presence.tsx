@@ -1,5 +1,5 @@
 import { Hono } from "npm:hono";
-import { createAuthClient, handleError } from './server_utils.tsx';
+import { createAuthClient, handleError, retryOperation } from './server_utils.tsx';
 import * as kv from './kv_store.tsx';
 
 // Initialize auth client
@@ -19,16 +19,32 @@ export function registerPresenceRoutes(app: Hono) {
         return c.json({ error: 'Unauthorized' }, 401);
       }
       
-      // Verify user with try-catch (getUser может бросить exception при невалидном токене)
+      // Verify user with try-catch and retry logic
       let user;
       try {
-        const { data, error: authError } = await supabaseAuth.auth.getUser(accessToken);
+        const { data, error: authError } = await retryOperation(
+          () => supabaseAuth.auth.getUser(accessToken),
+          3, // max retries
+          1000, // initial delay
+          'Auth check (Heartbeat)'
+        );
+
         if (authError || !data?.user) {
           console.error('❌ Ошибка авторизации при heartbeat:', authError?.message || 'No user data');
           return c.json({ error: 'Unauthorized' }, 401);
         }
         user = data.user;
       } catch (authException: any) {
+        // Handle connection reset specifically
+        if (authException.message && (authException.message.includes('Connection reset') || authException.message.includes('os error 104'))) {
+          console.warn('⚠️ Connection reset error in auth check (Heartbeat). Skipping auth verification for heartbeat to avoid client error.');
+          // For heartbeats, we can be slightly lenient if the auth server is flaky
+          // But we need user ID. If we can't get it, we can't update presence.
+          // However, we can try to decode the JWT locally (unverified) just to get the SUB (user_id) if verified call fails.
+          // Or we can just fail gracefully without 500.
+          return c.json({ error: 'Auth service temporary unavailable' }, 503);
+        }
+
         console.error('❌ Exception при проверке токена в heartbeat:', authException);
         return c.json({ error: 'Invalid token' }, 401);
       }
@@ -75,16 +91,28 @@ export function registerPresenceRoutes(app: Hono) {
         return c.json({ error: 'Unauthorized' }, 401);
       }
       
-      // Verify user with try-catch
+      // Verify user with try-catch and retry logic
       let user;
       try {
-        const { data, error: authError } = await supabaseAuth.auth.getUser(accessToken);
+        const { data, error: authError } = await retryOperation(
+          () => supabaseAuth.auth.getUser(accessToken),
+          3,
+          1000,
+          'Auth check (Batch Online)'
+        );
+
         if (authError || !data?.user) {
           console.error('❌ Ошибка авторизации при batch получении онлайн пользователей:', authError?.message || 'No user data');
           return c.json({ error: 'Unauthorized' }, 401);
         }
         user = data.user;
       } catch (authException: any) {
+         if (authException.message && (authException.message.includes('Connection reset') || authException.message.includes('os error 104'))) {
+          console.warn('⚠️ Connection reset error in auth check (Batch Online). Returning empty list to prevent crash.');
+          // Graceful degradation: return empty workspaces if auth fails
+          return c.json({ workspaces: {} }, 200);
+        }
+
         console.error('❌ Exception при проверке токена в online-batch:', authException);
         return c.json({ error: 'Invalid token' }, 401);
       }
@@ -148,16 +176,28 @@ export function registerPresenceRoutes(app: Hono) {
         return c.json({ error: 'Unauthorized' }, 401);
       }
       
-      // Verify user with try-catch
+      // Verify user with try-catch and retry logic
       let user;
       try {
-        const { data, error: authError } = await supabaseAuth.auth.getUser(accessToken);
+        const { data, error: authError } = await retryOperation(
+          () => supabaseAuth.auth.getUser(accessToken),
+          3,
+          1000,
+          'Auth check (Online Users)'
+        );
+
         if (authError || !data?.user) {
           console.error('❌ Ошибка авторизации при получении онлайн пользователей:', authError?.message || 'No user data');
           return c.json({ error: 'Unauthorized' }, 401);
         }
         user = data.user;
       } catch (authException: any) {
+        if (authException.message && (authException.message.includes('Connection reset') || authException.message.includes('os error 104'))) {
+          console.warn('⚠️ Connection reset error in auth check (Online Users). Returning empty list.');
+          // Graceful degradation
+          return c.json({ users: [] }, 200);
+        }
+
         console.error('❌ Exception при проверке токена в online/:workspaceId:', authException);
         return c.json({ error: 'Invalid token' }, 401);
       }
@@ -222,10 +262,16 @@ export function registerPresenceRoutes(app: Hono) {
         return c.json({ error: 'Unauthorized' }, 401);
       }
       
-      // Verify user with try-catch
+      // Verify user with try-catch and retry logic
       let user;
       try {
-        const { data, error: authError } = await supabaseAuth.auth.getUser(accessToken);
+        const { data, error: authError } = await retryOperation(
+          () => supabaseAuth.auth.getUser(accessToken),
+          3,
+          1000,
+          'Auth check (Leave)'
+        );
+        
         if (authError || !data?.user) {
           console.error('❌ Ошибка авторизации в leave endpoint:', authError?.message || 'No user data');
           return c.json({ error: 'Unauthorized' }, 401);

@@ -98,10 +98,28 @@ export function UnifiedManagementModal({
   highlightedUserId
 }: UnifiedManagementModalProps) {
   const [activeTab, setActiveTab] = useState<TabType>(defaultTab);
+
+  // Derived state to handle "split second" loading when departments load before users
+  const [isTimeoutOver, setIsTimeoutOver] = useState(false);
+  
+  const isLikelyLoadingUsers = activeTab === 'users' && resources.length === 0 && departments.length > 0;
+  const isLikelyLoadingProjects = activeTab === 'projects' && projects.length === 0 && eventPatterns.length > 0;
+  
+  const isSmartLoading = isLikelyLoadingUsers || isLikelyLoadingProjects;
+  
+  useEffect(() => {
+    if (isSmartLoading) {
+      const timer = setTimeout(() => setIsTimeoutOver(true), 1000);
+      return () => clearTimeout(timer);
+    } else {
+      setIsTimeoutOver(false);
+    }
+  }, [isSmartLoading]);
+
+  const shouldShowSkeleton = isLoading || (isSmartLoading && !isTimeoutOver);
   const [hasUsersChanges, setHasUsersChanges] = useState(false);
   const [hasDepartmentsChanges, setHasDepartmentsChanges] = useState(false);
   const [hasProjectsChanges, setHasProjectsChanges] = useState(false);
-
   const usersRef = useRef<UsersManagementHandle>(null);
   const departmentsRef = useRef<DepartmentsManagementHandle>(null);
   const projectsRef = useRef<ProjectsManagementHandle>(null);
@@ -111,7 +129,8 @@ export function UnifiedManagementModal({
     if (isOpen) {
       setActiveTab(defaultTab);
     }
-  }, [isOpen, defaultTab]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]); // ✅ Ignore defaultTab changes while open to prevent jumping
 
   if (!isOpen) return null;
 
@@ -183,7 +202,16 @@ export function UnifiedManagementModal({
             </button>
           </div>
 
-          {!isLoading && (
+          {shouldShowSkeleton ? (
+            <div className="flex items-center justify-between animate-pulse">
+              <div className="flex p-1 gap-1">
+                <div className="w-28 h-9 bg-gray-100 rounded-md" />
+                <div className="w-32 h-9 bg-gray-100 rounded-md" />
+                <div className="w-24 h-9 bg-gray-100 rounded-md" />
+              </div>
+              <div className="w-36 h-9 bg-gray-100 rounded-lg" />
+            </div>
+          ) : (
             <div className="flex items-center justify-between">
               {/* Tabs */}
               <div className="flex p-1 bg-gray-100/50 rounded-lg gap-1">
@@ -224,11 +252,25 @@ export function UnifiedManagementModal({
 
         {/* Tab Content */}
         <div className="flex-1 overflow-hidden flex flex-col bg-white rounded-b-xl">
-          {isLoading ? (
-            <div className="flex-1 flex items-center justify-center">
-              <div className="flex flex-col items-center gap-3">
-                <div className="w-10 h-10 border-4 border-gray-200 border-t-blue-600 rounded-full animate-spin" />
-                <p className="text-sm text-gray-500">Загрузка данных...</p>
+          {shouldShowSkeleton ? (
+            <div className="flex-1 flex flex-col animate-pulse">
+              {/* Search Skeleton */}
+              <div className="px-6 py-4 border-b border-[rgba(0,0,0,0.12)]">
+                <div className="h-10 bg-gray-100 rounded-xl w-full" />
+              </div>
+              {/* List Skeleton */}
+              <div className="flex-1 px-6 py-2 space-y-0">
+                {[1, 2, 3, 4, 5, 6].map((i) => (
+                  <div key={i} className="py-3 border-b border-gray-100 flex items-center gap-4">
+                    <div className="w-9 h-9 bg-gray-100 rounded-[12px] shrink-0" />
+                    <div className="flex-1 grid grid-cols-12 gap-4">
+                      <div className="col-span-4 h-4 bg-gray-100 rounded mt-2.5" />
+                      <div className="col-span-3 h-4 bg-gray-100 rounded mt-2.5" />
+                      <div className="col-span-3 h-4 bg-gray-100 rounded mt-2.5" />
+                    </div>
+                    <div className="w-9 h-9 bg-gray-100 rounded-[12px] shrink-0" />
+                  </div>
+                ))}
               </div>
             </div>
           ) : (

@@ -1418,29 +1418,64 @@ export function registerDataRoutes(app: Hono) {
       // Convert departmentId from "d123" to 123
       const numericDeptId = departmentId ? parseInt(departmentId.replace('d', '')) : null;
       
-      const { data, error } = await supabase
-        .from('users')
-        .insert({
-          fullName: name,  // ✅ БД использует camelCase 'fullName'!
-          position: position || '',  // ✅ КРИТИЧНО: сохраняем должность!
-          department_id: numericDeptId,
-          grade_id: gradeId ? parseInt(gradeId) : null,  // ✅ КРИТИЧНО: используем gradeId (число)!
-          company_id: companyId,
-          avatar_url: avatarUrl,
-          is_visible: isVisible !== undefined ? isVisible : true,
-          workspace_id
-        })
-        .select(`
-          *,
-          department:departments(id, name),
-          grade:grades(id, name),
-          company:companies(id, name)
-        `)
-        .single();
+      // Retry logic for unstable connections
+      let retries = 3;
+      let lastError;
+      let data;
       
-      if (error) {
-        console.error('❌ Ошибка создания пользователя:', error);
-        return c.json({ error: `Failed to create user: ${error.message}` }, 500);
+      while (retries > 0) {
+        try {
+          const result = await supabase
+            .from('users')
+            .insert({
+              fullName: name,  // ✅ БД использует camelCase 'fullName'!
+              position: position || '',  // ✅ КРИТИЧНО: сохраняем должность!
+              department_id: numericDeptId,
+              grade_id: gradeId ? parseInt(gradeId) : null,  // ✅ КРИТИЧНО: используем gradeId (число)!
+              company_id: companyId,
+              avatar_url: avatarUrl,
+              is_visible: isVisible !== undefined ? isVisible : true,
+              workspace_id
+            })
+            .select(`
+              *,
+              department:departments(id, name),
+              grade:grades(id, name),
+              company:companies(id, name)
+            `)
+            .single();
+            
+          if (result.error) {
+            throw result.error;
+          }
+          
+          data = result.data;
+          break; // Success
+          
+        } catch (error: any) {
+          lastError = error;
+          console.warn(`⚠️ Ошибка создания пользователя (попытка ${4 - retries}/3):`, error.message);
+          
+          // Check if retryable error
+          if (error.message && (
+             error.message.includes('connection error') || 
+             error.message.includes('connection reset') ||
+             error.message.includes('network error')
+          )) {
+            retries--;
+            if (retries > 0) {
+              await new Promise(resolve => setTimeout(resolve, 1000));
+              continue;
+            }
+          } else {
+             break;
+          }
+        }
+      }
+      
+      if (!data) {
+        console.error('❌ Ошибка создания пользователя (все попытки исчерпаны):', lastError);
+        return c.json({ error: `Failed to create user: ${lastError?.message}` }, 500);
       }
       
       await updateWorkspaceSummary(workspace_id, 'user created');
@@ -1490,21 +1525,57 @@ export function registerDataRoutes(app: Hono) {
       if (avatarUrl !== undefined) updateData.avatar_url = avatarUrl;
       if (isVisible !== undefined) updateData.is_visible = isVisible;
       
-      const { data, error } = await supabase
-        .from('users')
-        .update(updateData)
-        .eq('id', numericId)
-        .select(`
-          *,
-          department:departments(id, name),
-          grade:grades(id, name),
-          company:companies(id, name)
-        `)
-        .single();
+      // Retry logic for unstable connections
+      let retries = 3;
+      let lastError;
+      let data;
       
-      if (error) {
-        console.error('❌ Ошибка обновления пользователя:', error);
-        return c.json({ error: `Failed to update user: ${error.message}` }, 500);
+      while (retries > 0) {
+        try {
+          const result = await supabase
+            .from('users')
+            .update(updateData)
+            .eq('id', numericId)
+            .select(`
+              *,
+              department:departments(id, name),
+              grade:grades(id, name),
+              company:companies(id, name)
+            `)
+            .single();
+            
+          if (result.error) {
+            throw result.error;
+          }
+          
+          data = result.data;
+          break; // Success
+          
+        } catch (error: any) {
+          lastError = error;
+          console.warn(`⚠️ Ошибка обновления пользователя (попытка ${4 - retries}/3):`, error.message);
+          
+          // Check if retryable error (connection issues)
+          if (error.message && (
+             error.message.includes('connection error') || 
+             error.message.includes('connection reset') ||
+             error.message.includes('network error')
+          )) {
+            retries--;
+            if (retries > 0) {
+              await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1s
+              continue;
+            }
+          } else {
+             // Non-retryable error
+             break;
+          }
+        }
+      }
+      
+      if (!data) {
+        console.error('❌ Ошибка обновления пользователя (все попытки исчерпаны):', lastError);
+        return c.json({ error: `Failed to update user: ${lastError?.message}` }, 500);
       }
       
       const user = {
@@ -1526,6 +1597,76 @@ export function registerDataRoutes(app: Hono) {
       return c.json(user);
     } catch (error: any) {
       return handleError(c, 'Update User', error);
+    }
+  });
+
+  // Batch update users
+  app.post("/make-server-73d66528/resources/batch", async (c) => {
+    try {
+      console.log('🔄 Пакетное обновление пользователей...');
+      
+      const body = await c.req.json();
+      const { updates } = body;
+      
+      if (!Array.isArray(updates)) {
+        return c.json({ error: 'Updates must be an array' }, 400);
+      }
+      
+      console.log(`📦 Получено ${updates.length} обновлений`);
+      
+      const results = [];
+      const errors = [];
+      
+      // Process updates in parallel but on the server side (much faster connection to DB)
+      // Limit concurrency to avoid DB connection exhaustion (e.g., 5 at a time)
+      const CONCURRENCY = 5;
+      
+      for (let i = 0; i < updates.length; i += CONCURRENCY) {
+        const chunk = updates.slice(i, i + CONCURRENCY);
+        
+        await Promise.all(chunk.map(async (update: any) => {
+          try {
+            const { id, name, position, departmentId, gradeId, companyId, avatarUrl, isVisible } = update;
+            const numericId = parseInt(id.replace('u', ''));
+            
+            // Convert departmentId
+            const numericDeptId = departmentId ? parseInt(departmentId.replace('d', '')) : null;
+            
+            const updateData: any = {};
+            if (name !== undefined) updateData.fullName = name;
+            if (position !== undefined) updateData.position = position;
+            if (departmentId !== undefined) updateData.department_id = numericDeptId;
+            if (gradeId !== undefined) updateData.grade_id = gradeId ? parseInt(gradeId) : null;
+            if (companyId !== undefined) updateData.company_id = companyId;
+            if (avatarUrl !== undefined) updateData.avatar_url = avatarUrl;
+            if (isVisible !== undefined) updateData.is_visible = isVisible;
+            
+            const { error } = await supabase
+              .from('users')
+              .update(updateData)
+              .eq('id', numericId);
+              
+            if (error) throw error;
+            results.push({ id, success: true });
+            
+          } catch (err: any) {
+            console.error(`❌ Ошибка обновления user ${update.id}:`, err);
+            errors.push({ id: update.id, error: err.message });
+          }
+        }));
+      }
+      
+      console.log(`✅ Пакетная обработка завершена: ${results.length} успешно, ${errors.length} ошибок`);
+      
+      if (errors.length > 0) {
+        // Partial success is better than total failure, but let's warn
+        return c.json({ success: true, results, errors, warning: "Some updates failed" });
+      }
+      
+      return c.json({ success: true, results });
+      
+    } catch (error: any) {
+      return handleError(c, 'Batch Update Users', error);
     }
   });
 

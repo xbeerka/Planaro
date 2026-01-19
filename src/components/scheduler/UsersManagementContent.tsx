@@ -78,7 +78,7 @@ interface LocalNewUser {
   departmentId: string;
   grade: string;
   companyId: string;
-  avatarUrl?: string;
+  avatarUrl?: string | null;
   isVisible?: boolean;
 }
 
@@ -149,12 +149,34 @@ export const UsersManagementContent = forwardRef<
       string | null
     >(null);
 
+    // ✅ Ref to track if we have initialized state from resources
+    const hasInitializedRef = useRef(false);
+    // ✅ Ref to track if user has interacted with the form (edits)
+    const hasUserInteractedRef = useRef(false);
+
+    const isUploading = Object.values(uploadingAvatars).some(Boolean);
+
     useImperativeHandle(ref, () => ({
       onAdd: handleAddNewUser,
     }));
 
     // Initialize editing state
     useEffect(() => {
+      // ✅ Don't reset while saving to avoid UI flickering/race conditions
+      if (isSaving) return;
+
+      // ✅ Check if we should block the update due to local changes
+      // We block if there are new users, deleted users, or unsaved edits
+      const hasLocalChanges = 
+        localNewUsers.length > 0 || 
+        deletedUserIds.length > 0 || 
+        hasUserInteractedRef.current;
+
+      // If already initialized and we have local changes, prevent overwrite
+      if (hasInitializedRef.current && resources.length > 0 && hasLocalChanges) {
+        return;
+      }
+
       const initialState: Record<
         string,
         Partial<Resource>
@@ -165,32 +187,37 @@ export const UsersManagementContent = forwardRef<
           position: r.position,
           departmentId: r.departmentId,
           grade: r.grade || "",
-          companyId: r.companyId || "1",
+          companyId: r.companyId || "",
           avatarUrl: r.avatarUrl,
           isVisible: r.isVisible ?? true,
         };
       });
-      console.log(
-        "👁️ Инициализация пользователей:",
-        resources.length,
-        "видимых:",
-        Object.values(initialState).filter((u) => u.isVisible)
-          .length,
-      );
       
       // 🔍 DEBUG: Log first resource to see what component received
       if (resources.length > 0) {
-        console.log('🔍 UsersManagementContent - ПЕРВЫЙ РЕСУРС:', JSON.stringify(resources[0], null, 2));
+        // console.log('🔍 UsersManagementContent - ПЕРВЫЙ РЕСУРС:', JSON.stringify(resources[0], null, 2));
       }
       
       setEditingUsers(initialState);
-      setLocalNewUsers([]);
-      setDeletedUserIds([]);
-      setUploadingAvatars({});
-      setSearchQuery("");
-      setSelectedDepartment("all");
-      setSortBy("department");
-    }, [resources]);
+      
+      // ✅ Only reset UI state (filters, sort) on FIRST load
+      // This allows background syncs to update data without clearing the user's search/filter
+      if (!hasInitializedRef.current) {
+        setLocalNewUsers([]);
+        setDeletedUserIds([]);
+        setUploadingAvatars({});
+        setSearchQuery("");
+        setSelectedDepartment("all");
+        setSortBy("department");
+      }
+
+      // ✅ Reset interaction flag after successful sync
+      hasUserInteractedRef.current = false;
+
+      if (resources.length > 0) {
+        hasInitializedRef.current = true;
+      }
+    }, [resources, isSaving, localNewUsers.length, deletedUserIds.length]);
 
     // Sort departments for dropdowns
     const sortedDepartments = useMemo(() => {
@@ -222,6 +249,15 @@ export const UsersManagementContent = forwardRef<
 
     // Track changes
     useEffect(() => {
+      // ✅ Don't reset while saving to avoid UI flickering/race conditions
+      if (isSaving) return;
+
+      // 🛡️ Guard: If resources are loaded but editingUsers is empty/mismatch during init, skip check
+      // This prevents "flickering" badge when switching tabs or loading data
+      if (resources.length > 0 && Object.keys(editingUsers).length === 0 && deletedUserIds.length === 0) {
+        return;
+      }
+
       const hasNewUsers = localNewUsers.length > 0;
       const hasDeletedUsers = deletedUserIds.length > 0;
 
@@ -240,7 +276,7 @@ export const UsersManagementContent = forwardRef<
               originalData.departmentId ||
             editedData.grade !== (originalData.grade || "") ||
             editedData.companyId !==
-              (originalData.companyId || "1") ||
+              (originalData.companyId || "") ||
             editedData.avatarUrl !== originalData.avatarUrl ||
             editedData.isVisible !== originalData.isVisible)
         ) {
@@ -270,7 +306,7 @@ export const UsersManagementContent = forwardRef<
           position: "",
           departmentId: "",
           grade: "",
-          companyId: "1",
+          companyId: "",
           avatarUrl: undefined,
           isVisible: true,
         },
@@ -306,6 +342,7 @@ export const UsersManagementContent = forwardRef<
       field: string,
       value: string,
     ) => {
+      hasUserInteractedRef.current = true;
       setEditingUsers((prev) => ({
         ...prev,
         [userId]: { ...prev[userId], [field]: value },
@@ -338,6 +375,7 @@ export const UsersManagementContent = forwardRef<
       file: File,
     ) => {
       try {
+        hasUserInteractedRef.current = true;
         setUploadingAvatars((prev) => ({
           ...prev,
           [userId]: true,
@@ -404,9 +442,10 @@ export const UsersManagementContent = forwardRef<
     };
 
     const handleAvatarRemove = (userId: string) => {
+      hasUserInteractedRef.current = true;
       setEditingUsers((prev) => ({
         ...prev,
-        [userId]: { ...prev[userId], avatarUrl: undefined },
+        [userId]: { ...prev[userId], avatarUrl: null },
       }));
     };
 
@@ -414,13 +453,14 @@ export const UsersManagementContent = forwardRef<
       setLocalNewUsers((prev) =>
         prev.map((u) =>
           u.tempId === tempId
-            ? { ...u, avatarUrl: undefined }
+            ? { ...u, avatarUrl: null }
             : u,
         ),
       );
     };
 
     const handleToggleVisibility = (userId: string) => {
+      hasUserInteractedRef.current = true;
       // ✅ ТОЛЬКО обновляем локальный стейт (без немедленного сохранения)
       // Фактическое сохранение произойдет при клике на кнопку "Сохранить"
       setEditingUsers((prev) => {
@@ -477,7 +517,7 @@ export const UsersManagementContent = forwardRef<
                 departmentId: u.departmentId,
                 grade: u.grade || undefined,  // ✅ Название грейда (для отображения)
                 gradeId: getGradeId(u.grade),  // ✅ ID грейда (для бэкенда)
-                companyId: u.companyId || "1",
+                companyId: (u.companyId && companies.some(c => String(c.id) === String(u.companyId))) ? u.companyId : null,
                 avatarUrl: u.avatarUrl,
                 isVisible: u.isVisible,
               }),
@@ -489,7 +529,9 @@ export const UsersManagementContent = forwardRef<
         }
 
         // Step 3: Update existing users
-        const updatePromises: Promise<void>[] = [];
+        const updatesBatch: any[] = [];
+        const updatePromises: Promise<void>[] = []; // Keep for backward compatibility/fallback if needed
+
         for (const userId in editingUsers) {
           const editedData = editingUsers[userId];
           const originalData = resources.find(
@@ -509,32 +551,34 @@ export const UsersManagementContent = forwardRef<
                 originalData.departmentId ||
               editedData.grade !== (originalData.grade || "") ||
               editedData.companyId !==
-                (originalData.companyId || "1") ||
+                (originalData.companyId || "") ||
               editedData.avatarUrl !== originalData.avatarUrl ||
               editedData.isVisible !== originalData.isVisible)
           ) {
-            updatePromises.push(
-              onUpdateUser(userId, {
-                fullName: editedData.fullName.trim(),
-                position: editedData.position?.trim() || "",
-                departmentId: editedData.departmentId,
-                grade: editedData.grade || undefined,  // ✅ Название грейда (для отображения)
-                gradeId: getGradeId(editedData.grade),  // ✅ ID грейда (для бэкенда)
-                companyId: editedData.companyId || "1",
-                avatarUrl: editedData.avatarUrl,
-                isVisible: editedData.isVisible,
-              }),
-            );
+            // Validate companyId
+            const isValidCompany = editedData.companyId && companies.some(c => String(c.id) === String(editedData.companyId));
+            
+            updatesBatch.push({
+              id: userId,
+              name: editedData.fullName.trim(), // API expects 'name'
+              position: editedData.position?.trim() || "",
+              departmentId: editedData.departmentId,
+              grade: editedData.grade || undefined,
+              gradeId: getGradeId(editedData.grade),
+              companyId: isValidCompany ? editedData.companyId : null,
+              avatarUrl: editedData.avatarUrl,
+              isVisible: editedData.isVisible,
+            });
           }
         }
 
-        if (updatePromises.length > 0) {
+        if (updatesBatch.length > 0) {
           console.log(
-            `💾 Сохранение ${updatePromises.length} изменений параллельно...`,
+            `💾 Пакетное сохранение ${updatesBatch.length} изменений...`,
           );
-          await Promise.all(updatePromises);
+          await usersApi.batchUpdate(updatesBatch);
           console.log(
-            `✅ Все ${updatePromises.length} изменений сохранены`,
+            `✅ Все изменения сохранены`,
           );
         }
 
@@ -815,9 +859,16 @@ export const UsersManagementContent = forwardRef<
                           </span>
                         </div>
                         {sortedDeptResources.map((resource) => {
-                          const userData =
-                            editingUsers[resource.id];
-                          if (!userData) return null;
+                          // Fallback to resource data if editing state isn't ready yet (prevents flash)
+                          const userData = editingUsers[resource.id] || {
+                            fullName: resource.fullName,
+                            position: resource.position,
+                            departmentId: resource.departmentId,
+                            grade: resource.grade || "",
+                            companyId: resource.companyId || "",
+                            avatarUrl: resource.avatarUrl,
+                            isVisible: resource.isVisible ?? true,
+                          };
 
                           return (
                             <UserRow
@@ -896,9 +947,16 @@ export const UsersManagementContent = forwardRef<
                       {sortResourcesByGrade(
                         usersWithoutDept,
                       ).map((resource) => {
-                        const userData =
-                          editingUsers[resource.id];
-                        if (!userData) return null;
+                        // Fallback to resource data if editing state isn't ready yet (prevents flash)
+                        const userData = editingUsers[resource.id] || {
+                          fullName: resource.fullName,
+                          position: resource.position,
+                          departmentId: resource.departmentId,
+                          grade: resource.grade || "",
+                          companyId: resource.companyId || "",
+                          avatarUrl: resource.avatarUrl,
+                          isVisible: resource.isVisible ?? true,
+                        };
 
                         return (
                           <UserRow
@@ -984,15 +1042,15 @@ export const UsersManagementContent = forwardRef<
         <div className="border-t bg-gray-50 px-6 py-4 flex items-center justify-end gap-3">
           <button
             onClick={handleSave}
-            disabled={isSaving}
+            disabled={isSaving || isUploading}
             className={`px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium flex items-center gap-2 ${
-              isSaving ? "opacity-70 cursor-not-allowed" : ""
+              isSaving || isUploading ? "opacity-70 cursor-not-allowed" : ""
             }`}
           >
             {isSaving && (
               <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
             )}
-            {isSaving ? "Сохранение..." : "Сохранить"}
+            {isUploading ? "Загрузка фото..." : isSaving ? "Сохранение..." : "Сохранить"}
           </button>
         </div>
       </>
@@ -1013,7 +1071,7 @@ interface UserRowProps {
     departmentId: string;
     grade: string;
     companyId: string;
-    avatarUrl?: string;
+    avatarUrl?: string | null;
     isVisible?: boolean;
   };
   departments: Department[];
@@ -1136,7 +1194,7 @@ const UserRow = forwardRef<HTMLDivElement, UserRowProps>(
 
             {/* Внешний grid: 1 гибкая колонка (в ней ФИО + Должность) + 3 фиксированные по 100px */}
             <div className="grid grid-cols-[minmax(0,1fr)_repeat(3,100px)] gap-3 items-center min-w-0 w-full">
-              {/* Левая группа: ФИО + Должность (вложенный grid) */}
+              {/* Левая гр��ппа: ФИО + Должность (вложенный grid) */}
               <div className="grid grid-cols-2 gap-3 items-center min-w-0 w-full">
                 <TextInput
                   value={user.fullName}

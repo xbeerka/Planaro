@@ -290,8 +290,8 @@ export function SimpleEventModal({ isOpen, onClose, onSave, projects, mode, init
           <div className="grid grid-cols-2 gap-4">
             <div className="flex flex-col gap-2">
               <SimpleLabel htmlFor="weeks">
-                Недели {initialData?.startWeek && maxWeeks < weeksInYear && (
-                  <span className="text-xs text-muted-foreground">(макс. {maxWeeks})</span>
+                Недели {typeof initialData?.startWeek === 'number' && maxWeeks < weeksInYear && maxWeeks > 0 && (
+                  <span className="text-xs text-muted-foreground ml-1">(макс. {maxWeeks})</span>
                 )}
               </SimpleLabel>
               <SimpleInput

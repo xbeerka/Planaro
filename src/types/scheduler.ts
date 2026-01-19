@@ -17,7 +17,7 @@ export interface Resource {
   grade?: string;  // Название грейда (для отображения)
   gradeId?: string;  // ID грейда (для бэкенда)
   companyId?: string;
-  avatarUrl?: string; // Avatar URL from Supabase Storage
+  avatarUrl?: string | null; // Avatar URL from Supabase Storage
   visible?: boolean;
   isVisible?: boolean;  // ✅ Добавляем для совместимости
 }

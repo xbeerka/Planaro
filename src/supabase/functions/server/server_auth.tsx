@@ -1,5 +1,5 @@
 import { Hono } from "npm:hono";
-import { createAdminClient, createAuthClient, handleError } from './server_utils.tsx';
+import { createAdminClient, createAuthClient, handleError, retryOperation } from './server_utils.tsx';
 import * as kv from './kv_store.tsx';
 
 // Initialize clients
@@ -121,10 +121,13 @@ export function registerAuthRoutes(app: Hono) {
         }
         
         try {
-          // Refresh the session using refresh_token
-          const { data: refreshData, error: refreshError } = await supabaseAuth.auth.refreshSession({
-            refresh_token: refresh_token
-          });
+          // Refresh the session using refresh_token with retry
+          const { data: refreshData, error: refreshError } = await retryOperation(
+            () => supabaseAuth.auth.refreshSession({
+              refresh_token: refresh_token
+            }),
+            3, 1000, 'Refresh Session'
+          );
           
           if (refreshError) {
             console.error('❌ Ошибка обновления токена:', refreshError.message);
@@ -226,10 +229,13 @@ export function registerAuthRoutes(app: Hono) {
       
       console.log('🔐 Попытка входа...', normalizedEmail);
       
-      const { data, error } = await supabaseAuth.auth.signInWithPassword({
-        email: normalizedEmail,
-        password: password
-      });
+      const { data, error } = await retryOperation(
+        () => supabaseAuth.auth.signInWithPassword({
+          email: normalizedEmail,
+          password: password
+        }),
+        2, 1000, 'Sign In'
+      );
       
       if (error) {
         console.error('❌ Ошибка входа:', error.message);

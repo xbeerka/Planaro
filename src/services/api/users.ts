@@ -74,4 +74,39 @@ export const usersApi = {
     console.log('✅ Видимость пользователя обновлена:', data);
     return data;
   },
+
+  /**
+   * Массовое обновление пользователей
+   * @param updates - Массив обновлений { id, ...changes }
+   */
+  async batchUpdate(updates: Array<{ id: string; [key: string]: any }>): Promise<void> {
+    if (updates.length === 0) return;
+
+    const accessToken = await getStorageItem('auth_access_token');
+    if (!accessToken) {
+      console.error('❌ Токен доступа не найден в IndexedDB');
+      throw new Error('Не авторизован');
+    }
+
+    console.log(`📤 Отправка пакета обновлений (${updates.length} пользователей)...`);
+
+    const response = await fetch(`${API_BASE}/resources/batch`, {
+      method: 'POST', // or PUT
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ updates }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('❌ Ошибка пакетного обновления:', error);
+      throw new Error(`Failed to batch update users: ${error}`);
+    }
+
+    const result = await response.json();
+    console.log('✅ Пакетное обновление успешно:', result);
+    return result;
+  },
 };

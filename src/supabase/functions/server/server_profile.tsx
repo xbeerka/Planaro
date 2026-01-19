@@ -1,5 +1,5 @@
 import { Hono } from "npm:hono";
-import { createAdminClient, createAuthClient, handleError } from './server_utils.tsx';
+import { createAdminClient, createAuthClient, handleError, retryOperation } from './server_utils.tsx';
 
 // Initialize clients
 const supabase = createAdminClient();
@@ -15,7 +15,11 @@ export function registerProfileRoutes(app: Hono) {
       const accessToken = c.req.header('Authorization')?.split(' ')[1];
       
       // Verify user
-      const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(accessToken);
+      const { data: { user }, error: authError } = await retryOperation(
+        () => supabaseAuth.auth.getUser(accessToken),
+        3, 1000, 'Auth check (Upload Avatar)'
+      );
+      
       if (authError || !user) {
         console.error('❌ Ошибка авторизации при загрузке аватара:', authError);
         return c.json({ error: 'Unauthorized' }, 401);
@@ -102,7 +106,11 @@ export function registerProfileRoutes(app: Hono) {
       const accessToken = c.req.header('Authorization')?.split(' ')[1];
       
       // Verify user
-      const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(accessToken);
+      const { data: { user }, error: authError } = await retryOperation(
+        () => supabaseAuth.auth.getUser(accessToken),
+        3, 1000, 'Auth check (Update Profile)'
+      );
+
       if (authError || !user) {
         console.error('❌ Ошибка авторизации при обновлении профиля:', authError);
         return c.json({ error: 'Unauthorized' }, 401);
@@ -168,7 +176,11 @@ export function registerProfileRoutes(app: Hono) {
       const accessToken = c.req.header('Authorization')?.split(' ')[1];
       
       // Verify user
-      const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(accessToken);
+      const { data: { user }, error: authError } = await retryOperation(
+        () => supabaseAuth.auth.getUser(accessToken),
+        3, 1000, 'Auth check (Upload User Avatar)'
+      );
+
       if (authError || !user) {
         console.error('❌ Ошибка авторизации при загрузке аватара пользователя:', authError);
         return c.json({ error: 'Unauthorized' }, 401);

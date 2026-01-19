@@ -9,7 +9,7 @@ export interface CreateResourceData {
   grade?: string;  // ✅ Название грейда (фронтенд)
   gradeId?: string;  // ✅ ID грейда (передаём на бэкенд)
   companyId?: string;
-  avatarUrl?: string;
+  avatarUrl?: string | null;
   isVisible?: boolean;
 }
 
@@ -20,7 +20,7 @@ export interface UpdateResourceData {
   grade?: string;  // ✅ Название грейда (фронтенд)
   gradeId?: string;  // ✅ ID грейда (передаём на бэкенд)
   companyId?: string;
-  avatarUrl?: string;
+  avatarUrl?: string | null;
   isVisible?: boolean;
 }
 

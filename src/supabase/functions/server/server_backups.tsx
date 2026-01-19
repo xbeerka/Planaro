@@ -123,7 +123,7 @@ export const registerBackupRoutes = (app: Hono) => {
         .from(BACKUP_BUCKET)
         .list(workspaceId, {
           limit: 100,
-          sortBy: { column: 'name', order: 'desc' } // Newest first
+          sortBy: { column: 'created_at', order: 'desc' } // Newest first
         });
         
       if (!listError && files) {
@@ -171,7 +171,7 @@ export const registerBackupRoutes = (app: Hono) => {
         .from(BACKUP_BUCKET)
         .list(workspaceId, {
           limit: 20, // Increased limit to ensure we get enough
-          sortBy: { column: 'name', order: 'desc' }
+          sortBy: { column: 'created_at', order: 'desc' }
         });
         
       if (error) throw error;

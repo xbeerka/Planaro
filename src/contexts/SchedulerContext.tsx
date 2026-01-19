@@ -279,6 +279,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId, timeline
     isLoadingEventPatterns, setIsLoadingEventPatterns,
     isLoadingCompanies, setIsLoadingCompanies,
     isLoadingEvents, setIsLoadingEvents,
+    setIsLoadingComments,
   } = useUI();
   
   // 🚫 User interaction state (для отклю��ения polling во время drag/resize)
@@ -560,6 +561,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId, timeline
   useEffect(() => {
     if (!accessToken) {
       setComments([]);
+      queueMicrotask(() => setIsLoadingComments(false));
       return;
     }
 
@@ -569,6 +571,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId, timeline
     }
 
     const load = async () => {
+      setIsLoadingComments(true);
       try {
         // Load fresh data in background
         const data = await commentsApi.fetchComments(String(workspaceId), accessToken);
@@ -579,6 +582,8 @@ export function SchedulerProvider({ children, accessToken, workspaceId, timeline
         setComments(data);
       } catch (error) {
         console.error('❌ Ошибка загрузки комментариев:', error);
+      } finally {
+        setIsLoadingComments(false);
       }
     };
     load();
@@ -709,10 +714,10 @@ export function SchedulerProvider({ children, accessToken, workspaceId, timeline
               // Если событие с таким ID есть на сервере - используем данные с сервера
               const serverEvent = filtered.find(e => e.id === localEvent.id);
               if (serverEvent) {
-                // ✅ Проверяем - если событие было изменено локально < 10 сек назад,
-                // используем локальную версию (защита от перезаписи после Undo/Redo)
+                // ✅ Проверяем - если событие было изменено локально < 60 сек назад,
+                // используем локальную версию (защита от перезаписи после Undo/Redo и при лагах репликации)
                 const timeSinceLastChange = Date.now() - lastLocalChangeRef.current;
-                if (timeSinceLastChange < 10000) {
+                if (timeSinceLastChange < 60000) {
                   console.log(`🛡️ Full Sync: защита локального события ${localEvent.id} (изменено ${Math.round(timeSinceLastChange/1000)}с назад)`);
                   return localEvent; // Используем локальную версию
                 }
@@ -731,7 +736,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId, timeline
               // 2. Если это реальный ID и его нет на сервере:
               // Проверяем на недавнее локальное изменение (защита от race condition)
               const timeSinceLastChange = Date.now() - lastLocalChangeRef.current;
-              if (timeSinceLastChange < 10000) {
+              if (timeSinceLastChange < 60000) {
                  console.log(`🛡️ Full Sync: сохранение "фантома" ${localEvent.id} (недавнее изменение)`);
                  return localEvent;
               }
@@ -1092,7 +1097,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId, timeline
 
     if (projectsWithInvalidPatterns.length === 0) return;
 
-    console.log('🧹 Найдено проектов с несуществующими паттернами:', projectsWithInvalidPatterns.length);
+    console.log('🧹 На��дено проектов с несуществующими паттернами:', projectsWithInvalidPatterns.length);
     
     // Reset invalid patterns to empty string in local state
     const updatedProjects = projects.map(project => {
@@ -1155,7 +1160,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId, timeline
 
   // Event operations
   const createEvent = useCallback(async (event: Partial<SchedulerEvent>): Promise<SchedulerEvent> => {
-    // Валидация weeksSpan перед созданием
+    // Валидация weeksSpan пер��д созданием
     const startWeek = event.startWeek || 0;
     const weeksInYear = timelineYear ? getWeeksInYear(timelineYear) : 52; // ✅ Динамическое количество недель
     const maxWeeks = weeksInYear - startWeek;

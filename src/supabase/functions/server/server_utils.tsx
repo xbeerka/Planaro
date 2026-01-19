@@ -154,3 +154,55 @@ export function getUserColor(email: string): string {
   const hue = Math.abs(hash % 360);
   return `hsl(${hue}, 70%, 50%)`;
 }
+
+/**
+ * Выполняет операцию с повторными попытками при ошибках
+ * (Exponential backoff)
+ */
+export async function retryOperation<T>(
+  operation: () => Promise<T>,
+  maxRetries = 3,
+  delay = 1000,
+  context = 'Operation'
+): Promise<T> {
+  let lastError: any;
+  
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await operation();
+    } catch (error: any) {
+      lastError = error;
+      console.warn(`⚠️ ${context}: попытка ${i + 1}/${maxRetries} не удалась: ${error.message}`);
+      
+      // Если это не последняя попытка - ждем
+      if (i < maxRetries - 1) {
+        // Экспоненциальная задержка: 1s, 2s, 4s...
+        const waitTime = delay * Math.pow(2, i);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      }
+    }
+  }
+  
+  throw lastError;
+}
+
+/**
+ * Обрабатывает массив элементов частями (чанками) параллельно,
+ * но последовательно между чанками, чтобы не перегрузить базу
+ */
+export async function processInChunks<T, R>(
+  items: T[],
+  chunkSize: number,
+  processor: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = [];
+  
+  for (let i = 0; i < items.length; i += chunkSize) {
+    const chunk = items.slice(i, i + chunkSize);
+    // Обрабатываем чанк параллельно
+    const chunkResults = await Promise.all(chunk.map(processor));
+    results.push(...chunkResults);
+  }
+  
+  return results;
+}

@@ -272,7 +272,7 @@ export function WorkspaceListScreen({
           return;
         }
 
-        // 🔒 Проверяем блокировку текущего пользователя (предотвращение "мигания")
+        // 🔒 П��оверяем блокировку текущего пользователя (предотвращение "мигания")
         try {
           const suppressData = await getStorageJSON<{
             email: string;
@@ -455,8 +455,9 @@ export function WorkspaceListScreen({
       const diffMins = Math.floor(diffMs / 60000);
       if (diffMins < 1) return "только что";
       if (diffMins < 60) return `${diffMins} мин. назад`;
-      if (diffHours === 1) return "1 час назад";
-      return `${diffHours} часа назад`;
+      const plural = (n: number, forms: string[]) => 
+        forms[(n % 100 > 4 && n % 100 < 20) ? 2 : [2, 0, 1, 1, 1, 2][(n % 10 < 5) ? n % 10 : 5]];
+      return `${diffHours} ${plural(diffHours, ['час', 'часа', 'часов'])} назад`;
     }
 
     const yesterday = new Date(now);

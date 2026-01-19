@@ -19,7 +19,7 @@ interface SettingsContextType {
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
-  const [weekPx, setWeekPxState] = useState(192); // Default L (192px)
+  const [weekPx, setWeekPxState] = useState(120); // Default L (120px)
   const [eventRowH, setEventRowHState] = useState(144); // Default L
   const [showGaps, setShowGapsState] = useState(true);
   const [showPatterns, setShowPatternsState] = useState(true);
@@ -43,11 +43,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         
         if (savedWeekPx) {
           const px = Number(savedWeekPx);
-          // Validate preset values: XS=48, S=96, M=144, L=192
-          if ([48, 96, 144, 192].includes(px)) {
+          // Validate preset values: XS=48, S=72, M=96, L=120
+          // (Updated to match Header.tsx presets)
+          if ([48, 72, 96, 120].includes(px)) {
             setWeekPxState(px);
           } else {
-            setWeekPxState(192); // Reset to Default L if invalid/custom
+            setWeekPxState(120); // Reset to Default L (120) if invalid/custom
           }
         }
         

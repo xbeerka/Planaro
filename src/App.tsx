@@ -262,7 +262,7 @@ function AppContent() {
     checkAuth();
   }, []);
 
-  // Periodic token refresh (каждые 30 минут - токен живет 1 час)
+  // Periodic token refresh (check every 2 minutes)
   useEffect(() => {
     if (!isAuthenticated || !accessToken) return;
 
@@ -281,7 +281,18 @@ function AppContent() {
             return;
           }
 
-          console.log("🔄 Refreshing token...");
+          // Check if token needs refresh (locally first to avoid unnecessary calls)
+          const payload = decodeSupabaseJWT(accessToken);
+          // If token expires in > 5 minutes, we might skip call, 
+          // BUT checking with server ensures we are in sync and session is valid.
+          // Server handles the logic of "refresh only if < 5 mins remaining".
+          // So we just ping the server.
+          
+          // However, to reduce noise, maybe check if < 10 mins?
+          // Server threshold is 5 mins.
+          // Let's just call server. It's safe.
+          
+          // console.log("Checking token status..."); 
 
           const response = await fetch(
             `https://${projectId}.supabase.co/functions/v1/make-server-73d66528/auth/session`,
@@ -298,31 +309,29 @@ function AppContent() {
           if (response.ok) {
             const data = await response.json();
 
-            // ✅ ИСПРАВЛЕНО: Сервер возвращает { session: { access_token, ... } }
             if (data.session && data.session.access_token) {
-              setAccessToken(data.session.access_token);
-              await setStorageItem(
-                "auth_access_token",
-                data.session.access_token,
-              );
-              console.log("✅ Token refreshed successfully");
+              // Only update state if token actually changed
+              if (data.session.access_token !== accessToken) {
+                console.log("🔄 Token refreshed by server");
+                setAccessToken(data.session.access_token);
+                await setStorageItem(
+                  "auth_access_token",
+                  data.session.access_token,
+                );
+              }
             } else {
-              console.log(
-                "⚠️ No valid session in refresh response",
-              );
+               // If session is null, it means it expired or was deleted
+               console.warn("⚠️ Session invalid or expired during check");
+               // Don't logout immediately to avoid interrupting user?
+               // But if session is gone, requests will fail anyway.
             }
-          } else {
-            console.log(
-              "❌ Token refresh failed:",
-              response.status,
-            );
           }
         } catch (error) {
-          console.error("❌ Token refresh failed:", error);
+          console.error("❌ Token refresh check failed:", error);
         }
       },
-      30 * 60 * 1000,
-    ); // 30 minutes (токен живет 1 час, проверяем за 30 минут до истечения)
+      2 * 60 * 1000, // Check every 2 minutes
+    );
 
     return () => {
       clearInterval(refreshInterval);

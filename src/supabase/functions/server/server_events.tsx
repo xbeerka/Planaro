@@ -1,5 +1,14 @@
 import { Hono } from "npm:hono";
-import { createAdminClient, createAuthClient, handleError, updateWorkspaceSummary, getWeeksInYear, parseCloudflareError } from './server_utils.tsx';
+import { 
+  createAdminClient, 
+  createAuthClient, 
+  handleError, 
+  updateWorkspaceSummary, 
+  getWeeksInYear, 
+  parseCloudflareError,
+  retryOperation,
+  processInChunks
+} from './server_utils.tsx';
 
 // Initialize clients
 const supabase = createAdminClient();
@@ -127,28 +136,30 @@ export function registerEventsRoutes(app: Hono) {
         return c.json({ error: 'workspace_id is required' }, 400);
       }
       
-      let query = supabase
-        .from('events')
-        .select('*')  // ✅ ИСПРАВЛЕНО: убран JOIN с event_patterns
-        .eq('workspace_id', workspaceId)
-        .order('updated_at', { ascending: false })
-        .limit(1000);
-      
-      if (since) {
-        query = query.gt('updated_at', since);
-      }
-      
-      // ⏱️ Timeout защита - 10 секунд максимум
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('Request timeout after 10s')), 10000);
-      });
-      
-      const { data: events, error } = await Promise.race([query, timeoutPromise]) as any;
-      
-      if (error) {
-        console.error('❌ Supabase error fetching event changes:', error);
-        return c.json({ error: `Failed to fetch event changes: ${error.message}` }, 500);
-      }
+      // ✅ ИСПРАВЛЕНО: Retry Logic + Reduced Limit + Connection Handling
+      // Connection Reset часто возникает из-за таймаутов или слишком больших пакетов данных
+      const events = await retryOperation(async () => {
+        let query = supabase
+          .from('events')
+          .select('*')
+          .eq('workspace_id', workspaceId)
+          .order('updated_at', { ascending: false })
+          .limit(500); // 📉 Reduced from 1000 to prevent timeouts
+        
+        if (since) {
+          query = query.gt('updated_at', since);
+        }
+        
+        // ⏱️ Timeout 15s (increased from 10s)
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Request timeout after 15s')), 15000);
+        });
+        
+        const { data, error } = await Promise.race([query, timeoutPromise]) as any;
+        
+        if (error) throw error;
+        return data;
+      }, 3, 2000, 'Fetch event changes'); // 3 retries, 2s delay
       
       const count = events?.length || 0;
       console.log(`✅ Найдено ${count} изменённых событий`);
@@ -177,11 +188,12 @@ export function registerEventsRoutes(app: Hono) {
       });
     } catch (error: any) {
       console.error('❌ Exception fetching event changes:', error);
+      const isTimeout = error.message && error.message.includes('Request timeout');
       return c.json({ 
         events: [], 
         timestamp: new Date().toISOString(),
-        error: error.message === 'Request timeout after 10s' ? 'timeout' : 'unknown'
-      }, error.message === 'Request timeout after 10s' ? 504 : 500);
+        error: isTimeout ? 'timeout' : 'unknown'
+      }, isTimeout ? 504 : 500);
     }
   });
 
@@ -190,15 +202,22 @@ export function registerEventsRoutes(app: Hono) {
     try {
       console.log('🎨 Запрос паттернов из таблицы event_patterns...');
       
-      const { data: patterns, error } = await supabase
-        .from('event_patterns')
-        .select('*')
-        .order('id', { ascending: true });
-      
-      if (error) {
-        console.error('❌ Ошибка загрузки паттернов:', error);
-        return c.json({ error: `Failed to fetch patterns: ${error.message}` }, 500);
-      }
+      const patterns = await retryOperation(async () => {
+        // Добавляем таймаут для каждого запроса (10с)
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Request timeout after 10s')), 10000);
+        });
+
+        const query = supabase
+          .from('event_patterns')
+          .select('*')
+          .order('id', { ascending: true });
+
+        const { data, error } = await Promise.race([query, timeoutPromise]) as any;
+        
+        if (error) throw error;
+        return data;
+      }, 3, 1000, 'Fetch Patterns'); // 3 retries, 1s delay start
       
       console.log(`✓ Получено ${patterns?.length || 0} паттернов`);
       
@@ -678,7 +697,7 @@ export function registerEventsRoutes(app: Hono) {
       if (updates.length > 0) {
         console.log(`🔄 BATCH: начало обновления ${updates.length} событий`);
         
-        const updatePromises = updates.map(async (op) => {
+        const processUpdateOp = async (op: any) => {
           try {
             const eventId = op.id;
             const numericId = parseInt(eventId.replace(/^e/, ''));
@@ -691,7 +710,7 @@ export function registerEventsRoutes(app: Hono) {
             const updateData: any = {};
             
             if (body.resourceId !== undefined) {
-              updateData.user_id = parseInt(body.resourceId.replace('u', ''));  // ✅ ИСПРАВЛЕНО: префикс "u"
+              updateData.user_id = parseInt(body.resourceId.replace('u', ''));
             }
             if (body.projectId !== undefined) {
               updateData.project_id = parseInt(body.projectId.replace('p', ''));
@@ -714,23 +733,22 @@ export function registerEventsRoutes(app: Hono) {
               updateData.pattern_id = body.patternId ? parseInt(body.patternId.replace('ep', '')) : null;
             }
             
-            const { data, error } = await supabase
-              .from('events')
-              .update(updateData)
-              .eq('id', numericId)
-              .select('*')  // ✅ ИСПРАВЛЕНО: убран JOIN с event_patterns
-              .maybeSingle();
-            
-            if (error) {
-              console.error(`❌ BATCH update error для ${eventId}:`, error.message);
-              return { error: { id: eventId, message: error.message } };
-            }
+            // ✅ ИСПРАВЛЕНО: Retry Logic для обновления
+            const data = await retryOperation(async () => {
+              const { data, error } = await supabase
+                .from('events')
+                .update(updateData)
+                .eq('id', numericId)
+                .select('*')
+                .maybeSingle();
+              
+              if (error) throw error;
+              return data;
+            }, 3, 1000, `Update event ${eventId}`);
             
             if (!data) {
               console.warn(`⚠️ BATCH update: событие ${eventId} не найдено в БД. Попытка восстановления (Auto-Upsert)...`);
               
-              // Проверяем наличие обязательных полей для создания
-              // При Undo клиент отправляет полный объект события, поэтому поля должны быть
               const canRecover = 
                 updateData.user_id !== undefined && 
                 updateData.project_id !== undefined && 
@@ -747,16 +765,17 @@ export function registerEventsRoutes(app: Hono) {
                    units_tall: updateData.units_tall || 1
                  };
                  
-                 const { data: recoveredData, error: recoverError } = await supabase
-                    .from('events')
-                    .upsert(recoverData)
-                    .select('*')
-                    .maybeSingle();
-                    
-                 if (recoverError) {
-                    console.error(`❌ BATCH auto-recover error:`, recoverError.message);
-                    return { error: { id: eventId, message: `Event not found and recovery failed: ${recoverError.message}` } };
-                 }
+                 // Retry Logic для восстановления
+                 const recoveredData = await retryOperation(async () => {
+                   const { data, error } = await supabase
+                      .from('events')
+                      .upsert(recoverData)
+                      .select('*')
+                      .maybeSingle();
+                      
+                   if (error) throw error;
+                   return data;
+                 }, 3, 1000, `Recover event ${eventId}`);
                  
                  if (recoveredData) {
                    console.log(`✅ BATCH auto-recover success: ${eventId}`);
@@ -775,14 +794,14 @@ export function registerEventsRoutes(app: Hono) {
                  }
               }
 
-              console.warn(`⚠️ BATCH auto-recover impossible: missing fields (u=${updateData.user_id}, p=${updateData.project_id}, w=${op.workspace_id})`);
+              console.warn(`⚠️ BATCH auto-recover impossible: missing fields`);
               return { error: { id: eventId, message: 'Event not found' } };
             }
             
             return {
               success: {
                 id: `e${data.id}`,
-                resourceId: `u${data.user_id}`,  // ✅ Batch UPDATE: префикс "u"
+                resourceId: `u${data.user_id}`,
                 projectId: `p${data.project_id}`,
                 startWeek: (data.start_week || 1) - 1,
                 weeksSpan: data.weeks_span || 1,
@@ -792,11 +811,14 @@ export function registerEventsRoutes(app: Hono) {
               }
             };
           } catch (error: any) {
+            console.error(`❌ BATCH update error для ${op.id}:`, error.message);
             return { error: { id: op.id, message: error.message } };
           }
-        });
+        };
         
-        const updateResults = await Promise.all(updatePromises);
+        // ✅ ИСПРАВЛЕНО: Обработка чанками по 5 операций параллельно
+        // Это предотвращает Connection Reset при большом количестве обновлений
+        const updateResults = await processInChunks(updates, 5, processUpdateOp);
         
         updateResults.forEach(result => {
           if (result.error) {
@@ -828,7 +850,12 @@ export function registerEventsRoutes(app: Hono) {
       console.log('🗑️ Очистка всех событий в воркспейсе:', workspaceId);
       
       const accessToken = c.req.header('Authorization')?.split(' ')[1];
-      const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(accessToken);
+      
+      const { data: { user }, error: authError } = await retryOperation(
+        () => supabaseAuth.auth.getUser(accessToken),
+        3, 1000, 'Auth check (Clear Events)'
+      );
+      
       if (!user || authError) {
         console.error('❌ Unauthorized access to clear events');
         return c.json({ error: 'Unauthorized' }, 401);

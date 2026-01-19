@@ -753,11 +753,16 @@ function Boxheader(props: HeaderProps) {
 
 export default function Header(props: HeaderProps) {
   const { sidebarCollapsed = false } = props;
+  const { commentMode } = useUI();
 
   return (
     <div
       className="box-border content-stretch flex flex-col gap-2 items-start p-2 w-full relative h-full"
       data-name="header"
+      style={{
+        width: commentMode ? "calc(100% - 292px)" : "100%",
+        transition: "width 0.2s ease-in-out",
+      }}
     >
       <Boxheader {...props} />
     </div>
