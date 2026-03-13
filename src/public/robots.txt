@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Allow: /sitemap
+Allow: /sitemap.html
+
+Sitemap: https://planaro.ru/sitemap.xml

@@ -514,9 +514,12 @@ console.log('✅ Событие создано:', eventId);
 
 ---
 
-**Версия документа**: 8.13.0 (2025-12-26)
-**Статус**: STABLE (Comments Migration)
+**Версия документа**: 8.14.0 (2026-01-22)
+**Статус**: STABLE (UI/UX Polishing)
 **Последнее обновление**: 
+- **UI/UX Polishing (v8.14.0)**:
+  - ✅ **Department Sorting**: Fixed sorting in main scheduler view to match the management modal order (undefined queue treated as 9999).
+  - ✅ **User Initials**: Updated initial generation logic to use "Surname + Name" (First 2 words) instead of "Surname + Last Word", fixing "ФО" -> "ФИ" issue for users with patronymics.
 - **Comments System Migration (v8.13.0)**:
   - ✅ **PostgreSQL Migration**: Комментарии перенесены из KV Store в таблицу `public.comments`.
   - ✅ **Server Fix**: Исправлен бут-луп сервера из-за ошибки экспорта (`registerCommentsRoutes`).
@@ -569,7 +572,7 @@ console.log('✅ Событие создано:', eventId);
 - **Smart Search Fix (v8.3.0)**:
   - ✅ **Strict Substring Matching**: Введена строгая проверка для совпадений в середине слова. Допускается на 1 ошибку меньше, чем для начала слова. Это устраняет ложные срабатывания (например, "Лайтфи" -> "Platform").
   - ✅ **Prefix Lenience**: Для начала слова (префикса) сохранены мягкие пороги ошибок (2 ошибки для 5+ букв), что критично для поиска с опечатками и транслитерацией.
-  - ✅ **Highlight Word Start**: Подсветка теперь корректно определяет начала слов и применяет соответствующие пороги ошибок.
+  - ✅ **Highlight Word Start**: Подсветка теперь корректно определяет начала слов и приме��яет соответствующие пороги ошибок.
   - ✅ **Файлы**: `/utils/search.ts`, `/utils/highlightMatch.tsx`.
 - **Smart Search Fix (v8.2.0)**:
   - ✅ **Double Phonetic Normalization**: Теперь нормализуется не только запрос, но и целевая строка (`target`). Это позволяет находить "Лайтфи" (Litfi) в "LiteFinance" (Litfinans) через префиксное совпадение.

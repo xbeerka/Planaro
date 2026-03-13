@@ -786,6 +786,8 @@ function Container(props: HeaderProps) {
     enabledProjects,
     toggleProject,
     setEnabledProjects,
+    projectFilterTodayOnly,
+    toggleProjectFilterTodayOnly,
   } = useFilters();
 
   const { events } = useScheduler();
@@ -1152,6 +1154,32 @@ function Container(props: HeaderProps) {
               </button>
             </div>
 
+            {/* Toggle "Только на текущей неделе" — только на вкладке Проекты при выбранных проектах */}
+            {activeTab === "project" && enabledProjects.size > 0 && (
+              <div className="px-4 py-2.5 border-b border-gray-200 shrink-0 flex items-center justify-between gap-3">
+                <span className="text-xs max-md:text-sm text-gray-600">
+                  Только на текущей неделе
+                </span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={projectFilterTodayOnly}
+                  onClick={toggleProjectFilterTodayOnly}
+                  className="relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none cursor-pointer"
+                  style={{
+                    backgroundColor: projectFilterTodayOnly ? '#0062FF' : 'rgb(209, 213, 219)',
+                  }}
+                >
+                  <span
+                    className="pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm ring-0 transition-transform duration-200 ease-in-out"
+                    style={{
+                      transform: projectFilterTodayOnly ? 'translateX(16px)' : 'translateX(0)',
+                    }}
+                  />
+                </button>
+              </div>
+            )}
+
             {/* Список элементов */}
             <div
               ref={scrollRef}
@@ -1166,7 +1194,17 @@ function Container(props: HeaderProps) {
                   Ничего не найдено
                 </div>
               ) : (
-                filteredItems.map((item) => {
+                filteredItems
+                  .slice()
+                  .sort((a, b) => {
+                    if (activeTab === "department") {
+                      const queueA = (a as Department).queue ?? 999;
+                      const queueB = (b as Department).queue ?? 999;
+                      return queueA - queueB;
+                    }
+                    return 0;
+                  })
+                  .map((item) => {
                   const isSelected = selectedIds.has(item.id);
                   const isProject = "backgroundColor" in item;
 

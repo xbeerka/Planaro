@@ -10,11 +10,12 @@ import { registerPresenceRoutes } from './server_presence.tsx';
 import { registerProfileRoutes } from './server_profile.tsx';
 import { registerCommentsRoutes } from './server_comments.tsx';
 import { registerBackupRoutes } from './server_backups.tsx';
+import { registerSnapshotRoutes } from './server_snapshot.tsx';
 
 const app = new Hono();
 
 console.log('🚀 Запуск сервера Make Server 73d66528...');
-console.log('📦 Модульная архитектура: auth + data + events + presence + profile');
+console.log('📦 Модульная архитектура: auth + data + events + presence + profile + snapshot');
 
 // Enable logger
 app.use('*', logger(console.log));
@@ -85,7 +86,11 @@ registerCommentsRoutes(app);
 console.log('  💾 Backup routes...');
 registerBackupRoutes(app);
 
-console.log('✅ Все маршруты зарегистрированы (69 endpoints)');
+// 8. Snapshot routes (1 endpoint)
+console.log('  📸 Snapshot routes...');
+registerSnapshotRoutes(app);
+
+console.log('✅ Все маршруты зарегистрированы (70 endpoints)');
 console.log('🌐 Сервер готов к приёму запросов');
 
 // ==================== START SERVER ====================

@@ -26,11 +26,21 @@ export const ResourceRowWithMenu = memo(function ResourceRowWithMenu({
 }: ResourceRowWithMenuProps) {
   // Responsive logic based on rowHeight
   const numericHeight = Number(rowHeight);
-  const isSmall = numericHeight <= 96; // S size: <= 96px
   const isExtraSmall = numericHeight <= 60; // XS size: <= 60px
 
-  const showAvatar = !isSmall || showOnlyAvatar; // ✅ Показываем аватарку если showOnlyAvatar=true
+  // ✅ Показываем аватарку если не XS или если свернут сайдбар (showOnlyAvatar=true)
+  // Для S (96px) теперь показываем аватарку (раньше скрывали)
+  const showAvatar = !isExtraSmall || showOnlyAvatar;
   const showRole = !isExtraSmall && !showOnlyAvatar; // ✅ Скрываем роль если showOnlyAvatar=true
+
+  // ✅ Для режима S (96px) и ниже используем компактную аватарку (28px), 
+  // но только если сайдбар развернут (!showOnlyAvatar)
+  const useCompactAvatar = numericHeight <= 96 && !showOnlyAvatar;
+  const avatarSize = useCompactAvatar ? "28px" : "36px";
+  const avatarRadius = useCompactAvatar ? "8px" : "12px";
+  // ✅ Адаптируем размер шрифта инициалов: 10px для маленького аватара, 14px (text-sm) для обычного
+  const initialsTextSize = useCompactAvatar ? "text-[10px]" : "text-sm";
+  const isSmall = numericHeight <= 96;
 
   // Highlight search matches
   const highlightMatch = (text: string, query: string) => {
@@ -73,7 +83,7 @@ export const ResourceRowWithMenu = memo(function ResourceRowWithMenu({
       style={{
         position: "relative",
         display: "flex",
-        gap: isSmall ? "4px" : "12px",
+        gap: isSmall ? "8px" : "12px",
         alignItems: "center",
         justifyContent: showOnlyAvatar ? "center" : "flex-start", // ✅ Центрируем только аватарку
         width: "100%",
@@ -84,10 +94,10 @@ export const ResourceRowWithMenu = memo(function ResourceRowWithMenu({
         <div
           style={{
             position: "relative",
-            borderRadius: "12px",
+            borderRadius: avatarRadius,
             flexShrink: 0,
-            width: "36px",
-            height: "36px",
+            width: avatarSize,
+            height: avatarSize,
             overflow: "hidden",
           }}
         >
@@ -101,7 +111,7 @@ export const ResourceRowWithMenu = memo(function ResourceRowWithMenu({
                 maxWidth: "none",
                 objectFit: "cover",
                 pointerEvents: "none",
-                borderRadius: "12px",
+                borderRadius: avatarRadius,
                 width: "100%",
                 height: "100%",
               }}
@@ -110,7 +120,7 @@ export const ResourceRowWithMenu = memo(function ResourceRowWithMenu({
             <div
               style={{
                 background: "#f6f6f6",
-                borderRadius: "12px",
+                borderRadius: avatarRadius,
                 width: "100%",
                 height: "100%",
                 display: "flex",
@@ -118,7 +128,7 @@ export const ResourceRowWithMenu = memo(function ResourceRowWithMenu({
                 justifyContent: "center",
               }}
             >
-              <p className="text-sm text-[#868789]">
+              <p className={`${initialsTextSize} text-[#868789]`}>
                 {getUserInitials(resource.fullName, resource.email)}
               </p>
             </div>
@@ -142,9 +152,9 @@ export const ResourceRowWithMenu = memo(function ResourceRowWithMenu({
           }}
         >
           <p
-            className={`font-medium ${isExtraSmall ? "text-xs" : "text-sm"} text-black w-full`}
+            className={`font-medium ${isSmall ? "text-xs" : "text-sm"} text-black w-full`}
             style={{
-              lineHeight: isExtraSmall ? "16px" : "20px",
+              lineHeight: isSmall ? "16px" : "20px",
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
@@ -160,9 +170,9 @@ export const ResourceRowWithMenu = memo(function ResourceRowWithMenu({
           </p>
           {showRole && (
             <p
-              className="text-xs text-[#868789] w-full"
+              className={`${isSmall ? "text-[10px]" : "text-xs"} text-[#868789] w-full`}
               style={{
-                lineHeight: "16px",
+                lineHeight: isSmall ? "14px" : "16px",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",

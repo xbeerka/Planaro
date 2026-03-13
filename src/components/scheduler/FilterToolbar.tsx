@@ -31,6 +31,8 @@ export const FilterToolbar = forwardRef<FilterToolbarRef, FilterToolbarProps>(({
     enabledProjects,
     toggleProject,
     setEnabledProjects,
+    projectFilterTodayOnly,
+    toggleProjectFilterTodayOnly,
     resetFilters
   } = useFilters();
 
@@ -174,6 +176,33 @@ export const FilterToolbar = forwardRef<FilterToolbarRef, FilterToolbarProps>(({
                   </label>
                 ))}
               </div>
+              {/* "Only current week" toggle */}
+              {enabledProjects.size > 0 && (
+                <div className="px-4 py-2.5 border-t border-gray-200 bg-gray-50/80">
+                  <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={projectFilterTodayOnly}
+                      onClick={toggleProjectFilterTodayOnly}
+                      className="relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none cursor-pointer"
+                      style={{
+                        backgroundColor: projectFilterTodayOnly ? 'rgb(59, 130, 246)' : 'rgb(209, 213, 219)',
+                      }}
+                    >
+                      <span
+                        className="pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm ring-0 transition-transform duration-200 ease-in-out"
+                        style={{
+                          transform: projectFilterTodayOnly ? 'translateX(16px)' : 'translateX(0)',
+                        }}
+                      />
+                    </button>
+                    <span className="text-xs text-gray-600" style={{ fontWeight: 500 }}>
+                      Только на текущей неделе
+                    </span>
+                  </label>
+                </div>
+              )}
             </div>
           )}
         </div>

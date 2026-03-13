@@ -716,7 +716,7 @@ export function registerDataRoutes(app: Hono) {
         query = query.eq('workspace_id', workspaceId);
       }
       
-      const { data: deptsTable, error: deptsError } = await query.order('id', { ascending: false });
+      const { data: deptsTable, error: deptsError } = await query.order('queue', { ascending: true });
       
       if (!deptsError && deptsTable && deptsTable.length > 0) {
         console.log(`✓ Получено ${deptsTable.length} департаментов из таблицы departments`);
@@ -724,7 +724,7 @@ export function registerDataRoutes(app: Hono) {
         const departments = deptsTable.map(dept => ({
           id: `d${dept.id}`,
           name: dept.name,
-          queue: dept.queue || 999,
+          queue: dept.queue ?? 999,
           visible: dept.visible !== undefined ? dept.visible : true,
           usersCount: dept.users?.[0]?.count ?? 0,
           last_activity_at: dept.last_activity_at
@@ -965,7 +965,7 @@ export function registerDataRoutes(app: Hono) {
       if (count && count > 0) {
         console.error(`��� Нельзя удалить департамент ${departmentId}: содержит ${count} пользователей`);
         return c.json({ 
-          error: `Нельзя удалить департамент, содержащий ${count} сотрудников. Сначала переместите или удалите сотрудников.` 
+          error: `Нельзя удалить де��артамент, содержащий ${count} сотрудников. Сначала переместите или удалите сотрудников.` 
         }, 400);
       }
       

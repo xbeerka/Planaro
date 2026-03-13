@@ -40,6 +40,7 @@ interface SchedulerEventProps {
   width: number;
   height: number;
   eventRowH: number;
+  isMobile?: boolean; // ✅ Флаг мобильного устройства
 }
 
 function SchedulerEventComponent({
@@ -67,6 +68,7 @@ function SchedulerEventComponent({
   innerTopRightColor = 'transparent',
   innerBottomRightColor = 'transparent',
   hideProjectName = false,
+  isMobile = false, // ✅ По умолчанию false
   onContextMenu,
   onPointerDown,
   onHandlePointerDown,
@@ -136,15 +138,16 @@ function SchedulerEventComponent({
     if (e.button !== 0) return;
     if ((e.target as HTMLElement).closest('.handle-container')) return;
     
-    // ✅ БЛОКИРОВКА: запрещаем drag для pending и blocked событий
-    if (!scissorsMode && !commentMode && !isPending && !isBlocked) {
+    // ✅ БЛОКИРОВКА: запрещаем drag для pending и blocked событий, и на мобильных устройствах
+    if (!scissorsMode && !commentMode && !isPending && !isBlocked && !isMobile) {
       onPointerDown(e, event);
     }
   };
 
   const handleClick = (e: React.MouseEvent) => {
     // В режиме ножниц и комментирования, а также для pending/blocked событий не обрабатываем клики
-    if (scissorsMode || commentMode || isPending || isBlocked) return;
+    // На мобильных также блокируем редактирование (клики)
+    if (scissorsMode || commentMode || isPending || isBlocked || isMobile) return;
     
     // Обычный клик для открытия модального окна
     onClick(e, event);
@@ -406,6 +409,7 @@ function SchedulerEventComponent({
                   }}
                   onClick={(e) => {
                     e.stopPropagation();
+                    if (isMobile) return; // ✅ Block scissor click on mobile
                     onScissorClick(event.id, boundaryWeek);
                   }}
                   onMouseEnter={() => setHoveredScissor(boundaryWeek)}
@@ -417,8 +421,8 @@ function SchedulerEventComponent({
         </div>
       )}
 
-      {/* Resize handles - скрываем для заблокированных и pending событий */}
-      {!scissorsMode && !commentMode && !isCtrlPressed && !isBlocked && !isPending && (
+      {/* Resize handles - скрываем для заблокированных и pending событий, и на мобильных */}
+      {!scissorsMode && !commentMode && !isCtrlPressed && !isBlocked && !isPending && !isMobile && (
         <>
           {/* Top handle - 50% max height to avoid overlap */}
           <div
@@ -500,6 +504,7 @@ export const SchedulerEvent = memo(SchedulerEventComponent, (prevProps, nextProp
     prevProps.isCtrlPressed === nextProps.isCtrlPressed &&
     prevProps.isPending === nextProps.isPending &&
     prevProps.isBlocked === nextProps.isBlocked && // ✅ Сравниваем isBlocked для обновления спиннера
+    prevProps.isMobile === nextProps.isMobile && // ✅ Сравниваем isMobile
     prevProps.dimmed === nextProps.dimmed &&
     prevProps.showGaps === nextProps.showGaps &&
     prevProps.showPatterns === nextProps.showPatterns &&

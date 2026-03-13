@@ -689,6 +689,17 @@ export const SchedulerGrid = memo(
           comment: Comment;
         } | null>(null);
 
+      // Pending comment drag - ref to avoid re-render/opacity flash on pointerdown
+      // Only promotes to real draggedCommentState after 5px movement threshold
+      const pendingCommentDragRef = useRef<{
+        id: string;
+        startX: number;
+        startY: number;
+        offsetX: number;
+        offsetY: number;
+        comment: Comment;
+      } | null>(null);
+
       const [commentGhostPosition, setCommentGhostPosition] =
         useState<{
           visible: boolean;
@@ -1160,25 +1171,52 @@ export const SchedulerGrid = memo(
           const offsetX = e.clientX - rect.left;
           const offsetY = e.clientY - rect.top;
 
-          setDraggedCommentState({
+          // Don't set draggedCommentState immediately to avoid opacity flash
+          // that breaks backdrop-blur. Store in ref and promote after 5px threshold.
+          pendingCommentDragRef.current = {
             id: comment.id,
             startX: e.clientX,
             startY: e.clientY,
-            currentX: e.clientX,
-            currentY: e.clientY,
             offsetX,
             offsetY,
             comment,
-          });
+          };
+          console.log('📝 Comment pending drag start:', comment.id);
         },
         [],
       );
 
-      // Global listeners for comment drag
+      // Global listeners for PENDING comment drag (threshold detection)
+      // and ACTIVE comment drag (movement + ghost)
       useEffect(() => {
-        if (!draggedCommentState) return;
-
         const handleMove = (e: PointerEvent) => {
+          // Phase 1: Pending drag - check threshold
+          const pending = pendingCommentDragRef.current;
+          if (pending && !draggedCommentState) {
+            const dist = Math.sqrt(
+              Math.pow(e.clientX - pending.startX, 2) +
+                Math.pow(e.clientY - pending.startY, 2),
+            );
+            if (dist >= 5) {
+              // Promote to real drag state
+              console.log('📝 Comment drag promoted (threshold exceeded):', pending.id);
+              pendingCommentDragRef.current = null;
+              setDraggedCommentState({
+                id: pending.id,
+                startX: pending.startX,
+                startY: pending.startY,
+                currentX: e.clientX,
+                currentY: e.clientY,
+                offsetX: pending.offsetX,
+                offsetY: pending.offsetY,
+                comment: pending.comment,
+              });
+            }
+            return;
+          }
+
+          // Phase 2: Active drag - update position
+          if (!draggedCommentState) return;
           e.preventDefault();
           setDraggedCommentState((prev) =>
             prev
@@ -1247,20 +1285,19 @@ export const SchedulerGrid = memo(
         };
 
         const handleUp = async (e: PointerEvent) => {
-          const state = draggedCommentState;
-          setDraggedCommentState(null); // Clear state immediately
-          setCommentGhostPosition(null); // Clear ghost
-
-          const dist = Math.sqrt(
-            Math.pow(e.clientX - state.startX, 2) +
-              Math.pow(e.clientY - state.startY, 2),
-          );
-
-          // If moved less than 5px, treat as accidental drag (do nothing)
-          // The CommentMarker component handles mini→maxi expansion on its own click
-          if (dist < 5) {
+          // If still pending (didn't exceed threshold), just clear - it was a click
+          if (pendingCommentDragRef.current) {
+            console.log('📝 Comment click (no drag):', pendingCommentDragRef.current.id);
+            pendingCommentDragRef.current = null;
             return;
           }
+
+          // Active drag - handle drop
+          const state = draggedCommentState;
+          if (!state) return;
+
+          setDraggedCommentState(null); // Clear state immediately
+          setCommentGhostPosition(null); // Clear ghost
 
           // Drop Logic
           const scrollContainer = scrollRef?.current;
@@ -1314,6 +1351,7 @@ export const SchedulerGrid = memo(
           }
         };
 
+        // Always listen - handles both pending threshold check and active drag
         window.addEventListener("pointermove", handleMove);
         window.addEventListener("pointerup", handleUp);
 
@@ -1589,7 +1627,7 @@ export const SchedulerGrid = memo(
       );
 
       const handleGlobalMouseLeave = useCallback(() => {
-        // ✅ СБРОС REF, чтобы при возврате на ту же ячейку хайлайт сработал
+        // ✅ СБРОС REF, чтобы при возврате ���� ту же ячейку хайлайт сработал
         lastHoverRef.current = {
           resourceId: null,
           week: null,
@@ -1908,10 +1946,15 @@ export const SchedulerGrid = memo(
 
               {/* Month Headers */}
               {months.map((month, idx) => {
-                const startCol =
-                  months
-                    .slice(0, idx)
-                    .reduce((sum, m) => sum + m.weeks, 0) + 4;
+                const monthStartWeek = months
+                  .slice(0, idx)
+                  .reduce((sum, m) => sum + m.weeks, 0);
+                const monthEndWeek = monthStartWeek + month.weeks - 1;
+                const startCol = monthStartWeek + 4;
+
+                const isMonthPast =
+                  showCurrentWeekMarker &&
+                  monthEndWeek < currentWeekIndex;
 
                 const isFirst = idx === 0;
                 const isLast = idx === months.length - 1;
@@ -1943,7 +1986,13 @@ export const SchedulerGrid = memo(
                       className={`${paddingClass} h-full flex items-center`}
                     >
                       <div className="bg-[#f6f6f6] rounded-[12px] h-full w-full flex items-center justify-center">
-                        <p className="font-semibold text-[12px] text-[#1a1a1a]">
+                        <p
+                          className="font-semibold text-[12px] truncate"
+                          style={{
+                            color: "#1a1a1a",
+                            opacity: isMonthPast ? 0.35 : 1,
+                          }}
+                        >
                           {month.name}
                         </p>
                       </div>
@@ -1989,31 +2038,46 @@ export const SchedulerGrid = memo(
 
               {/* Week Headers */}
               {Array.from({ length: weeksInYear }).map(
-                (_, w) => (
-                  <div
-                    key={`week-${w}`}
-                    style={{
-                      gridColumn: w + 4,
-                      gridRow: 2,
-                      position: "sticky",
-                      top: `${MONTH_ROW_HEIGHT}px`,
-                      height: `${WEEK_ROW_HEIGHT}px`,
-                      backgroundColor: "#fff",
-                      zIndex: 165,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <p className="font-normal text-[12px] text-[#868789] truncate">
-                      {weekLabel(
-                        w,
-                        timelineYear,
-                        config.weekPx,
-                      )}
-                    </p>
-                  </div>
-                ),
+                (_, w) => {
+                  const isWeekPast =
+                    showCurrentWeekMarker && w < currentWeekIndex;
+                  const isWeekCurrent =
+                    showCurrentWeekMarker && w === currentWeekIndex;
+
+                  return (
+                    <div
+                      key={`week-${w}`}
+                      style={{
+                        gridColumn: w + 4,
+                        gridRow: 2,
+                        position: "sticky",
+                        top: `${MONTH_ROW_HEIGHT}px`,
+                        height: `${WEEK_ROW_HEIGHT}px`,
+                        backgroundColor: "#fff",
+                        zIndex: 165,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <p
+                        className="truncate"
+                        style={{
+                          fontSize: "12px",
+                          fontWeight: isWeekCurrent ? 600 : 400,
+                          color: isWeekCurrent ? "#1a1a1a" : "#868789",
+                          opacity: isWeekPast ? 0.4 : 1,
+                        }}
+                      >
+                        {weekLabel(
+                          w,
+                          timelineYear,
+                          config.weekPx,
+                        )}
+                      </p>
+                    </div>
+                  );
+                },
               )}
 
               {/* ========== ROW 3+ (WAS ROW 4+): DEPARTMENTS + RESOURCES (VIRTUALIZED) ========== */}
@@ -2061,8 +2125,9 @@ export const SchedulerGrid = memo(
                 // ✨ SKELETON ROW
                 if (item.type === "skeleton") {
                   return (
-                    <React.Fragment
+                    <div
                       key={`skeleton-${item.row}`}
+                      style={{ display: "contents" }}
                     >
                       {gapElement}
                       {/* Skeleton Name (Left) */}
@@ -2133,14 +2198,15 @@ export const SchedulerGrid = memo(
                           })()}
                         </div>
                       )}
-                    </React.Fragment>
+                    </div>
                   );
                 }
 
                 if (item.type === "skeleton-department") {
                   return (
-                    <React.Fragment
+                    <div
                       key={`skeleton-dept-${item.row}`}
+                      style={{ display: "contents" }}
                     >
                       {gapElement}
                       {/* Department Skeleton (Left) */}
@@ -2177,14 +2243,15 @@ export const SchedulerGrid = memo(
                           zIndex: 150,
                         }}
                       />
-                    </React.Fragment>
+                    </div>
                   );
                 }
 
                 if (item.type === "department" && item.dept) {
                   return (
-                    <React.Fragment
+                    <div
                       key={`dept-${item.dept.id}`}
+                      style={{ display: "contents" }}
                     >
                       {gapElement}
                       {/* Department Name (Left) */}
@@ -2196,7 +2263,9 @@ export const SchedulerGrid = memo(
                           left: 0,
                           top: `${MONTH_ROW_HEIGHT + WEEK_ROW_HEIGHT}px`,
                           height: `${DEPARTMENT_ROW_HEIGHT}px`,
-                          backgroundColor: "#fff",
+                          backgroundColor: "rgba(255, 255, 255, 0.95)",
+                          backdropFilter: "blur(4px)",
+                          WebkitBackdropFilter: "blur(4px)",
                           zIndex: 201,
                         }}
                       >
@@ -2239,18 +2308,21 @@ export const SchedulerGrid = memo(
                           left: 0,
                           top: `${MONTH_ROW_HEIGHT + WEEK_ROW_HEIGHT}px`,
                           height: `${DEPARTMENT_ROW_HEIGHT}px`,
-                          backgroundColor: "#fff",
+                          backgroundColor: "rgba(255, 255, 255, 0.95)",
+                          backdropFilter: "blur(4px)",
+                          WebkitBackdropFilter: "blur(4px)",
                           zIndex: 165,
                         }}
                       />
-                    </React.Fragment>
+                    </div>
                   );
                 }
 
                 if (item.type === "resource" && item.resource) {
                   return (
-                    <React.Fragment
+                    <div
                       key={`resource-${item.resource.id}`}
+                      style={{ display: "contents" }}
                     >
                       {gapElement}
                       {/* Resource Name (Left) - ВСЕГДА рендерим */}
@@ -2385,7 +2457,7 @@ export const SchedulerGrid = memo(
                         // Events handled by Global Interaction Layer
                         tabIndex={0}
                       />
-                    </React.Fragment>
+                    </div>
                   );
                 }
 
@@ -2453,7 +2525,7 @@ export const SchedulerGrid = memo(
                           height: "100%",
                           width: `${currentWeekIndex * config.weekPx + 9}px`,
                           backgroundColor:
-                            "rgba(255, 255, 255, 0.6)",
+                            "rgba(255, 255, 255, 0.2)",
                           pointerEvents: "none",
                         }}
                       />
@@ -2466,7 +2538,7 @@ export const SchedulerGrid = memo(
                         left: `${currentWeekIndex * config.weekPx + 9}px`,
                         height: "100%",
                         width: "1px",
-                        backgroundColor: "#0062FF",
+                        backgroundColor: "rgba(0, 98, 255, 0.35)",
                         pointerEvents: "none",
                       }}
                     />
@@ -2616,6 +2688,7 @@ export const SchedulerGrid = memo(
                             comment={comment}
                             cellWidth={config.weekPx}
                             gap={0}
+                            rounded={showGaps}
                             isOpen={
                               expandedCommentId === comment.id
                             }
@@ -2665,7 +2738,7 @@ export const SchedulerGrid = memo(
                       height: `28px`,
                       backgroundColor:
                         "rgba(59, 130, 246, 0.15)",
-                      borderRadius: "12px",
+                      borderRadius: showGaps ? "12px" : "4px",
                       pointerEvents: "none",
                       zIndex: 1000,
                     }}
@@ -2742,7 +2815,7 @@ export const SchedulerGrid = memo(
                 >
                   Комментарии
                 </h2>
-                {isLoading ? (
+                {isLoadingComments ? (
                   <div className="h-3 w-24 bg-gray-100 rounded animate-pulse mt-1" />
                 ) : (
                   <p
@@ -2811,137 +2884,98 @@ export const SchedulerGrid = memo(
                           new Date(b.createdAt).getTime() -
                           new Date(a.createdAt).getTime(),
                       )
-                      .map((comment) => (
-                        <div
-                          key={comment.id}
-                          className="backdrop-blur-[2px] backdrop-filter bg-[rgba(255,255,255,0.8)] relative rounded-[12px] w-full shrink-0"
-                          style={{
-                            border: "1px solid #f0f0f0",
-                          }}
-                        >
-                          <div className="flex gap-[8px] items-start p-[10px] relative w-full">
-                            {/* Avatar Frame */}
-                            <div className="h-[18px] relative shrink-0 w-[16px] mt-[2px]">
-                              {comment.authorAvatarUrl ? (
-                                <img
-                                  src={comment.authorAvatarUrl}
-                                  className="absolute left-0 rounded-[20px] size-[16px] top-px object-cover"
-                                  alt=""
-                                />
-                              ) : (
-                                <div className="absolute bg-[#4677ee] left-0 rounded-[20px] size-[16px] top-px" />
-                              )}
-                            </div>
+                      .map((comment) => {
+                        const isVisible = gridItems.some(
+                          (i) =>
+                            i.type === "resource" &&
+                            i.resource?.id === comment.userId,
+                        );
 
-                            {/* Content Frame1 */}
-                            <div
-                              className="flex flex-col grow items-start justify-center min-w-0 cursor-pointer"
-                              onClick={() => {
-                                if (!scrollRef.current) return;
-
-                                setExpandedCommentId(
-                                  comment.id,
-                                );
-
-                                // X Scroll (Horizontal)
-                                if (
-                                  comment.weekIndex !==
-                                  undefined
-                                ) {
-                                  const x =
-                                    comment.weekIndex *
-                                    config.weekPx;
-                                  const centeredX =
-                                    x -
-                                    (scrollRef.current
-                                      .clientWidth || 0) /
-                                      2 +
-                                    config.weekPx / 2;
-                                  scrollRef.current.scrollLeft =
-                                    Math.max(0, centeredX);
-                                }
-
-                                // Y Scroll (Vertical)
-                                const targetItem =
-                                  gridItems.find(
-                                    (i) =>
-                                      i.type === "resource" &&
-                                      i.resource?.id ===
-                                        comment.userId,
-                                  );
-
-                                if (targetItem) {
-                                  const top =
-                                    targetItem.offset +
-                                    TOTAL_TOP_HEIGHT;
-                                  const centeredY =
-                                    top -
-                                    (scrollRef.current
-                                      .clientHeight || 0) /
-                                      2 +
-                                    config.eventRowH / 2;
-
-                                  scrollRef.current.scrollTop =
-                                    Math.max(0, centeredY);
-                                }
-                              }}
-                            >
-                              <div className="flex w-full justify-between items-baseline gap-2">
-                                <p className="font-medium leading-[18px] text-[10px] text-[rgba(0,0,0,0.5)] whitespace-nowrap overflow-hidden text-ellipsis">
-                                  {comment.userDisplayName}
-                                </p>
-                                <span className="text-[10px] text-[rgba(0,0,0,0.3)] shrink-0">
-                                  {new Date(
-                                    comment.createdAt,
-                                  ).toLocaleDateString()}
-                                </span>
+                        return (
+                          <div
+                            key={comment.id}
+                            className={`backdrop-blur-[2px] backdrop-filter bg-[rgba(255,255,255,0.8)] relative rounded-[12px] w-full shrink-0 ${
+                              !isVisible
+                                ? "opacity-50 pointer-events-none grayscale"
+                                : "cursor-pointer"
+                            }`}
+                            style={{
+                              border: "1px solid #f0f0f0",
+                            }}
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onClick={() => {
+                              if (!scrollRef.current) return;
+  
+                              setExpandedCommentId(comment.id);
+  
+                              // X Scroll (Horizontal)
+                              if (comment.weekIndex !== undefined) {
+                                const x = comment.weekIndex * config.weekPx;
+  
+                                // ✅ Correct centering accounting for Sidebars
+                                const sidebarWidth = sidebarCollapsed ? LEFT_SIDEBAR_WIDTH_COLLAPSED : LEFT_SIDEBAR_WIDTH;
+                                const rightPanelWidth = commentMode ? 292 : 0;
+                                // Available width for content (between left sidebar and right panel)
+                                const availableWidth = (scrollRef.current.clientWidth || 0) - sidebarWidth - rightPanelWidth;
+                                
+                                // The weeks start at `sidebarWidth + 8px` in the grid.
+                                // We want the comment (at `x` from week start) to be centered in `availableWidth`.
+                                // Formula: scrollLeft = x + 8 - availableWidth / 2 + halfWeek
+                                const centeredScrollLeft = x + 8 - availableWidth / 2 + config.weekPx / 2;
+                                
+                                scrollRef.current.scrollLeft = Math.max(0, centeredScrollLeft);
+                              }
+  
+                              // Y Scroll (Vertical)
+                              const targetItem = gridItems.find(
+                                (i) =>
+                                  i.type === "resource" &&
+                                  i.resource?.id === comment.userId,
+                              );
+  
+                              if (targetItem) {
+                                const top = targetItem.offset + TOTAL_TOP_HEIGHT;
+                                const centeredY =
+                                  top -
+                                  (scrollRef.current.clientHeight || 0) / 2 +
+                                  config.eventRowH / 2;
+  
+                                scrollRef.current.scrollTop = Math.max(0, centeredY);
+                              }
+                            }}
+                          >
+                            <div className="flex gap-[8px] items-start p-[10px] relative w-full">
+                              {/* Avatar Frame */}
+                              <div className="h-[18px] relative shrink-0 w-[16px] mt-[2px]">
+                                {comment.authorAvatarUrl ? (
+                                  <img
+                                    src={comment.authorAvatarUrl}
+                                    className="absolute left-0 rounded-[20px] size-[16px] top-px object-cover"
+                                    alt=""
+                                  />
+                                ) : (
+                                  <div className="absolute bg-[#4677ee] left-0 rounded-[20px] size-[16px] top-px" />
+                                )}
                               </div>
-                              <p className="font-normal leading-normal text-[12px] text-black w-full break-words whitespace-pre-wrap mt-[2px]">
-                                {comment.comment}
-                              </p>
-
-                              {/* Actions (ButtonGroup) */}
-                              {/* 
-                            <div className="flex gap-[8px] items-start pt-[8px] w-full mt-1">
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setCommentModalState({
-                                    isOpen: true,
-                                    isCreating: false,
-                                    comment,
-                                  })
-                                }}
-                                className="basis-0 grow h-[32px] relative rounded-[12px] shrink-0 border border-[rgba(0,0,0,0.12)] flex items-center justify-center hover:bg-gray-50 transition-colors"
-                              >
-                                <span className="font-medium text-[12px] text-black">
-                                  Изменить
-                                </span>
-                              </button>
-
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (
-                                    window.confirm(
-                                      "Вы уверены, что хотите удалить этот комментарий?",
-                                    )
-                                  ) {
-                                    deleteComment(comment.id);
-                                  }
-                                }}
-                                className="basis-0 grow h-[32px] relative rounded-[12px] shrink-0 border border-[rgba(0,0,0,0.12)] flex items-center justify-center hover:bg-gray-50 transition-colors"
-                              >
-                                <span className="font-medium text-[12px] text-[#e7000b]">
-                                  Удалить
-                                </span>
-                              </button>
-                            </div> 
-                            */}
+  
+                              {/* Content Frame1 */}
+                              <div className="flex flex-col grow items-start justify-center min-w-0">
+                                <div className="flex w-full justify-between items-baseline gap-2">
+                                  <p className="font-medium leading-[18px] text-[10px] text-[rgba(0,0,0,0.5)] whitespace-nowrap overflow-hidden text-ellipsis">
+                                    {comment.userDisplayName}
+                                  </p>
+                                  <span className="text-[10px] text-[rgba(0,0,0,0.3)] shrink-0">
+                                    {new Date(comment.createdAt).toLocaleDateString()}
+                                  </span>
+                                </div>
+                                <p className="font-normal leading-normal text-[12px] text-black w-full break-words whitespace-pre-wrap mt-[2px]">
+                                  {comment.comment}
+                                </p>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
               </div>
             </div>
           </div>
@@ -3001,6 +3035,7 @@ export const SchedulerGrid = memo(
                 comment={draggedCommentState.comment}
                 cellWidth={config.weekPx}
                 gap={0}
+                rounded={showGaps}
                 onClick={() => {}}
               />
             </div>

@@ -32,6 +32,14 @@ export function KeyboardShortcutsModal({ isOpen, onClose }: KeyboardShortcutsMod
         { keys: ['Esc'], description: 'Закрыть модалки/меню' },
         { keys: ['?'], description: 'Показать эту справку' },
       ]
+    },
+    {
+      category: 'Режимы',
+      items: [
+        { keys: ['V'], description: 'Курсор (режим по умолчанию)' },
+        { keys: ['X'], description: 'Ножницы (разрезать событие)' },
+        { keys: ['C'], description: 'Комментарий' },
+      ]
     }
   ];
 

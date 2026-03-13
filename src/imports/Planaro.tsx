@@ -453,7 +453,7 @@ function Frame3() {
     <div className="basis-0 bg-[#f6f6f6] grow h-full min-h-px min-w-px relative rounded-[12px] shrink-0">
       <div className="flex flex-row items-center justify-center size-full">
         <div className="bg-clip-padding border-0 border-[transparent] border-solid box-border content-stretch flex gap-[10px] items-center justify-center p-[10px] relative size-full">
-          <p className="font-['Inter:Semi_Bold',sans-serif] font-semibold leading-[20px] not-italic relative shrink-0 text-[#1a1a1a] text-[12px] text-nowrap tracking-[-0.1504px] whitespace-pre">Январь</p>
+          <p className="font-['Onest:SemiBold',sans-serif] font-semibold leading-[20px] not-italic relative shrink-0 text-[#1a1a1a] text-[12px] text-nowrap tracking-[-0.1504px] whitespace-pre">Январь</p>
         </div>
       </div>
     </div>
@@ -473,7 +473,7 @@ function Frame4() {
     <div className="basis-0 bg-[#f6f6f6] grow h-full min-h-px min-w-px relative rounded-[12px] shrink-0">
       <div className="flex flex-row items-center justify-center size-full">
         <div className="bg-clip-padding border-0 border-[transparent] border-solid box-border content-stretch flex gap-[10px] items-center justify-center p-[10px] relative size-full">
-          <p className="font-['Inter:Semi_Bold',sans-serif] font-semibold leading-[20px] not-italic relative shrink-0 text-[#1a1a1a] text-[12px] text-nowrap tracking-[-0.1504px] whitespace-pre">Февраль</p>
+          <p className="font-['Onest:SemiBold',sans-serif] font-semibold leading-[20px] not-italic relative shrink-0 text-[#1a1a1a] text-[12px] text-nowrap tracking-[-0.1504px] whitespace-pre">Февраль</p>
         </div>
       </div>
     </div>
@@ -493,7 +493,7 @@ function Frame5() {
     <div className="basis-0 bg-[#f6f6f6] grow h-full min-h-px min-w-px relative rounded-[12px] shrink-0">
       <div className="flex flex-row items-center justify-center size-full">
         <div className="bg-clip-padding border-0 border-[transparent] border-solid box-border content-stretch flex gap-[10px] items-center justify-center p-[10px] relative size-full">
-          <p className="font-['Inter:Semi_Bold',sans-serif] font-semibold leading-[20px] not-italic relative shrink-0 text-[#1a1a1a] text-[12px] text-nowrap tracking-[-0.1504px] whitespace-pre">Март</p>
+          <p className="font-['Onest:SemiBold',sans-serif] font-semibold leading-[20px] not-italic relative shrink-0 text-[#1a1a1a] text-[12px] text-nowrap tracking-[-0.1504px] whitespace-pre">Март</p>
         </div>
       </div>
     </div>
@@ -513,7 +513,7 @@ function SchedulerGrid19() {
   return (
     <div className="absolute bg-[#f3f3f3] box-border content-stretch flex h-[36px] items-center left-[2024px] pl-[8px] pr-[9px] py-[6px] top-0 w-[576px]" data-name="SchedulerGrid">
       <div aria-hidden="true" className="absolute border-[#c1cbd5] border-[0px_1px_0px_0px] border-solid inset-0 pointer-events-none" />
-      <p className="font-['Inter:Bold',sans-serif] font-bold leading-[24px] not-italic relative shrink-0 text-[#0f172b] text-[16px] text-nowrap tracking-[-0.3125px] whitespace-pre">Апрель</p>
+      <p className="font-['Onest:Bold',sans-serif] font-bold leading-[24px] not-italic relative shrink-0 text-[#0f172b] text-[16px] text-nowrap tracking-[-0.3125px] whitespace-pre">Апрель</p>
     </div>
   );
 }

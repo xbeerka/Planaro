@@ -23,6 +23,7 @@ import {
 } from "./utils/supabase/info";
 import { checkServerHealth } from "./utils/healthCheck";
 import { decodeSupabaseJWT } from "./utils/jwt";
+import { Sitemap } from "./components/Sitemap";
 import "./utils/debugCommands"; // Enable debug commands in console
 
 function AppContent() {
@@ -46,8 +47,8 @@ function AppContent() {
     checkServerHealth().then((healthy) => {
       setServerHealthy(healthy);
       if (!healthy) {
-        console.error(
-          "⚠️ Сервер недоступен - приложение не будет работать корректно",
+        console.warn(
+          "⚠️ Проверка здоровья сервера не прошла (возможно холодный старт или сетевая ошибка). Приложение продолжит работу.",
         );
       }
     });
@@ -186,7 +187,7 @@ function AppContent() {
         }
 
         if (token && sessionId) {
-          // 🛡️ Проверяем срок действия токена локально перед использованием
+          // 🛡️ Проверяем срок действия токена локально перед использо��анием
           const payload = decodeSupabaseJWT(token);
           const isExpired = payload?.exp ? (payload.exp * 1000) < Date.now() : true;
 
@@ -475,6 +476,14 @@ function AppContent() {
 
   // 🔄 Показываем загрузку пока проверяем локальный токен
   // Это предотвращает мигание формы входа при обновлении страницы
+
+  if (
+    window.location.pathname === "/sitemap" ||
+    window.location.pathname === "/sitemap.html"
+  ) {
+    return <Sitemap />;
+  }
+
   if (isCheckingAuth) {
     return (
       <div className="h-screen w-screen flex items-center justify-center bg-white">
@@ -575,6 +584,56 @@ function AppContent() {
 }
 
 export default function App() {
+  // Enforce mobile viewport settings to prevent zooming and fix orientation scaling
+  useEffect(() => {
+    // Standard viewport meta tag for mobile apps
+    const viewportContent = "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover";
+    
+    let meta = document.querySelector('meta[name="viewport"]');
+    if (!meta) {
+      meta = document.createElement('meta');
+      meta.setAttribute("name", "viewport");
+      document.head.appendChild(meta);
+    }
+    
+    // Force the settings
+    meta.setAttribute("content", viewportContent);
+
+    // Prevent pinch-zoom on iOS (Gesture events)
+    const handleGestureStart = (e: Event) => {
+      e.preventDefault();
+    };
+    
+    // Prevent zoom via keyboard/trackpad (Ctrl + Wheel) on Desktop/Mac
+    const handleWheel = (e: WheelEvent) => {
+      if (e.ctrlKey) {
+        e.preventDefault();
+      }
+    };
+
+    // Add listeners with passive: false to ensure we can preventDefault
+    document.addEventListener('gesturestart', handleGestureStart);
+    document.addEventListener('wheel', handleWheel, { passive: false });
+
+    // Prevent double-tap to zoom
+    let lastTouchEnd = 0;
+    const handleTouchEnd = (e: TouchEvent) => {
+      const now = (new Date()).getTime();
+      if (now - lastTouchEnd <= 300) {
+        e.preventDefault();
+      }
+      lastTouchEnd = now;
+    };
+    
+    document.addEventListener('touchend', handleTouchEnd, { passive: false });
+
+    return () => {
+      document.removeEventListener('gesturestart', handleGestureStart);
+      document.removeEventListener('wheel', handleWheel);
+      document.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, []);
+
   return (
     <ToastProvider>
       <AppContent />

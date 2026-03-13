@@ -49,6 +49,7 @@ export function useSchedulerEventActions({
     setEvents,
     loadedEventIds,
     flushPendingChanges,
+    queueChange,
   } = useScheduler();
 
   const {
@@ -169,26 +170,21 @@ export function useSchedulerEventActions({
       if (!ev.id.startsWith("ev_temp_")) {
         (async () => {
           try {
-            // ✅ Update left part
-            await updateEvent(ev.id, { weeksSpan: leftSpan });
+            // ✅ Update left part (queue directly to avoid duplicate state updates)
+            queueChange(ev.id, 'update', { weeksSpan: leftSpan });
 
-            // Create right part
-            const createdEvent = await createEvent(newEv);
+            // Create right part (queue directly to preserve tempId)
+            queueChange(tempId, 'create', newEv);
 
-            // ✅ Update history
-            updateHistoryEventId(tempId, createdEvent.id);
-            console.log(`📝 History: updated ID ${tempId} → ${createdEvent.id} (scissor split)`);
-
-            // ✅ FORCE FLUSH
-            await flushPendingChanges();
+            // ✅ FORCE FLUSH (Pass history updater to sync ID: tempId -> realId)
+            await flushPendingChanges(updateHistoryEventId);
 
             // ✅ Remove from pending
             setPendingEventIds((prev) => {
               const next = new Set(prev);
               next.delete(ev.id);
               next.delete(tempId);
-              next.delete(createdEvent.id);
-              console.log(`✅ PENDING: removed ${ev.id}, ${tempId}, ${createdEvent.id}`);
+              console.log(`✅ PENDING: removed ${ev.id}, ${tempId}`);
               return next;
             });
           } catch (error) {

@@ -8,3 +8,4 @@ export * from './eventPatterns';
 export * from './companies';
 export * from './workspaces';
 export * from './presence';
+export * from './snapshot';

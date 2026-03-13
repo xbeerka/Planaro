@@ -1,5 +1,4 @@
 import { createContext, useContext, useState, useEffect, ReactNode, useMemo } from 'react';
-import { getFilterCookie, setFilterCookie } from '../utils/cookies';
 import { useDebouncedValue } from '../hooks/useDebounce';
 
 interface FilterContextType {
@@ -18,6 +17,10 @@ interface FilterContextType {
   toggleProject: (projectId: string) => void;
   setEnabledProjects: (projects: Set<string>) => void;
   
+  // Project filter: only show resources with selected projects in current week
+  projectFilterTodayOnly: boolean;
+  toggleProjectFilterTodayOnly: () => void;
+  
   // Search filter (debounced)
   searchQuery: string; // Immediate value (для UI responsiveness)
   debouncedSearchQuery: string; // Debounced value (для фильтрации)
@@ -35,53 +38,64 @@ interface FilterProviderProps {
 }
 
 export function FilterProvider({ children, workspaceId }: FilterProviderProps) {
-  // Ключи cookies теперь зависят от workspaceId - каждый воркспейс имеет свои фильтры
+  // Ключи localStorage зависят от workspaceId - каждый воркспейс имеет свои фильтры
   const companiesKey = `scheduler_filter_companies_${workspaceId}`;
   const departmentsKey = `scheduler_filter_departments_${workspaceId}`;
   const projectsKey = `scheduler_filter_projects_${workspaceId}`;
-  
+
+  const readLS = <T,>(key: string, fallback: T): T => {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return fallback;
+      return JSON.parse(raw) as T;
+    } catch {
+      return fallback;
+    }
+  };
+
+  const writeLS = <T,>(key: string, value: T) => {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch {}
+  };
+
   const [enabledCompanies, setEnabledCompaniesState] = useState<Set<string>>(() => {
-    const saved = getFilterCookie<string[]>(companiesKey, []);
-    return new Set(saved);
+    return new Set(readLS<string[]>(companiesKey, []));
   });
 
   const [enabledDepartments, setEnabledDepartmentsState] = useState<Set<string>>(() => {
-    const saved = getFilterCookie<string[]>(departmentsKey, []);
-    return new Set(saved);
+    return new Set(readLS<string[]>(departmentsKey, []));
   });
 
   const [enabledProjects, setEnabledProjectsState] = useState<Set<string>>(() => {
-    const saved = getFilterCookie<string[]>(projectsKey, []);
-    return new Set(saved);
+    return new Set(readLS<string[]>(projectsKey, []));
   });
+
+  const [projectFilterTodayOnly, setProjectFilterTodayOnly] = useState<boolean>(false);
 
   // Search query (immediate + debounced)
   const [searchQuery, setSearchQuery] = useState<string>('');
   const debouncedSearchQuery = useDebouncedValue(searchQuery, 300);
 
-  // При смене workspaceId обновляем фильтры из cookies нового воркспейса
+  // При смене workspaceId обновляем фильтры из localStorage нового воркспейса
   useEffect(() => {
-    const savedCompanies = getFilterCookie<string[]>(companiesKey, []);
-    const savedDepartments = getFilterCookie<string[]>(departmentsKey, []);
-    const savedProjects = getFilterCookie<string[]>(projectsKey, []);
-    
-    setEnabledCompaniesState(new Set(savedCompanies));
-    setEnabledDepartmentsState(new Set(savedDepartments));
-    setEnabledProjectsState(new Set(savedProjects));
+    setEnabledCompaniesState(new Set(readLS<string[]>(companiesKey, [])));
+    setEnabledDepartmentsState(new Set(readLS<string[]>(departmentsKey, [])));
+    setEnabledProjectsState(new Set(readLS<string[]>(projectsKey, [])));
     setSearchQuery(''); // Сбрасываем поиск при смене воркспейса
   }, [workspaceId, companiesKey, departmentsKey, projectsKey]);
 
-  // Save to cookies when state changes
+  // Сохраняем в localStorage при изменении состояния
   useEffect(() => {
-    setFilterCookie(companiesKey, Array.from(enabledCompanies));
+    writeLS(companiesKey, Array.from(enabledCompanies));
   }, [enabledCompanies, companiesKey]);
 
   useEffect(() => {
-    setFilterCookie(departmentsKey, Array.from(enabledDepartments));
+    writeLS(departmentsKey, Array.from(enabledDepartments));
   }, [enabledDepartments, departmentsKey]);
 
   useEffect(() => {
-    setFilterCookie(projectsKey, Array.from(enabledProjects));
+    writeLS(projectsKey, Array.from(enabledProjects));
   }, [enabledProjects, projectsKey]);
 
   const toggleCompany = (companyId: string) => {
@@ -132,11 +146,16 @@ export function FilterProvider({ children, workspaceId }: FilterProviderProps) {
     setEnabledProjectsState(projects);
   };
 
+  const toggleProjectFilterTodayOnly = () => {
+    setProjectFilterTodayOnly(prev => !prev);
+  };
+
   const resetFilters = () => {
     setEnabledCompaniesState(new Set());
     setEnabledDepartmentsState(new Set());
     setEnabledProjectsState(new Set());
     setSearchQuery('');
+    setProjectFilterTodayOnly(false);
   };
 
   return (
@@ -151,6 +170,8 @@ export function FilterProvider({ children, workspaceId }: FilterProviderProps) {
         enabledProjects,
         toggleProject,
         setEnabledProjects,
+        projectFilterTodayOnly,
+        toggleProjectFilterTodayOnly,
         searchQuery,
         debouncedSearchQuery,
         setSearchQuery,

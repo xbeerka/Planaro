@@ -49,7 +49,7 @@ export async function apiRequest<T>(
     requireAuth = true,
     retries = 2, // По умолчанию 2 повторных попытки
     retryDelay = 1000, // По умолчанию 1 секунда базовая задержка
-    timeout = 15000 // По умолчанию 15 секунд максимальное время ожидания
+    timeout = 30000 // По умолчанию 30 секунд максимальное время ожидания (увеличено для стабильности)
   } = options;
   
   let lastError: Error | null = null;
@@ -75,6 +75,10 @@ export async function apiRequest<T>(
       }
       
       const url = `${BASE_URL}${endpoint}`;
+      
+      if (attempt === 0) {
+        console.log(`🌐 API Request: ${method} ${endpoint}`);
+      }
       
       // ⏱️ Timeout защита с AbortController
       const controller = new AbortController();
@@ -115,16 +119,64 @@ export async function apiRequest<T>(
           // Обычная ошибка API
           console.error(`❌ API Error ${response.status}:`, errorText.substring(0, 200));
           
-          // If we get a 401, token is invalid - clear auth and reload
+          // If we get a 401, token is invalid - try to refresh first, then clear auth
           if (response.status === 401 && requireAuth) {
-            console.error('❌ Токен невалиден (401), очистка сессии...');
-            const { removeStorageItem } = await import('../../utils/storage');
-            await removeStorageItem('auth_access_token');
-            await removeStorageItem('auth_session_id');
-            await removeStorageItem('cache_workspaces_list');
+            console.warn('⚠️ Token invalid (401), attempting to refresh...');
             
-            // Reload page to force re-authentication
-            window.location.reload();
+            try {
+              // Try to refresh token
+              const { getStorageItem, setStorageItem, removeStorageItem } = await import('../../utils/storage');
+              const sessionIdRaw = await getStorageItem('auth_session_id');
+              const sessionId = sessionIdRaw ? sessionIdRaw.replace(/^"|"$/g, "") : null;
+              
+              if (sessionId && !token) { // Only refresh if using stored token (not explicit override)
+                const refreshResponse = await fetch(`${BASE_URL}/auth/session`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${publicAnonKey}`
+                  },
+                  body: JSON.stringify({ session_id: sessionId })
+                });
+                
+                if (refreshResponse.ok) {
+                  const data = await refreshResponse.json();
+                  if (data.session && data.session.access_token) {
+                    console.log('✅ Token refreshed successfully inside API interceptor');
+                    await setStorageItem('auth_access_token', data.session.access_token);
+                    
+                    // Retry the request with new token
+                    // We can't easily reset 'attempt' loop variable, but we can continue.
+                    // If we haven't exhausted retries, next iteration will pick up new token.
+                    if (attempt < retries) {
+                      console.log('🔄 Retrying original request with new token...');
+                      const delayMs = retryDelay;
+                      await delay(delayMs);
+                      continue; 
+                    }
+                  }
+                } else {
+                  console.error('❌ Token refresh failed:', await refreshResponse.text());
+                }
+              }
+            } catch (refreshErr) {
+              console.error('❌ Error during token refresh:', refreshErr);
+            }
+            
+            // If refresh failed or we are out of retries, THEN logout
+            if (attempt >= retries) {
+              console.error('❌ Failed to refresh token and retries exhausted, logging out...');
+              const { removeStorageItem } = await import('../../utils/storage');
+              await removeStorageItem('auth_access_token');
+              await removeStorageItem('auth_session_id');
+              await removeStorageItem('cache_workspaces_list');
+              
+              window.location.reload();
+            }
+            
+            // If we are here, we might be retrying (continue hit above) or throwing
+            // If we didn't hit continue (refresh failed), we throw
+             throw new Error(`API Error ${response.status}: ${errorText.substring(0, 200)}`);
           }
           
           throw new Error(`API Error ${response.status}: ${errorText.substring(0, 200)}`);
@@ -189,7 +241,7 @@ export async function apiRequestNoResponse(
     requireAuth = true,
     retries = 2,
     retryDelay = 1000,
-    timeout = 15000
+    timeout = 30000
   } = options;
   
   let lastError: Error | null = null;
@@ -215,6 +267,10 @@ export async function apiRequestNoResponse(
       }
       
       const url = `${BASE_URL}${endpoint}`;
+      
+      if (attempt === 0) {
+        console.log(`🌐 API Request (NoResp): ${method} ${endpoint}`);
+      }
       
       // ⏱️ Timeout защита с AbortController
       const controller = new AbortController();
@@ -253,12 +309,51 @@ export async function apiRequestNoResponse(
           console.error(`❌ API Error ${response.status}:`, errorText.substring(0, 200));
           
           if (response.status === 401 && requireAuth) {
-            console.error('❌ Токен невалиден (401), очистка сессии...');
-            const { removeStorageItem } = await import('../../utils/storage');
-            await removeStorageItem('auth_access_token');
-            await removeStorageItem('auth_session_id');
-            await removeStorageItem('cache_workspaces_list');
-            window.location.reload();
+            console.warn('⚠️ Token invalid (401), attempting to refresh...');
+            
+            try {
+              // Try to refresh token
+              const { getStorageItem, setStorageItem, removeStorageItem } = await import('../../utils/storage');
+              const sessionIdRaw = await getStorageItem('auth_session_id');
+              const sessionId = sessionIdRaw ? sessionIdRaw.replace(/^"|"$/g, "") : null;
+              
+              if (sessionId && !token) {
+                const refreshResponse = await fetch(`${BASE_URL}/auth/session`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${publicAnonKey}`
+                  },
+                  body: JSON.stringify({ session_id: sessionId })
+                });
+                
+                if (refreshResponse.ok) {
+                  const data = await refreshResponse.json();
+                  if (data.session && data.session.access_token) {
+                    console.log('✅ Token refreshed successfully inside API interceptor');
+                    await setStorageItem('auth_access_token', data.session.access_token);
+                    
+                    if (attempt < retries) {
+                      console.log('🔄 Retrying original request with new token...');
+                      const delayMs = retryDelay;
+                      await delay(delayMs);
+                      continue; 
+                    }
+                  }
+                }
+              }
+            } catch (refreshErr) {
+              console.error('❌ Error during token refresh:', refreshErr);
+            }
+            
+            if (attempt >= retries) {
+              console.error('❌ Failed to refresh token and retries exhausted, logging out...');
+              const { removeStorageItem } = await import('../../utils/storage');
+              await removeStorageItem('auth_access_token');
+              await removeStorageItem('auth_session_id');
+              await removeStorageItem('cache_workspaces_list');
+              window.location.reload();
+            }
           }
           
           throw new Error(`API Error ${response.status}: ${errorText.substring(0, 200)}`);

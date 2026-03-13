@@ -19,33 +19,38 @@ interface CommentMarkerProps {
   cellWidth: number;
   onEdit?: () => void;
   onDelete?: () => void;
-  onDragStart?: (e: React.PointerEvent) => void; // Add drag start handler
-  gap?: number; // Gap from layout config
-  isOpen?: boolean; // Controlled state
-  onToggle?: (isOpen: boolean) => void; // State change handler
+  onDragStart?: (e: React.PointerEvent) => void;
+  gap?: number;
+  isOpen?: boolean;
+  onToggle?: (isOpen: boolean) => void;
+  rounded?: boolean; // следует режиму скруглений планировщика
 }
 
 function ActionButton({
   label,
   onClick,
   variant = "default",
+  rounded = true,
 }: {
   label: string;
   onClick?: (e: React.MouseEvent) => void;
   variant?: "default" | "destructive";
+  rounded?: boolean;
 }) {
   return (
     <div
-      className="basis-0 grow h-[36px] min-h-px min-w-px relative rounded-[12px] shrink-0 cursor-pointer group active:scale-95 transition-transform"
+      className="basis-0 grow h-[36px] min-h-px min-w-px relative shrink-0 cursor-pointer group active:scale-95 transition-transform"
+      style={{ borderRadius: rounded ? "12px" : "4px" }}
       onClick={(e) => {
         e.stopPropagation();
         onClick?.(e);
       }}
-      onPointerDown={(e) => e.stopPropagation()} // Prevent drag start
+      onPointerDown={(e) => e.stopPropagation()}
     >
       <div
         aria-hidden="true"
-        className="absolute border-[0.5px] border-[rgba(0,0,0,0.12)] border-solid inset-0 pointer-events-none rounded-[12px] group-hover:bg-black/5 transition-colors"
+        className="absolute border-[0.5px] border-[rgba(0,0,0,0.12)] border-solid inset-0 pointer-events-none group-hover:bg-black/5 transition-colors"
+        style={{ borderRadius: rounded ? "12px" : "4px" }}
       />
       <div className="flex flex-row items-center justify-center size-full">
         <div className="content-stretch flex items-center justify-center px-[12px] py-[8px] relative size-full">
@@ -75,6 +80,7 @@ export function CommentMarker({
   gap = 0,
   isOpen: isOpenProp,
   onToggle,
+  rounded = true,
 }: CommentMarkerProps) {
   const [internalIsOpen, setInternalIsOpen] = useState(false);
   const miniRef = useRef<HTMLDivElement>(null);
@@ -227,6 +233,8 @@ export function CommentMarker({
     e.stopPropagation();
   };
 
+  const cardRadius = rounded ? "12px" : "0px";
+
   // Maxi View - Render in portal with backdrop
   const maxiContent = (
     <>
@@ -252,7 +260,6 @@ export function CommentMarker({
         ref={maxiRef}
         className="fixed z-[551] w-[260px] min-h-[100px]"
         style={{
-          // Position near the mini comment
           top: position?.top ?? 0,
           left: position?.left ?? 0,
         }}
@@ -263,15 +270,19 @@ export function CommentMarker({
         onMouseOver={(e) => e.stopPropagation()}
         onMouseLeave={(e) => e.stopPropagation()}
       >
-        <div className="backdrop-blur-[2px] backdrop-filter bg-[rgba(255,255,255,0.95)] relative rounded-[12px] size-full shadow-lg transition-all duration-200 animate-in fade-in zoom-in-95">
+        <div
+          className="backdrop-blur-[2px] backdrop-filter bg-[rgba(255,255,255,0.95)] relative size-full shadow-lg transition-all duration-200 animate-in fade-in zoom-in-95"
+          style={{ borderRadius: cardRadius }}
+        >
           <div
             aria-hidden="true"
-            className="absolute border border-[rgba(206,206,206,0.8)] border-solid inset-0 pointer-events-none rounded-[12px]"
+            className="absolute border border-[rgba(206,206,206,0.8)] border-solid inset-0 pointer-events-none"
+            style={{ borderRadius: cardRadius }}
           />
 
           <div className="size-full">
             <div className="content-stretch flex gap-[8px] items-start pb-[12px] pl-[10px] pr-[12px] pt-[8px] relative size-full">
-              {/* Avatar Frame - also works as drag handle */}
+              {/* Avatar Frame */}
               <div className="h-[18px] relative shrink-0 w-[16px] mt-1">
                 <Avatar className="absolute left-0 top-0 h-[16px] w-[16px] rounded-[6px] pointer-events-none">
                   {comment.authorAvatarUrl ? (
@@ -309,6 +320,7 @@ export function CommentMarker({
                 <div className="content-stretch flex gap-[8px] items-start pb-0 pt-[8px] px-0 relative shrink-0 w-full">
                   <ActionButton
                     label="Изменить"
+                    rounded={rounded}
                     onClick={() => {
                       handleOpenChange(false);
                       onEdit?.();
@@ -317,6 +329,7 @@ export function CommentMarker({
                   <ActionButton
                     label="Удалить"
                     variant="destructive"
+                    rounded={rounded}
                     onClick={onDelete}
                   />
                 </div>
@@ -335,25 +348,28 @@ export function CommentMarker({
         ref={miniRef}
         className={cn(
           "h-[28px] relative cursor-pointer group w-fit",
-          isOpen && "invisible", // Hide mini when maxi is open
+          isOpen && "invisible",
         )}
         style={{ maxWidth: cellWidth, marginTop: offsetValue }}
+        draggable={false}
         onClick={handleToggle}
         onPointerDown={(e) => {
-          // Allow drag to start if handler is provided
           if (onDragStart) {
             onDragStart(e);
           } else {
-            // Only prevent parent's drag if we don't have our own drag handler
             e.stopPropagation();
           }
         }}
         title={`${comment.userDisplayName}: ${comment.comment}`}
       >
-        <div className="bg-[rgba(255,255,255,0.8)] relative rounded-[12px] size-full group-hover:bg-white transition-colors">
+        <div
+          className="bg-[rgba(255,255,255,0.8)] backdrop-blur-[2px] relative size-full group-hover:bg-[rgba(255,255,255,0.9)] transition-colors"
+          style={{ borderRadius: cardRadius }}
+        >
           <div
             aria-hidden="true"
-            className="absolute border border-[rgba(206,206,206,0.8)] border-solid inset-0 pointer-events-none rounded-[12px]"
+            className="absolute border border-[rgba(206,206,206,0.8)] border-solid inset-0 pointer-events-none"
+            style={{ borderRadius: cardRadius }}
           />
           <div
             className="flex flex-row items-center size-full pl-[6px] pr-[8px] py-[4px] gap-[4px]"
@@ -361,7 +377,7 @@ export function CommentMarker({
             onMouseOver={(e) => e.stopPropagation()}
             onMouseMove={(e) => e.stopPropagation()}
           >
-            {/* Avatar Frame - Scaled down for Mini */}
+            {/* Avatar Frame */}
             <div className="relative shrink-0 w-[16px] h-[16px]">
               <Avatar className="absolute left-0 top-0 h-[16px] w-[16px] rounded-[6px]">
                 {comment.authorAvatarUrl ? (

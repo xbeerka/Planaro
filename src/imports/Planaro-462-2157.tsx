@@ -647,7 +647,7 @@ function Box() {
   return (
     <div className="basis-0 bg-[#f6f6f6] grow h-[36px] min-h-px min-w-px relative rounded-[12px] shrink-0" data-name="box">
       <div className="bg-clip-padding border-0 border-[transparent] border-solid box-border content-stretch flex h-[36px] items-center justify-center relative w-full">
-        <p className="font-['Inter:Semi_Bold',sans-serif] font-semibold leading-[20px] not-italic relative shrink-0 text-[#1a1a1a] text-[12px] text-nowrap tracking-[-0.1504px] whitespace-pre">Январь</p>
+        <p className="font-['Onest:SemiBold',sans-serif] font-semibold leading-[20px] not-italic relative shrink-0 text-[#1a1a1a] text-[12px] text-nowrap tracking-[-0.1504px] whitespace-pre">Январь</p>
       </div>
     </div>
   );
@@ -665,7 +665,7 @@ function Box1() {
   return (
     <div className="basis-0 bg-[#f6f6f6] grow h-[36px] min-h-px min-w-px relative rounded-[12px] shrink-0" data-name="box">
       <div className="bg-clip-padding border-0 border-[transparent] border-solid box-border content-stretch flex h-[36px] items-center justify-center relative w-full">
-        <p className="font-['Inter:Semi_Bold',sans-serif] font-semibold leading-[20px] not-italic relative shrink-0 text-[#1a1a1a] text-[12px] text-nowrap tracking-[-0.1504px] whitespace-pre">Февраль</p>
+        <p className="font-['Onest:SemiBold',sans-serif] font-semibold leading-[20px] not-italic relative shrink-0 text-[#1a1a1a] text-[12px] text-nowrap tracking-[-0.1504px] whitespace-pre">Февраль</p>
       </div>
     </div>
   );
@@ -683,7 +683,7 @@ function Box2() {
   return (
     <div className="basis-0 bg-[#f6f6f6] grow h-[36px] min-h-px min-w-px relative rounded-[12px] shrink-0" data-name="box">
       <div className="bg-clip-padding border-0 border-[transparent] border-solid box-border content-stretch flex h-[36px] items-center justify-center relative w-full">
-        <p className="font-['Inter:Semi_Bold',sans-serif] font-semibold leading-[20px] not-italic relative shrink-0 text-[#1a1a1a] text-[12px] text-nowrap tracking-[-0.1504px] whitespace-pre">Март</p>
+        <p className="font-['Onest:SemiBold',sans-serif] font-semibold leading-[20px] not-italic relative shrink-0 text-[#1a1a1a] text-[12px] text-nowrap tracking-[-0.1504px] whitespace-pre">Март</p>
       </div>
     </div>
   );

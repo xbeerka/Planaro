@@ -10,7 +10,7 @@ export async function checkServerHealth(): Promise<boolean> {
         'Authorization': `Bearer ${publicAnonKey}`
       },
       // Добавляем таймаут чтобы не ждать слишком долго
-      signal: AbortSignal.timeout(5000) // 5 секунд
+      signal: AbortSignal.timeout(10000) // 10 секунд (увеличено для cold start)
     });
     
     if (response.ok) {
@@ -23,7 +23,7 @@ export async function checkServerHealth(): Promise<boolean> {
   } catch (error: any) {
     // Graceful degradation - приложение продолжит работать
     if (error.name === 'TimeoutError' || error.name === 'AbortError') {
-      console.warn('⚠️ Edge Function: таймаут (5 сек) - возможно функция не развернута');
+      console.warn('⚠️ Edge Function: таймаут (10 сек) - возможно холодный старт');
     } else if (error.message?.includes('Failed to fetch')) {
       console.warn('⚠️ Edge Function: не удалось подключиться - возможно функция не развернута');
     } else {

@@ -16,6 +16,7 @@ import { useGapInteractions } from "../../hooks/useGapInteractions";
 import { useUI } from "../../contexts/UIContext";
 import { useSchedulerEventActions } from "../../hooks/useSchedulerEventActions";
 import { useToast } from "../ui/ToastContext";
+import { useIsTouchDevice } from "../../hooks/useIsTouchDevice";
 import { SchedulerEvent as SchedulerEventComponent } from "./SchedulerEvent";
 import { RealtimeCursors } from "./RealtimeCursors";
 import { SchedulerModals } from "./SchedulerModals";
@@ -145,14 +146,21 @@ export function SchedulerMain({
   } = useScheduler();
 
   const sortedDepartments = useMemo(() => {
-    return [...departments].sort((a, b) => (a.queue || 0) - (b.queue || 0));
+    return [...departments].sort((a, b) => {
+      const queueA = a.queue ?? 9999;
+      const queueB = b.queue ?? 9999;
+      return queueA - queueB;
+    });
   }, [departments]);
 
   const {
     enabledCompanies,
     enabledDepartments,
     enabledProjects,
+    projectFilterTodayOnly,
   } = useFilters();
+  
+  const isTouchDevice = useIsTouchDevice(); // ✅ Detect touch device (Tablet/Mobile)
 
   useEffect(() => {
     document.body.style.overflow = 'hidden';
@@ -299,10 +307,21 @@ export function SchedulerMain({
     }
 
     if (enabledProjects.size > 0) {
+      const currentWeek = getCurrentWeekIndex(workspace.timeline_year);
+      const weekRangeStart = currentWeek - 1; // предыдущая неделя
+      const weekRangeEnd = currentWeek + 1;   // следующая неделя
       const resourcesWithSelectedProjects = new Set<string>();
       events.forEach((event) => {
         if (enabledProjects.has(event.projectId)) {
-          resourcesWithSelectedProjects.add(event.resourceId);
+          if (projectFilterTodayOnly) {
+            // Показываем только ресурсы, у которых выбранный проект попадает на текущую ±1 неделю
+            const eventEnd = event.startWeek + event.weeksSpan - 1;
+            if (eventEnd >= weekRangeStart && event.startWeek <= weekRangeEnd) {
+              resourcesWithSelectedProjects.add(event.resourceId);
+            }
+          } else {
+            resourcesWithSelectedProjects.add(event.resourceId);
+          }
         }
       });
       filtered = filtered.filter((r) =>
@@ -327,8 +346,10 @@ export function SchedulerMain({
     enabledCompanies,
     enabledDepartments,
     enabledProjects,
+    projectFilterTodayOnly,
     events,
     searchQuery,
+    workspace.timeline_year,
   ]);
 
   const filteredDepartments = useMemo(() => {
@@ -336,7 +357,8 @@ export function SchedulerMain({
       filteredResources.map((r) => r.departmentId),
     );
     
-    const realDepartments = visibleDepartments.filter((d) =>
+    // ✅ Используем sortedDepartments вместо visibleDepartments
+    const realDepartments = sortedDepartments.filter((d) =>
       departmentIds.has(d.id),
     );
     
@@ -354,7 +376,7 @@ export function SchedulerMain({
     }
     
     return realDepartments;
-  }, [visibleDepartments, filteredResources]);
+  }, [sortedDepartments, filteredResources]);
 
   const config = useMemo(
     () =>
@@ -522,12 +544,20 @@ export function SchedulerMain({
     await deleteProject(id);
   }, [deleteProject, events, deleteEvent]);
 
+  const handleSetModeCursor = useCallback(() => {
+    setScissorsMode(false);
+    setCommentMode(false);
+  }, [setScissorsMode, setCommentMode]);
+
   const { isSpacePressed, isCtrlPressed } =
     useKeyboardShortcuts({
       onUndo: handleUndo,
       onRedo: handleRedo,
       onEscape: closeAllModals,
       onShowShortcuts: () => setShortcutsModalOpen(true),
+      onSetModeCursor: handleSetModeCursor,
+      onSetModeScissors: handleToggleScissors,
+      onSetModeComment: handleToggleComment,
       schedulerRef,
     });
 
@@ -545,6 +575,12 @@ export function SchedulerMain({
     
     // Slight delay to not block initial rendering
     const timer = setTimeout(async () => {
+      // 🛑 Don't trigger if tab is hidden (background)
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        console.log('💾 Auto-Backup: Skipped (tab hidden)');
+        return;
+      }
+
       try {
         console.log('💾 Auto-Backup: Triggering...');
         const { backupsApi } = await import('../../services/api/backups');
@@ -928,6 +964,7 @@ export function SchedulerMain({
             showProjectWeight={showProjectWeight}
             isContextMenuOpen={isContextMenuOpen}
             currentWeekIndex={currentWeekIndex}
+            isMobile={isTouchDevice} // ✅ Pass isMobile to disable interactions
             roundTopLeft={!!(neighbors.flags & MASK_ROUND_TL)}
             roundTopRight={!!(neighbors.flags & MASK_ROUND_TR)}
             roundBottomLeft={!!(neighbors.flags & MASK_ROUND_BL)}
@@ -1165,7 +1202,7 @@ export function SchedulerMain({
         showToast({
           type: 'error',
           message: 'Ошибка переименования',
-          description: errorData.error || 'Неи��вестная ошибка',
+          description: errorData.error || 'Неизвестная ошибка',
         });
       } else {
         console.log('✅ Workspace saved');

@@ -150,9 +150,9 @@ export function registerEventsRoutes(app: Hono) {
           query = query.gt('updated_at', since);
         }
         
-        // ⏱️ Timeout 15s (increased from 10s)
+        // ⏱️ Timeout 25s (increased from 15s)
         const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('Request timeout after 15s')), 15000);
+          setTimeout(() => reject(new Error('Request timeout after 25s')), 25000);
         });
         
         const { data, error } = await Promise.race([query, timeoutPromise]) as any;
@@ -203,9 +203,9 @@ export function registerEventsRoutes(app: Hono) {
       console.log('🎨 Запрос паттернов из таблицы event_patterns...');
       
       const patterns = await retryOperation(async () => {
-        // Добавляем таймаут для каждого запроса (10с)
+        // Добавляем таймаут для каждого запроса (25с)
         const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('Request timeout after 10s')), 10000);
+          setTimeout(() => reject(new Error('Request timeout after 25s')), 25000);
         });
 
         const query = supabase

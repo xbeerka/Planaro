@@ -92,8 +92,8 @@ export const DepartmentsManagementContent = forwardRef<
     useEffect(() => {
       const sortedDepartments = [...departments].sort(
         (a, b) => {
-          const queueA = a.queue || 999;
-          const queueB = b.queue || 999;
+          const queueA = a.queue ?? 999;
+          const queueB = b.queue ?? 999;
           return queueA - queueB;
         },
       );
@@ -139,8 +139,8 @@ export const DepartmentsManagementContent = forwardRef<
         const originalOrder = [...departments]
           .filter((d) => !deletedDeptIds.includes(d.id))
           .sort((a, b) => {
-            const queueA = a.queue || 999;
-            const queueB = b.queue || 999;
+            const queueA = a.queue ?? 999;
+            const queueB = b.queue ?? 999;
             return queueA - queueB;
           })
           .map((d) => d.id);
@@ -350,6 +350,8 @@ export const DepartmentsManagementContent = forwardRef<
               name: displayName,
             }),
           );
+        
+        console.log('💾 Saving new order:', reorderedDepartments.map(d => d.name));
         await onReorderDepartments(reorderedDepartments);
 
         onClose();
@@ -498,7 +500,7 @@ export const DepartmentsManagementContent = forwardRef<
                     </div>
 
                     {/* Users count */}
-                    <div className="text-sm text-gray-500 min-w-[80px] text-right flex-shrink-0">
+                    <div className="text-sm text-gray-500 min-w-[60px] text-right flex-shrink-0">
                       <span className="bg-gray-100 px-2 py-1 rounded-md text-xs font-medium text-gray-600">
                         {dept.usersCount ?? 0} чел.
                       </span>

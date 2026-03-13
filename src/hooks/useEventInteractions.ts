@@ -630,7 +630,7 @@ export function useEventInteractions({
         let finalLeft = updatedEvent.startWeek * config.weekPx + savedState.realPaddingLeft;
         finalLeft -= (savedState.expandLeftAmount || 0);
         
-        const finalTop = topFor(updatedEvent.resourceId, updatedEvent.unitStart, resources, visibleDepartments, config);
+        const finalTop = topFor(updatedEvent.resourceId, updatedEvent.unitStart, resources, visibleDepartments, config, gradesRef.current);
         const finalHeight = heightFor(updatedEvent.unitsTall, config);
         
         savedState.el.style.left = `${finalLeft}px`;

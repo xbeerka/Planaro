@@ -14,6 +14,7 @@ import {
   Grade,
 } from "../../types/scheduler";
 import { useScheduler } from "../../contexts/SchedulerContext";
+import { useSettings } from "../../contexts/SettingsContext";
 import { ResourceRowWithMenu } from "./ResourceRowWithMenu";
 
 // ============================================================
@@ -97,8 +98,10 @@ function ProjectBadge({ project }: { project: Project }) {
 
 function ProjectsContainer({
   projects,
+  rowHeight = 144,
 }: {
   projects: Project[];
+  rowHeight?: number;
 }) {
   const [showAllProjects, setShowAllProjects] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -123,7 +126,7 @@ function ProjectsContainer({
       {visibleProjects.map((project) => (
         <div
           key={project.id}
-          className="rounded-[4px] px-[6px] py-[1px] max-w-[100px] shrink-0"
+          className={`rounded-[4px] px-[6px] max-w-[100px] shrink-0 ${rowHeight <= 96 ? "py-[0px]" : "py-[1px]"}`}
           style={{
             backgroundColor:
               project.backgroundColor || "#aeeb3d",
@@ -131,7 +134,7 @@ function ProjectsContainer({
           title={project.name}
         >
           <div
-            className="text-[10px] leading-[14px] font-medium truncate"
+            className={`${rowHeight <= 96 ? "text-[8px] leading-[12px]" : "text-[10px] leading-[14px]"} font-medium truncate`}
             style={{ color: project.textColor || "#000000" }}
           >
             {project.name}
@@ -340,6 +343,7 @@ export const ResourceSidebarCell = memo(
               <div className={rowHeight <= 60 ? "-mt-1" : ""}>
                 <ProjectsContainer
                   projects={significantProjects}
+                  rowHeight={rowHeight}
                 />
               </div>
             </>
@@ -419,7 +423,7 @@ export const ResourceSidebarCell = memo(
                       setShowMenu(false);
                     } catch (error) {
                       console.error(
-                        "❌ Ошибка при скрыти�� сотрудника:",
+                        "❌ Ошибка при скрыти сотрудника:",
                         error,
                       );
                     }

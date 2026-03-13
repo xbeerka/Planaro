@@ -64,9 +64,9 @@ interface LoadingScreenProps {
 
 export function LoadingScreen({ message = 'Загрузка...', size = 'lg' }: LoadingScreenProps) {
   return (
-    <div className="min-h-screen bg-[#f7f9fb] flex items-center justify-center">
+    <div className="w-full h-full min-h-screen bg-white flex items-center justify-center">
       <div className="text-center">
-        <Spinner size={size} className="text-[#39EC00] mx-auto mb-6" />
+        <Spinner size={size} color="#155DFC" className="mx-auto mb-6" />
         <p className="text-gray-600 text-lg">{message}</p>
       </div>
     </div>

@@ -5,6 +5,9 @@ interface UseKeyboardShortcutsProps {
   onRedo: () => void;
   onEscape?: () => void;
   onShowShortcuts?: () => void;
+  onSetModeCursor?: () => void;
+  onSetModeScissors?: () => void;
+  onSetModeComment?: () => void;
   schedulerRef: React.RefObject<HTMLDivElement>;
 }
 
@@ -13,6 +16,9 @@ export function useKeyboardShortcuts({
   onRedo,
   onEscape,
   onShowShortcuts,
+  onSetModeCursor,
+  onSetModeScissors,
+  onSetModeComment,
   schedulerRef
 }: UseKeyboardShortcutsProps) {
   const [isSpacePressed, setIsSpacePressed] = useState(false);
@@ -63,6 +69,21 @@ export function useKeyboardShortcuts({
         e.preventDefault();
         onShowShortcuts();
       }
+
+      // Mode hotkeys: V/М = cursor, X/Ч = scissors, C/С = comment
+      if (!isTyping && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const key = e.key.toLowerCase();
+        if ((key === 'v' || key === 'м') && onSetModeCursor) {
+          e.preventDefault();
+          onSetModeCursor();
+        } else if ((key === 'x' || key === 'ч') && onSetModeScissors) {
+          e.preventDefault();
+          onSetModeScissors();
+        } else if ((key === 'c' || key === 'с') && onSetModeComment) {
+          e.preventDefault();
+          onSetModeComment();
+        }
+      }
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
@@ -88,7 +109,7 @@ export function useKeyboardShortcuts({
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [onUndo, onRedo, onEscape, onShowShortcuts, isSpacePressed, isCtrlPressed, schedulerRef]);
+  }, [onUndo, onRedo, onEscape, onShowShortcuts, onSetModeCursor, onSetModeScissors, onSetModeComment, isSpacePressed, isCtrlPressed, schedulerRef]);
 
   return { isSpacePressed, isCtrlPressed };
 }

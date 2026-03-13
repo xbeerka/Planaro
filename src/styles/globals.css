@@ -83,6 +83,7 @@
 }
 
 @theme inline {
+  --font-sans: "Onest", sans-serif;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -612,4 +613,11 @@ mark {
 
 .header-title-container:has(.header-title-right:hover) .header-title-left {
   background-color: #f6f6f6;
+}
+
+/* Force Onest font for Figma generated components to prevent system font fallback */
+[class*="Onest:"],
+[class*="font-['Onest"],
+[class*="font-['Inter"] {
+  font-family: 'Onest', sans-serif !important;
 }
