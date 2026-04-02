@@ -50,6 +50,7 @@ export function useSchedulerEventActions({
     loadedEventIds,
     flushPendingChanges,
     queueChange,
+    resetDeltaSyncTimer,
   } = useScheduler();
 
   const {
@@ -86,10 +87,14 @@ export function useSchedulerEventActions({
   // Scissors - cut event (optimistic UI update)
   const cutEventByBoundary = useCallback(
     (evId: string, boundaryWeek: number) => {
+      // ✅ КРИТИЧНО: Помечаем локальное изменение ДО отправки на сервер
+      // Без этого Realtime INSERT прилетит раньше HTTP-ответа и создаст дубликат
+      resetDeltaSyncTimer();
+      
       // ⛔ CRITICAL: Prevent cutting events that are saving
       if (pendingEventIds.has(evId) || evId.startsWith('ev_temp_')) {
         toast.warning("Подождите", {
-          description: "Событие сохраняется в базу дан��ых",
+          description: "Событие сохраняется в базу даных",
         });
         console.log(`⏸️ SCISSORS: Blocked cutting pending event ${evId}`);
         return;
@@ -154,16 +159,18 @@ export function useSchedulerEventActions({
       }
 
       // ✂️ Update UI
+      let updatedEventsArray: SchedulerEvent[] = [];
       setEvents((currentEvents) => {
         const newEvents = currentEvents.map((e) =>
           e.id === evId ? updatedEvent : e,
         );
-        const updatedEventsArray = [...newEvents, newEv];
-        
-        // Save history
-        saveHistory(updatedEventsArray, eventZOrder, projects);
-        
+        updatedEventsArray = [...newEvents, newEv];
         return updatedEventsArray;
+      });
+
+      // Save history (outside setEvents to avoid "Cannot update component while rendering")
+      queueMicrotask(() => {
+        saveHistory(updatedEventsArray, eventZOrder, projects);
       });
 
       // 🔄 Background save
@@ -219,7 +226,8 @@ export function useSchedulerEventActions({
       setEvents,
       setPendingEventIds,
       updateHistoryEventId,
-      flushPendingChanges
+      flushPendingChanges,
+      resetDeltaSyncTimer
     ]
   );
 
@@ -539,14 +547,8 @@ export function useSchedulerEventActions({
       updateHistoryEventId(tempEvent.id, createdEvent.id);
       console.log(`📝 History: updated ID ${tempEvent.id} → ${createdEvent.id} (paste)`);
       
-      await new Promise<void>(resolve => {
-        setEvents(currentEvents => {
-          console.log('📝 History: save after paste');
-          saveHistory(currentEvents, eventZOrder, projects);
-          resolve();
-          return currentEvents;
-        });
-      });
+      // Save history after paste (use queueMicrotask to avoid "Cannot update component while rendering")
+      saveHistory(events, eventZOrder, projects);
     } catch (error) {
       console.error("❌ Error pasting event:", error);
     }
@@ -558,10 +560,10 @@ export function useSchedulerEventActions({
     createEvent,
     workspace.id,
     updateHistoryEventId,
-    setEvents,
     saveHistory,
     eventZOrder,
     projects,
+    events,
     setEmptyCellContextMenu,
     setHoverHighlight
   ]);
@@ -596,15 +598,17 @@ export function useSchedulerEventActions({
         updateHistoryEventId(tempEvent.id, createdEvent.id);
         console.log(`📝 History: updated ID ${tempEvent.id} → ${createdEvent.id} (create from modal)`);
 
-        await new Promise<void>(resolve => {
-          setEvents(currentEvents => {
-            const fixedEvents = currentEvents.map(e => e.id === tempEvent.id ? createdEvent : e);
-            
-            console.log('📝 History: save after create (modal)');
-            saveHistory(fixedEvents, eventZOrder, projects);
-            resolve();
-            return fixedEvents;
-          });
+        // Replace temp event with real one
+        let fixedEvents: SchedulerEvent[] = [];
+        setEvents(currentEvents => {
+          fixedEvents = currentEvents.map(e => e.id === tempEvent.id ? createdEvent : e);
+          return fixedEvents;
+        });
+        
+        // Save history outside setEvents to avoid "Cannot update component while rendering"
+        console.log('📝 History: save after create (modal)');
+        queueMicrotask(() => {
+          saveHistory(fixedEvents, eventZOrder, projects);
         });
       } catch (error) {
         console.error("❌ Error creating event:", error);

@@ -48,6 +48,33 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
   >(null);
   const [resendTimer, setResendTimer] = useState(0);
 
+  // Helper function to fetch OTP rate limit from server
+  const fetchOTPRateLimit = async (emailToCheck: string) => {
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-73d66528/auth/otp-rate-limit/${encodeURIComponent(emailToCheck)}`,
+        {
+          headers: {
+            Authorization: `Bearer ${publicAnonKey}`,
+          },
+        },
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.remainingSeconds > 0) {
+          console.log(
+            `⏱️ Синхронизация таймера с сервером: ${data.remainingSeconds} сек`,
+          );
+          setResendTimer(data.remainingSeconds);
+        }
+      }
+    } catch (err) {
+      console.error("Ошибка проверки rate limit:", err);
+      // Не показываем ошибку пользователю, просто не обновляем таймер
+    }
+  };
+
   // Helper function to safely parse JSON response
   const safeJsonParse = async (response: Response) => {
     const contentType = response.headers.get("content-type");
@@ -88,12 +115,21 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
     return () => clearInterval(interval);
   }, [resendTimer]);
 
+  // Fetch rate limit when entering OTP mode
+  useEffect(() => {
+    if (mode === "verify-otp" && email) {
+      fetchOTPRateLimit(email);
+    }
+  }, [mode, email]);
+
   const validateEmail = (email: string): boolean => {
     const trimmedEmail = email.toLowerCase().trim();
     if (trimmedEmail.includes(" ")) return false;
-    if (!trimmedEmail.endsWith("@kode.ru")) return false;
-    const localPart = trimmedEmail.replace("@kode.ru", "");
-    if (!localPart || localPart.length === 0) return false;
+    const atIndex = trimmedEmail.indexOf("@");
+    if (atIndex < 1) return false;
+    const localPart = trimmedEmail.substring(0, atIndex);
+    const domain = trimmedEmail.substring(atIndex + 1);
+    if (!domain || !domain.includes(".")) return false;
     if (!/^[a-z]/.test(localPart)) return false;
     if (localPart.length === 1) {
       return /^[a-z]$/.test(localPart);
@@ -232,7 +268,7 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
 
       if (!validateEmail(email)) {
         setError(
-          "Неверный формат email. Email должен начинаться с буквы до @kode.ru",
+          "Неверный формат email",
         );
         setIsLoading(false);
         return;
@@ -268,10 +304,7 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
       } else if (result.requiresOTP) {
         // Старая логика с OTP (для обратной совместимости)
         setMode("verify-otp");
-        setMessage(
-          result.message ||
-            "Код подтверждения отправлен на ваш email",
-        );
+        setMessage("Код подтверждения отправлен");
         setResendTimer(120);
       } else if (result.requiresSignIn) {
         // Пользователь создан, но нужно войти вручную
@@ -356,7 +389,7 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
     try {
       if (!validateEmail(email)) {
         setError(
-          "Неверный формат email. Email должен начинаться с буквы до @kode.ru",
+          "Неверный формат email",
         );
         setIsLoading(false);
         return;
@@ -473,25 +506,12 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
         data.session_id,
       );
     } catch (err: any) {
-      if (
-        err.message?.includes("expired") ||
-        err.message?.includes("invalid")
-      ) {
-        setError(
-          "⏰ Код подтверждения истёк. Запросите новый код.",
-        );
-        setOtp("");
-      } else if (err.message?.includes("Неверный код")) {
-        setError(
-          "❌ Неверный код подтверждения. Проверьте email и попробуйте снова.",
-        );
-        setOtp("");
-      } else {
-        setError(
-          err.message ||
-            "Ошибка проверки кода. Попробуйте запросить новый код.",
-        );
-      }
+      // Упрощённая обработка: показываем сообщение от сервера как есть
+      setError(
+        err.message ||
+          "Ошибка проверки кода. Попробуйте запросить новый код.",
+      );
+      setOtp("");
     } finally {
       setIsLoading(false);
     }
@@ -545,7 +565,7 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
                         "Email должен быть @kode.ru",
                       )
                     ) {
-                      return "Используйте корпоративную почту @kode.ru для входа";
+                      return "Неверный формат email";
                     }
                     if (
                       error.includes("Код подтверждения истек")
@@ -630,15 +650,6 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
                 />
                 <div className="flex justify-between text-xs text-muted-foreground px-1">
                   <span>Отправлено на {email}</span>
-                  {resendTimer > 0 && (
-                    <span className="flex items-center text-amber-600">
-                      <Clock className="w-3 h-3 mr-1" />{" "}
-                      {Math.floor(resendTimer / 60)}:
-                      {(resendTimer % 60)
-                        .toString()
-                        .padStart(2, "0")}
-                    </span>
-                  )}
                 </div>
               </div>
 
@@ -696,7 +707,7 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
                       onChange={(e) =>
                         setEmail(e.target.value.toLowerCase())
                       }
-                      placeholder="Email (@kode.ru)"
+                      placeholder="Email"
                       required
                       autoComplete="email"
                       className="pl-12"
@@ -721,19 +732,6 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
                     />
                   </div>
                 </div>
-              </div>
-              {/* Helper text for demo */}
-              <div className="text-center">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEmail("test@kode.ru");
-                    setPassword("test123");
-                  }}
-                  className="text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors"
-                >
-                  Заполнить тестовые данные
-                </button>
               </div>
               <Button
                 type="submit"
@@ -801,7 +799,7 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
                   onChange={(e) =>
                     setEmail(e.target.value.toLowerCase())
                   }
-                  placeholder="Email (@kode.ru)"
+                  placeholder="Email"
                   required
                 />
 
@@ -853,7 +851,7 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
 
         {/* Footer info */}
         <div className="text-center mt-8 text-xs text-muted-foreground opacity-60">
-          <p>© 2026 Planaro. Внутренний сервис Kode.</p>
+          <p>&copy; 2026 Planaro</p>
         </div>
       </div>
     </div>

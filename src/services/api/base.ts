@@ -76,10 +76,6 @@ export async function apiRequest<T>(
       
       const url = `${BASE_URL}${endpoint}`;
       
-      if (attempt === 0) {
-        console.log(`🌐 API Request: ${method} ${endpoint}`);
-      }
-      
       // ⏱️ Timeout защита с AbortController
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeout);
@@ -165,13 +161,9 @@ export async function apiRequest<T>(
             
             // If refresh failed or we are out of retries, THEN logout
             if (attempt >= retries) {
-              console.error('❌ Failed to refresh token and retries exhausted, logging out...');
-              const { removeStorageItem } = await import('../../utils/storage');
-              await removeStorageItem('auth_access_token');
-              await removeStorageItem('auth_session_id');
-              await removeStorageItem('cache_workspaces_list');
-              
-              window.location.reload();
+              console.error('❌ Failed to refresh token and retries exhausted. Пусть App.tsx обновит токен.');
+              // НЕ делаем window.location.reload() - это прерывает работу пользователя
+              // Периодический refresh в App.tsx (каждые 2 мин) обновит токен
             }
             
             // If we are here, we might be retrying (continue hit above) or throwing
@@ -206,17 +198,16 @@ export async function apiRequest<T>(
       }
     } catch (error) {
       if (error instanceof TypeError && error.message === 'Failed to fetch') {
-        console.error(`❌ Failed to fetch (попытка ${attempt + 1}/${retries + 1})`);
-        
-        // Retry на Failed to fetch
+        // Тихий retry — логируем ошибку только на последней попытке
         if (attempt < retries) {
           const delayMs = retryDelay * Math.pow(2, attempt);
-          console.log(`⏳ Повтор через ${delayMs}ms...`);
+          console.debug(`🔄 Retry ${attempt + 1}/${retries} через ${delayMs}ms (Failed to fetch)`);
           await delay(delayMs);
           lastError = error;
           continue;
         }
         
+        console.error(`❌ Сервер недоступен после ${retries + 1} попыток`);
         throw new Error(`Сервер недоступен после ${retries + 1} попыток`);
       }
       
@@ -267,10 +258,6 @@ export async function apiRequestNoResponse(
       }
       
       const url = `${BASE_URL}${endpoint}`;
-      
-      if (attempt === 0) {
-        console.log(`🌐 API Request (NoResp): ${method} ${endpoint}`);
-      }
       
       // ⏱️ Timeout защита с AbortController
       const controller = new AbortController();
@@ -347,12 +334,9 @@ export async function apiRequestNoResponse(
             }
             
             if (attempt >= retries) {
-              console.error('❌ Failed to refresh token and retries exhausted, logging out...');
-              const { removeStorageItem } = await import('../../utils/storage');
-              await removeStorageItem('auth_access_token');
-              await removeStorageItem('auth_session_id');
-              await removeStorageItem('cache_workspaces_list');
-              window.location.reload();
+              console.error('❌ Failed to refresh token and retries exhausted. Пусть App.tsx обновит токен.');
+              // НЕ делаем window.location.reload() - это прерывает работу пользователя
+              // Периодический refresh в App.tsx (каждые 2 мин) обновит токен
             }
           }
           
@@ -382,16 +366,15 @@ export async function apiRequestNoResponse(
       }
     } catch (error) {
       if (error instanceof TypeError && error.message === 'Failed to fetch') {
-        console.error(`❌ Failed to fetch (попытка ${attempt + 1}/${retries + 1})`);
-        
         if (attempt < retries) {
           const delayMs = retryDelay * Math.pow(2, attempt);
-          console.log(`⏳ Повтор через ${delayMs}ms...`);
+          console.debug(`🔄 Retry ${attempt + 1}/${retries} через ${delayMs}ms (Failed to fetch)`);
           await delay(delayMs);
           lastError = error;
           continue;
         }
         
+        console.error(`❌ Сервер недоступен после ${retries + 1} попыток`);
         throw new Error(`Сервер недоступен после ${retries + 1} попыток`);
       }
       

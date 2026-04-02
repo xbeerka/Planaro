@@ -161,6 +161,7 @@ export function WorkspaceManagementWrapper({
       isOpen={true}
       onClose={onClose}
       isLoading={isLoading}
+      workspaceId={String(workspace.id)}
       workspaceName={workspace.name}
       workspaceYear={workspace.timeline_year}
       onUpdateWorkspaceName={handleUpdateWorkspaceName}

@@ -1,0 +1,322 @@
+[
+  {
+    "event_message": "--> GET /make-server-73d66528/organizations/2/members 200 679ms\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "7a952747-32c1-4214-9472-b5194b3c977a",
+    "level": "info",
+    "timestamp": 1774958167198000
+  },
+  {
+    "event_message": "✅ organization 2: 2 members, 0 pending invites\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "222756c7-30ce-43da-a13e-bec2d921e933",
+    "level": "info",
+    "timestamp": 1774958167197000
+  },
+  {
+    "event_message": "--> GET /make-server-73d66528/organizations/2 200 485ms\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "1e6c0035-5df6-4298-b50a-546fc31d92f9",
+    "level": "info",
+    "timestamp": 1774958167123000
+  },
+  {
+    "event_message": "👥 Запрос участников organization 2\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "d8aa7f18-abad-4d6d-ae99-057531ee7e64",
+    "level": "info",
+    "timestamp": 1774958166661000
+  },
+  {
+    "event_message": "<-- GET /make-server-73d66528/organizations/2\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "d4d50ddd-e373-4653-bd67-a13a025f6574",
+    "level": "info",
+    "timestamp": 1774958166637000
+  },
+  {
+    "event_message": "<-- GET /make-server-73d66528/organizations/2/members\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "718d8bb6-d206-4f33-9030-45a0af733a9e",
+    "level": "info",
+    "timestamp": 1774958166519000
+  },
+  {
+    "event_message": "--> GET /make-server-73d66528/organizations/3/members 200 716ms\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "daae82e8-6596-4c12-8ca5-aafa3f353a36",
+    "level": "info",
+    "timestamp": 1774958073601000
+  },
+  {
+    "event_message": "✅ organization 3: 1 members, 1 pending invites\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "f9dbc27c-5955-403f-8440-b17a32809179",
+    "level": "info",
+    "timestamp": 1774958073600000
+  },
+  {
+    "event_message": "👥 Запрос участников organization 3\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "2b794546-89d5-40ad-916b-b677ea4f9cf5",
+    "level": "info",
+    "timestamp": 1774958073042000
+  },
+  {
+    "event_message": "<-- GET /make-server-73d66528/organizations/3/members\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "238ae8dd-728e-40ed-9084-341ab0e69dc1",
+    "level": "info",
+    "timestamp": 1774958072885000
+  },
+  {
+    "event_message": "--> POST /make-server-73d66528/organizations/3/members 200 2s\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "9139275a-99ff-408d-81d8-5f07253f3409",
+    "level": "info",
+    "timestamp": 1774958072494000
+  },
+  {
+    "event_message": "📨 Приглашение 1 → organization 3, роль: viewer\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "5826f1b0-1ab3-4efc-9c97-bfa0c4a844e5",
+    "level": "info",
+    "timestamp": 1774958070311000
+  },
+  {
+    "event_message": "<-- POST /make-server-73d66528/organizations/3/members\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "f00c07d5-9214-4465-8294-d98ce3576797",
+    "level": "info",
+    "timestamp": 1774958070037000
+  },
+  {
+    "event_message": "--> DELETE /make-server-73d66528/organizations/3/invites/9 200 1s\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "9adee14a-0f5d-4f8b-b7c0-d9e9335d8f7d",
+    "level": "info",
+    "timestamp": 1774958059604000
+  },
+  {
+    "event_message": "✅ Invite 9 отозван из organization 3\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "9e40c9c4-d843-40d8-bffa-26811b56eee5",
+    "level": "info",
+    "timestamp": 1774958059603000
+  },
+  {
+    "event_message": "<-- DELETE /make-server-73d66528/organizations/3/invites/9\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "742dc294-9de6-4696-be81-8f798fd72e09",
+    "level": "info",
+    "timestamp": 1774958058598000
+  },
+  {
+    "event_message": "--> OPTIONS /make-server-73d66528/organizations/3/invites/9 204 1ms\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "be711135-261a-49df-a4aa-627de864f755",
+    "level": "info",
+    "timestamp": 1774958058087000
+  },
+  {
+    "event_message": "<-- OPTIONS /make-server-73d66528/organizations/3/invites/9\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "c4c9c567-63e3-4395-921e-16f4ad890475",
+    "level": "info",
+    "timestamp": 1774958058086000
+  },
+  {
+    "event_message": "--> GET /make-server-73d66528/organizations/3/members 200 753ms\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "aeb571ad-3fdc-42c8-b2da-d205537ab6e2",
+    "level": "info",
+    "timestamp": 1774958055405000
+  },
+  {
+    "event_message": "✅ organization 3: 1 members, 1 pending invites\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "e64fd6ce-9ef9-4ece-8c42-8cfa94799627",
+    "level": "info",
+    "timestamp": 1774958055404000
+  },
+  {
+    "event_message": "--> GET /make-server-73d66528/organizations/3 200 353ms\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "e28533f0-a5bc-43ba-9e2a-51a0f9e28c39",
+    "level": "info",
+    "timestamp": 1774958054960000
+  },
+  {
+    "event_message": "👥 Запрос участников organization 3\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "5bbf3feb-50b9-4060-8562-351ae281f7c2",
+    "level": "info",
+    "timestamp": 1774958054784000
+  },
+  {
+    "event_message": "<-- GET /make-server-73d66528/organizations/3/members\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "19ed2c02-8200-4304-9f4e-2f50238112aa",
+    "level": "info",
+    "timestamp": 1774958054652000
+  },
+  {
+    "event_message": "<-- GET /make-server-73d66528/organizations/3\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "b8756a5e-a44f-4ad6-abed-08627b7c5a4f",
+    "level": "info",
+    "timestamp": 1774958054607000
+  },
+  {
+    "event_message": "--> GET /make-server-73d66528/organizations/3/members 200 637ms\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "f35cd532-ba66-468e-9883-d241d9bc0924",
+    "level": "info",
+    "timestamp": 1774958049861000
+  },
+  {
+    "event_message": "✅ organization 3: 1 members, 1 pending invites\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "033e35b3-5c69-4a83-9d18-a7cd84eaf778",
+    "level": "info",
+    "timestamp": 1774958049860000
+  },
+  {
+    "event_message": "👥 Запрос участников organization 3\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "7d89c0ba-8eb0-4f43-9060-f5efa14558ac",
+    "level": "info",
+    "timestamp": 1774958049377000
+  },
+  {
+    "event_message": "<-- GET /make-server-73d66528/organizations/3/members\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "3821055b-c7be-453b-88df-4f94ff34ed92",
+    "level": "info",
+    "timestamp": 1774958049224000
+  },
+  {
+    "event_message": "--> GET /make-server-73d66528/organizations/2/members 200 629ms\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "8022d954-a0db-43f6-8e7f-1ae2d112b61a",
+    "level": "info",
+    "timestamp": 1774958046466000
+  },
+  {
+    "event_message": "✅ organization 2: 2 members, 0 pending invites\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "2b297691-26f7-44a8-b70b-02c65c1708f8",
+    "level": "info",
+    "timestamp": 1774958046464000
+  },
+  {
+    "event_message": "👥 Запрос участников organization 2\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "f0a78b20-4070-458a-990f-20505cd72c81",
+    "level": "info",
+    "timestamp": 1774958045975000
+  },
+  {
+    "event_message": "<-- GET /make-server-73d66528/organizations/2/members\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "8a329723-237b-4477-b471-346f19a88f03",
+    "level": "info",
+    "timestamp": 1774958045837000
+  },
+  {
+    "event_message": "--> GET /make-server-73d66528/organizations/2 200 416ms\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "b97ac21d-bc38-4807-ac31-98dcf1b4c42a",
+    "level": "info",
+    "timestamp": 1774958045827000
+  },
+  {
+    "event_message": "--> GET /make-server-73d66528/organizations/2/members 200 809ms\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "7db48673-db3e-4768-9846-d7d9d24ef342",
+    "level": "info",
+    "timestamp": 1774958045485000
+  },
+  {
+    "event_message": "✅ organization 2: 2 members, 0 pending invites\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "625a2e71-c595-4332-9f05-f6d69bd5e088",
+    "level": "info",
+    "timestamp": 1774958045483000
+  },
+  {
+    "event_message": "<-- GET /make-server-73d66528/organizations/2\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "3b10f337-772a-4e06-8b64-bcc70d09b8ae",
+    "level": "info",
+    "timestamp": 1774958045411000
+  },
+  {
+    "event_message": "--> GET /make-server-73d66528/organizations/2 200 422ms\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "f165a403-198c-4114-b5c2-291896a19e17",
+    "level": "info",
+    "timestamp": 1774958045065000
+  },
+  {
+    "event_message": "👥 Запрос участников organization 2\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "4dd54259-8a1e-431d-a07f-44f8ba0fa715",
+    "level": "info",
+    "timestamp": 1774958044898000
+  },
+  {
+    "event_message": "<-- GET /make-server-73d66528/organizations/2/members\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "e1aa8d57-4da0-4bb4-bd94-482f49ba16cc",
+    "level": "info",
+    "timestamp": 1774958044675000
+  },
+  {
+    "event_message": "<-- GET /make-server-73d66528/organizations/2\n",
+    "event_type": "Log",
+    "function_id": "bfa815b9-99e9-466c-8392-53629433089f",
+    "id": "a00d7497-5a1b-4732-8cda-d32e1d22232f",
+    "level": "info",
+    "timestamp": 1774958044643000
+  }
+]

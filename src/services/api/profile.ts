@@ -1,4 +1,5 @@
 import { apiRequest } from './base';
+import { Profile } from '../../types/scheduler';
 
 export interface UpdateProfilePayload {
   display_name?: string;
@@ -7,6 +8,23 @@ export interface UpdateProfilePayload {
 
 export interface UploadAvatarResponse {
   avatarUrl: string;
+}
+
+// Ensure profile exists after login
+export async function ensureProfile(token?: string): Promise<Profile> {
+  return apiRequest<Profile>('/profile/ensure', {
+    method: 'POST',
+    body: {},
+    token
+  });
+}
+
+// Get current user profile
+export async function getProfile(token?: string): Promise<Profile> {
+  return apiRequest<Profile>('/profile', {
+    method: 'GET',
+    token
+  });
 }
 
 export async function uploadAvatar(file: File): Promise<string> {

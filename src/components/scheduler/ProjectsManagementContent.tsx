@@ -2,6 +2,7 @@ import {
   useState,
   useEffect,
   useMemo,
+  useRef,
   forwardRef,
   useImperativeHandle,
 } from "react";
@@ -58,6 +59,8 @@ interface LocalNewProject {
 
 export interface ProjectsManagementHandle {
   onAdd: () => void;
+  save: () => Promise<void>;
+  isSaving: boolean;
 }
 
 export const ProjectsManagementContent = forwardRef<
@@ -109,10 +112,25 @@ export const ProjectsManagementContent = forwardRef<
 
     useImperativeHandle(ref, () => ({
       onAdd: handleAddNewProject,
+      save: handleSave,
+      isSaving,
     }));
+
+    const hasInitializedRef = useRef(false);
+    const hasUserInteractedRef = useRef(false);
+
+    const getHasLocalChanges = () => {
+      return localNewProjects.length > 0 || 
+             deletedProjectIds.length > 0 || 
+             hasUserInteractedRef.current;
+    };
 
     // Initialize editing state
     useEffect(() => {
+      if (hasInitializedRef.current && getHasLocalChanges()) {
+        return;
+      }
+
       const initialState: Record<
         string,
         {
@@ -131,10 +149,16 @@ export const ProjectsManagementContent = forwardRef<
         };
       });
       setEditingProjects(initialState);
-      setLocalNewProjects([]);
-      setDeletedProjectIds([]);
-      setColorGenConfirmed(false);
-      setEditColorGenConfirmed(false);
+      
+      if (!hasInitializedRef.current && !getHasLocalChanges()) {
+        setLocalNewProjects([]);
+        setDeletedProjectIds([]);
+        setColorGenConfirmed(false);
+        setEditColorGenConfirmed(false);
+      }
+      
+      hasUserInteractedRef.current = false;
+      hasInitializedRef.current = true;
     }, [projects]);
 
     // Track changes
@@ -256,6 +280,7 @@ export const ProjectsManagementContent = forwardRef<
       field: string,
       value: string,
     ) => {
+      hasUserInteractedRef.current = true;
       setLocalNewProjects((prev) =>
         prev.map((p) =>
           p.tempId === tempId ? { ...p, [field]: value } : p,
@@ -264,6 +289,7 @@ export const ProjectsManagementContent = forwardRef<
     };
 
     const handleNewProjectColorGen = (tempId: string) => {
+      hasUserInteractedRef.current = true;
       if (!colorGenConfirmed) {
         const confirmed = window.confirm(
           "🎨 Автоматическая генерация цветов и паттерна\n\n" +
@@ -287,6 +313,7 @@ export const ProjectsManagementContent = forwardRef<
     };
 
     const handleDeleteNewProject = (tempId: string) => {
+      hasUserInteractedRef.current = true;
       setLocalNewProjects((prev) =>
         prev.filter((p) => p.tempId !== tempId),
       );
@@ -295,6 +322,7 @@ export const ProjectsManagementContent = forwardRef<
     const handleEditingColorPreviewClick = (
       projectId: string,
     ) => {
+      hasUserInteractedRef.current = true;
       if (!editColorGenConfirmed) {
         const confirmed = window.confirm(
           "🎨 Автоматическая генерация цветов и паттерна\n\n" +
@@ -327,6 +355,7 @@ export const ProjectsManagementContent = forwardRef<
       field: string,
       value: string,
     ) => {
+      hasUserInteractedRef.current = true;
       setEditingProjects((prev) => {
         const currentData = prev[projectId] || { name: "" }; // Защита от undefined
         return {
@@ -340,6 +369,7 @@ export const ProjectsManagementContent = forwardRef<
     };
 
     const handleDelete = (projectId: string) => {
+      hasUserInteractedRef.current = true;
       const project = projects.find((p) => p.id === projectId);
       if (!project) return;
 
@@ -668,6 +698,7 @@ export const ProjectsManagementContent = forwardRef<
                     setSearchQuery(e.target.value)
                   }
                   className="flex-1 py-2 pr-3 bg-transparent border-none focus:outline-none text-[14px]"
+                  data-search-focus="100"
                 />
                 {searchQuery && (
                   <button
@@ -1022,23 +1053,6 @@ export const ProjectsManagementContent = forwardRef<
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="border-t bg-gray-50 px-6 py-4 flex items-center justify-end gap-3">
-          <button
-            onClick={handleSave}
-            disabled={isSaving}
-            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isSaving ? (
-              <>
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                Сохранение...
-              </>
-            ) : (
-              "Сохранить"
-            )}
-          </button>
-        </div>
       </>
     );
   },

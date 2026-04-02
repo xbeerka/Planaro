@@ -109,18 +109,7 @@ export function usePanning(
         ? scrollable.className
         : String(scrollable.className);
 
-      console.log('🖱️ Panning started:', {
-        button: e.button,
-        buttonName: isMiddle ? 'middle' : 'space+left',
-        startX: e.clientX,
-        startY: e.clientY,
-        initialScrollLeft: scrollable.scrollLeft,
-        initialScrollTop: scrollable.scrollTop,
-        targetTagName: target.tagName,
-        targetClass: targetClassName,
-        scrollableTagName: scrollable.tagName,
-        scrollableClassName: scrollableClassName
-      });
+      // Panning started log removed to reduce noise
     };
 
     const handleMouseMove = (e: MouseEvent) => {
@@ -146,19 +135,7 @@ export function usePanning(
       scrollable.scrollLeft = newScrollLeft;
       scrollable.scrollTop = newScrollTop;
       
-      // Debug log every 100ms
-      if (Math.abs(dx) % 50 < 5 || Math.abs(dy) % 50 < 5) {
-        console.log('🖱️ Panning move:', {
-          dx,
-          dy,
-          startScrollLeft,
-          startScrollTop,
-          calcScrollLeft: newScrollLeft,
-          calcScrollTop: newScrollTop,
-          actualScrollLeft: scrollable.scrollLeft,
-          actualScrollTop: scrollable.scrollTop
-        });
-      }
+      // Debug log removed to reduce noise (was logging every mouse move)
     };
 
     const handleMouseUp = (e: MouseEvent) => {
@@ -177,8 +154,6 @@ export function usePanning(
         } else {
           document.body.style.cursor = '';
         }
-        
-        console.log('🖱️ Panning ended');
       }
     };
     

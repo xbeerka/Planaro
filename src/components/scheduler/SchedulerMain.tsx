@@ -18,7 +18,6 @@ import { useSchedulerEventActions } from "../../hooks/useSchedulerEventActions";
 import { useToast } from "../ui/ToastContext";
 import { useIsTouchDevice } from "../../hooks/useIsTouchDevice";
 import { SchedulerEvent as SchedulerEventComponent } from "./SchedulerEvent";
-import { RealtimeCursors } from "./RealtimeCursors";
 import { SchedulerModals } from "./SchedulerModals";
 import { SchedulerContextMenus } from "./SchedulerContextMenus";
 import { SchedulerToolbar } from "./SchedulerToolbar";
@@ -38,6 +37,7 @@ import {
 import {
   projectId,
 } from "../../utils/supabase/info";
+import { supabaseClient, setSupabaseAuth } from "../../utils/supabase/client";
 import {
   generateMonths,
   getCurrentWeekIndex,
@@ -63,6 +63,14 @@ import {
   getAvailableFreeSpace,
 } from "../../utils/schedulerLayout";
 import { smartSearch } from "../../utils/search";
+import { offWeeksApi } from "../../services/api/offWeeks";
+import { updateWorkspace } from "../../services/api/workspaces";
+import { removeStorageItem } from "../../utils/storage";
+import { getEffectiveRole, canEdit } from "../../utils/workspaceRole";
+import type { EffectiveRole } from "../../utils/workspaceRole";
+import { workspaceMembersApi } from "../../services/api/workspaceMembers";
+import { getUserIdFromToken } from "../../utils/jwt";
+import { ShareWorkspaceModal } from "../workspace/ShareWorkspaceModal";
 
 interface SchedulerMainProps {
   accessToken: string | null;
@@ -132,6 +140,7 @@ export function SchedulerMain({
     loadedEventIds,
     queueChange,
     setHistoryIdUpdater,
+    setHistoryRebasers,
     createGrade,
     updateGrade,
     deleteGrade,
@@ -143,6 +152,7 @@ export function SchedulerMain({
     loadCompanies,
     updateCompaniesSortOrder,
     loadResources,
+    resetResourcesSyncTimer
   } = useScheduler();
 
   const sortedDepartments = useMemo(() => {
@@ -162,12 +172,128 @@ export function SchedulerMain({
   
   const isTouchDevice = useIsTouchDevice(); // ✅ Detect touch device (Tablet/Mobile)
 
+  // 🔐 Role-based access control
+  // 1. Попробуем из метаданных воркспейса (мгновенно, если пришли с WorkspaceListScreen)
+  // 2. Если нет метаданных (загрузка по URL) — фетчим через members API
+  const [fetchedRole, setFetchedRole] = useState<EffectiveRole | null>(null);
+  
+  const metadataRole = useMemo(() => getEffectiveRole(workspace), [workspace]);
+  
+  useEffect(() => {
+    // Если метаданные есть — не нужно фетчить
+    if (metadataRole !== null) {
+      setFetchedRole(null);
+      return;
+    }
+    // Нет метаданных — определяем роль через API
+    if (!workspace?.id || workspace.id === 'loading' || !accessToken) return;
+    
+    const userId = getUserIdFromToken(accessToken);
+    if (!userId) return;
+    
+    console.log('🔐 Роль не определена из метаданных, фетчим через members API...');
+    
+    workspaceMembersApi.getMembers(workspace.id, accessToken)
+      .then((members) => {
+        const me = members.find(m => m.user_id === userId);
+        if (me) {
+          const role: EffectiveRole = me.role === 'viewer' ? 'viewer' : me.role === 'owner' ? 'owner' : 'editor';
+          console.log(`🔐 Роль определена через API: ${role}`);
+          setFetchedRole(role);
+        } else {
+          // Пользователь не найден в members — возможно owner через org
+          // Проверяем created_by
+          if (workspace.created_by === userId) {
+            console.log('🔐 Роль определена: owner (created_by)');
+            setFetchedRole('owner');
+          } else {
+            // Fallback: если мы вообще можем видеть воркспейс — минимум viewer
+            console.log('🔐 Роль определена: viewer (fallback)');
+            setFetchedRole('viewer');
+          }
+        }
+      })
+      .catch((err) => {
+        console.error('❌ Ошибка определения роли:', err);
+        // При ошибке — блокируем редактирование (безопасный fallback)
+        setFetchedRole('viewer');
+      });
+  }, [workspace?.id, workspace?.created_by, metadataRole, accessToken]);
+  
+  const effectiveRole = metadataRole ?? fetchedRole;
+  const isViewer = !canEdit(effectiveRole);
+
   useEffect(() => {
     document.body.style.overflow = 'hidden';
     return () => {
       document.body.style.overflow = '';
     };
   }, []);
+
+  // 🔐 Viewer mode: добавляем класс на body для CSS-управления курсорами
+  useEffect(() => {
+    if (isViewer) {
+      document.body.classList.add('viewer-mode');
+    } else {
+      document.body.classList.remove('viewer-mode');
+    }
+    return () => {
+      document.body.classList.remove('viewer-mode');
+    };
+  }, [isViewer]);
+
+  // 📡 Realtime: подписка на изменения текущего воркспейса (имя, год)
+  const workspaceRef = useRef(workspace);
+  workspaceRef.current = workspace;
+  const onWorkspaceUpdateRef = useRef(onWorkspaceUpdate);
+  onWorkspaceUpdateRef.current = onWorkspaceUpdate;
+
+  useEffect(() => {
+    if (!workspace?.id || !onWorkspaceUpdate) return;
+
+    const workspaceId = String(workspace.id);
+    const lastLocalChangeTs = { current: 0 };
+
+    const channel = supabaseClient
+      .channel(`workspace-${workspaceId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'workspaces',
+          filter: `id=eq.${workspaceId}`,
+        },
+        (payload) => {
+          // Cooldown: skip if we just made a local change
+          if (Date.now() - lastLocalChangeTs.current < 3000) return;
+
+          const row = payload.new as any;
+          const newName = row.name || '';
+          const newYear = row.timeline_year || workspaceRef.current.timeline_year;
+          const ws = workspaceRef.current;
+
+          if (newName !== ws.name || newYear !== ws.timeline_year) {
+            onWorkspaceUpdateRef.current?.({
+              ...ws,
+              name: newName,
+              timeline_year: newYear,
+              updated_at: row.updated_at || ws.updated_at,
+            });
+            document.title = `${newName} - Planaro`;
+          }
+        }
+      )
+      .subscribe();
+
+    // Expose cooldown ref for local rename handler
+    (window as any).__wsRealtimeCooldown = lastLocalChangeTs;
+
+    return () => {
+      supabaseClient.removeChannel(channel);
+      delete (window as any).__wsRealtimeCooldown;
+    };
+  }, [workspace?.id]); // Only re-subscribe when workspace ID changes
 
   const {
     isLoading,
@@ -239,6 +365,99 @@ export function SchedulerMain({
   } | null>(null);
   const eventsContainerRef = useRef<HTMLDivElement>(null);
   
+  // 📅 Off weeks (выходные недели)
+  const [offWeekNumbers, setOffWeekNumbers] = useState<Set<number>>(new Set());
+  
+  // 📤 Share modal
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  
+  // 📡 Realtime: подписка на access_changed (удаление/смена роли)
+  useEffect(() => {
+    if (!accessToken) return;
+    const userId = getUserIdFromToken(accessToken);
+    if (!userId) return;
+
+    const channelName = `notifications:user:${userId}`;
+
+
+    let channelInstance: any = null;
+    let cancelled = false;
+
+    const init = async () => {
+      await setSupabaseAuth(accessToken);
+      if (cancelled) return;
+
+      channelInstance = supabaseClient
+        .channel(channelName)
+        .on('broadcast', { event: 'access_changed' }, (msg) => {
+          const payload = msg.payload as any;
+          console.log('🔐 SchedulerMain: access_changed received', payload);
+
+          const wsId = String(workspace.id);
+          const isThisWorkspace = payload.workspace_id && String(payload.workspace_id) === wsId;
+          // Проверяем принадлежность воркспейса к организации
+          const wsOrgId = workspace.organization_id || workspace._org_id;
+          const isThisOrg = payload.scope === 'organization' && payload.organization_id && wsOrgId && String(payload.organization_id) === String(wsOrgId);
+
+          if (payload.action === 'removed' && (isThisWorkspace || isThisOrg)) {
+            console.log('🔐 Доступ отозван — возвращаемся к списку воркспейсов');
+            showToast({
+              type: 'warning',
+              message: 'Доступ отозван',
+              description: isThisOrg
+                ? 'Вас удалили из организации'
+                : 'Вас удалили из этого пространства',
+            });
+            setTimeout(() => onBackToWorkspaces(), 1500);
+          } else if (payload.action === 'role_changed' && (isThisWorkspace || isThisOrg)) {
+            const roleLabel = payload.new_role === 'editor' ? 'Редактор' : payload.new_role === 'viewer' ? 'Просмотр' : payload.new_role;
+            showToast({
+              type: 'info',
+              message: 'Роль изменена',
+              description: `Ваша роль изменена на «${roleLabel}»`,
+            });
+            setTimeout(() => window.location.reload(), 1500);
+          }
+        })
+        .subscribe((status) => {
+
+        });
+    };
+
+    init();
+
+    return () => {
+      cancelled = true;
+      if (channelInstance) {
+        supabaseClient.removeChannel(channelInstance);
+      }
+    };
+  }, [accessToken, workspace.id, onBackToWorkspaces, showToast]);
+
+  useEffect(() => {
+    if (!workspace?.id || workspace.id === 'loading') return;
+    const wid = String(workspace.id);
+    offWeeksApi.list(wid)
+      .then((data) => {
+        const nums = new Set(data.map((ow) => ow.week_number));
+        setOffWeekNumbers(nums);
+
+      })
+      .catch((err) => console.error('❌ Failed to load off weeks:', err));
+  }, [workspace?.id]);
+
+  const reloadOffWeeks = useCallback(() => {
+    if (!workspace?.id || workspace.id === 'loading') return;
+    const wid = String(workspace.id);
+    offWeeksApi.list(wid)
+      .then((data) => {
+        const nums = new Set(data.map((ow: any) => ow.week_number));
+        setOffWeekNumbers(nums);
+        console.log(`📅 Off weeks перезагружены: ${nums.size}`);
+      })
+      .catch((err) => console.error('❌ Failed to reload off weeks:', err));
+  }, [workspace?.id]);
+
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (gridRef.current?.scrollContainer) {
@@ -396,6 +615,9 @@ export function SchedulerMain({
     canRedo,
     resetHistory,
     updateHistoryEventId,
+    rebaseEvent,
+    rebaseDeleteEvent,
+    rebaseInsertEvent,
     getSnapshot,
   } = useHistory([], []);
 
@@ -403,8 +625,13 @@ export function SchedulerMain({
     setHistoryIdUpdater(updateHistoryEventId);
   }, [setHistoryIdUpdater, updateHistoryEventId]);
 
-  const historyInitializedRef = useRef(false);
+  // 🔄 Регистрация rebase функций для Realtime
+  useEffect(() => {
+    setHistoryRebasers({ rebaseEvent, rebaseDeleteEvent, rebaseInsertEvent });
+  }, [setHistoryRebasers, rebaseEvent, rebaseDeleteEvent, rebaseInsertEvent]);
 
+  const historyInitializedRef = useRef(false);
+  
   React.useEffect(() => {
     const snapshot = getSnapshot();
     const historyEventsCount = snapshot.events.length;
@@ -461,16 +688,36 @@ export function SchedulerMain({
   }, [events.length, projects.length]);
 
   const handleUndo = useCallback(() => {
+    // ✅ v8.12: Блокируем Undo если есть события в процессе создания (ev_temp_) или pending
+    const hasPendingEvents = events.some(e => e.id.startsWith('ev_temp_')) || pendingEventIds.size > 0;
+    if (hasPendingEvents) {
+      console.log('⏸️ UNDO: Заблокировано - есть события в процессе создания/сохранения');
+      showToast({
+        type: 'warning',
+        message: 'Подождите',
+        description: 'Дождитесь завершения сохранения событий',
+      });
+      return;
+    }
+
     const state = historyUndo();
     if (!state) return;
 
     const currentEvents = events;
 
-    setEvents(state.events);
+    // ✅ Ддупликация: убираем дубликаты по ID (могут появиться из-за race condition rebaseInsert + updateHistoryEventId)
+    const seen = new Set<string>();
+    const dedupedEvents = state.events.filter(e => {
+      if (seen.has(e.id)) return false;
+      seen.add(e.id);
+      return true;
+    });
+
+    setEvents(dedupedEvents);
     setProjects(state.projects);
     setEventZOrder(state.eventZOrder);
 
-    const restoredIds = new Set(state.events.map(e => e.id));
+    const restoredIds = new Set(dedupedEvents.map(e => e.id));
 
     currentEvents.forEach(event => {
       if (!restoredIds.has(event.id)) {
@@ -479,7 +726,7 @@ export function SchedulerMain({
       }
     });
 
-    state.events.forEach(restoredEvent => {
+    dedupedEvents.forEach(restoredEvent => {
        const current = currentEvents.find(e => e.id === restoredEvent.id);
        if (!current) {
           queueChange(restoredEvent.id, 'create', restoredEvent);
@@ -493,19 +740,39 @@ export function SchedulerMain({
     resetDeltaSyncTimer();
     resetProjectsSyncTimer();
 
-  }, [historyUndo, events, setEvents, setProjects, setEventZOrder, queueChange, cancelPendingChange, resetDeltaSyncTimer, resetProjectsSyncTimer]);
+  }, [historyUndo, events, setEvents, setProjects, setEventZOrder, queueChange, cancelPendingChange, resetDeltaSyncTimer, resetProjectsSyncTimer, pendingEventIds, showToast]);
 
   const handleRedo = useCallback(() => {
+    // ✅ v8.12: Блокируем Redo если есть события в процессе создания (ev_temp_) или pending
+    const hasPendingEvents = events.some(e => e.id.startsWith('ev_temp_')) || pendingEventIds.size > 0;
+    if (hasPendingEvents) {
+      console.log('⏸️ REDO: Заблокировано - есть события в процессе создания/сохранения');
+      showToast({
+        type: 'warning',
+        message: 'Подождите',
+        description: 'Дождитесь завершения сохранения событий',
+      });
+      return;
+    }
+
     const state = historyRedo();
     if (!state) return;
 
     const currentEvents = events;
 
-    setEvents(state.events);
+    // ✅ Дедупликация
+    const seen = new Set<string>();
+    const dedupedEvents = state.events.filter(e => {
+      if (seen.has(e.id)) return false;
+      seen.add(e.id);
+      return true;
+    });
+
+    setEvents(dedupedEvents);
     setProjects(state.projects);
     setEventZOrder(state.eventZOrder);
 
-    const restoredIds = new Set(state.events.map(e => e.id));
+    const restoredIds = new Set(dedupedEvents.map(e => e.id));
 
     currentEvents.forEach(event => {
       if (!restoredIds.has(event.id)) {
@@ -514,7 +781,7 @@ export function SchedulerMain({
       }
     });
 
-    state.events.forEach(restoredEvent => {
+    dedupedEvents.forEach(restoredEvent => {
        const current = currentEvents.find(e => e.id === restoredEvent.id);
        if (!current) {
           queueChange(restoredEvent.id, 'create', restoredEvent);
@@ -528,7 +795,7 @@ export function SchedulerMain({
     resetDeltaSyncTimer();
     resetProjectsSyncTimer();
 
-  }, [historyRedo, events, setEvents, setProjects, setEventZOrder, queueChange, cancelPendingChange, resetDeltaSyncTimer, resetProjectsSyncTimer]);
+  }, [historyRedo, events, setEvents, setProjects, setEventZOrder, queueChange, cancelPendingChange, resetDeltaSyncTimer, resetProjectsSyncTimer, pendingEventIds, showToast]);
 
   const handleDeleteProject = useCallback(async (id: string) => {
     isUserProjectChangeRef.current = true;
@@ -549,6 +816,24 @@ export function SchedulerMain({
     setCommentMode(false);
   }, [setScissorsMode, setCommentMode]);
 
+  const isAnyModalOpen = useMemo(() => {
+    return modalOpen || 
+           commentModalOpen || 
+           managementModalOpen || 
+           shortcutsModalOpen || 
+           profileModalOpen || 
+           settingsModalOpen || 
+           workspaceManagementModalOpen;
+  }, [
+    modalOpen,
+    commentModalOpen,
+    managementModalOpen,
+    shortcutsModalOpen,
+    profileModalOpen,
+    settingsModalOpen,
+    workspaceManagementModalOpen
+  ]);
+
   const { isSpacePressed, isCtrlPressed } =
     useKeyboardShortcuts({
       onUndo: handleUndo,
@@ -559,6 +844,7 @@ export function SchedulerMain({
       onSetModeScissors: handleToggleScissors,
       onSetModeComment: handleToggleComment,
       schedulerRef,
+      isAnyModalOpen,
     });
 
   usePanning(scrollContainerRef, isSpacePressed);
@@ -582,7 +868,7 @@ export function SchedulerMain({
       }
 
       try {
-        console.log('💾 Auto-Backup: Triggering...');
+
         const { backupsApi } = await import('../../services/api/backups');
         await backupsApi.create(String(workspace.id));
       } catch (error) {
@@ -705,7 +991,14 @@ export function SchedulerMain({
 
   const handleCellMouseMove = useCallback(
     (e: React.MouseEvent, resourceId: string, week: number, explicitUnitIndex?: number) => {
+      if (isViewer) return; // 🔐 No hover highlight for viewers
       if (scissorsMode || contextMenu.isVisible || emptyCellContextMenu.isVisible || isUserInteractingRef.current) return;
+
+      // Block hover on off-weeks (week is 0-based, offWeekNumbers are 1-based)
+      if (offWeekNumbers.has(week + 1)) {
+        setHoverHighlight((prev) => ({ ...prev, visible: false }));
+        return;
+      }
 
       let unitIndex: number;
 
@@ -798,6 +1091,7 @@ export function SchedulerMain({
       }
     },
     [
+      isViewer,
       scissorsMode,
       commentMode,
       config,
@@ -807,7 +1101,8 @@ export function SchedulerMain({
       contextMenu.isVisible,
       emptyCellContextMenu.isVisible,
       isUserInteractingRef,
-      setHoverHighlight
+      setHoverHighlight,
+      offWeekNumbers
     ],
   );
 
@@ -974,14 +1269,14 @@ export function SchedulerMain({
             innerTopRightColor={getInnerColor(neighbors.innerTopRightProjectId)}
             innerBottomRightColor={getInnerColor(neighbors.innerBottomRightProjectId)}
             hideProjectName={!!(neighbors.flags & MASK_HIDE_NAME)}
-            onContextMenu={handleEventContextMenu}
+            onContextMenu={isViewer ? undefined : handleEventContextMenu}
             onPointerDown={(e, ev) => {
-              if (isPending || isBlocked) return;
+              if (isPending || isBlocked || isViewer) return;
               const target = e.currentTarget as HTMLElement;
               startDrag(e, target, ev);
             }}
             onHandlePointerDown={(e, ev, edge) => {
-              if (isPending || isBlocked) return;
+              if (isPending || isBlocked || isViewer) return;
               const eventEl = (
                 e.currentTarget as HTMLElement
               ).closest(".scheduler-event") as HTMLElement;
@@ -1042,7 +1337,8 @@ export function SchedulerMain({
     handleEventClick,
     cutEventByBoundary,
     isLoadingResources,
-    handleCellMouseLeave
+    handleCellMouseLeave,
+    isViewer
   ]);
 
   React.useEffect(() => {
@@ -1072,7 +1368,7 @@ export function SchedulerMain({
           maxScrollLeft,
         );
         
-        console.log(`📍 Auto-scroll to week ${currentWeek}`);
+
       }
     }, 0);
     
@@ -1159,6 +1455,11 @@ export function SchedulerMain({
     const oldName = workspace.name;
     const updatedWorkspace = { ...workspace, name: newName };
     
+    // Set cooldown to prevent realtime echo
+    if ((window as any).__wsRealtimeCooldown) {
+      (window as any).__wsRealtimeCooldown.current = Date.now();
+    }
+    
     if (onWorkspaceUpdate) {
       onWorkspaceUpdate(updatedWorkspace);
     }
@@ -1223,6 +1524,37 @@ export function SchedulerMain({
     }
   }, [accessToken, workspace, showToast, onWorkspaceUpdate, projectId]);
 
+  const handleUpdateWorkspaceName = useCallback(async (name: string) => {
+    console.log('💾 Обновление названия воркспейса:', name);
+    // Cooldown для Realtime
+    if ((window as any).__wsRealtimeCooldown) {
+      (window as any).__wsRealtimeCooldown.current = Date.now();
+    }
+    const updated = await updateWorkspace(String(workspace.id), { name });
+    console.log('✅ Название обновлено:', updated);
+    // Очищаем кэш списка воркспейсов
+    await removeStorageItem('cache_workspaces_list').catch(() => {});
+    if (onWorkspaceUpdate) {
+      onWorkspaceUpdate({ ...workspace, ...updated });
+    }
+    document.title = `${name} - Planaro`;
+  }, [workspace, onWorkspaceUpdate]);
+
+  const handleUpdateWorkspaceYear = useCallback(async (year: number) => {
+    console.log('💾 Обновление года воркспейса:', year);
+    // Cooldown для Realtime
+    if ((window as any).__wsRealtimeCooldown) {
+      (window as any).__wsRealtimeCooldown.current = Date.now();
+    }
+    const updated = await updateWorkspace(String(workspace.id), { timeline_year: year });
+    console.log('✅ Год обновлён:', updated);
+    // Очищаем кэш списка воркспейсов
+    await removeStorageItem('cache_workspaces_list').catch(() => {});
+    if (onWorkspaceUpdate) {
+      onWorkspaceUpdate({ ...workspace, ...updated });
+    }
+  }, [workspace, onWorkspaceUpdate]);
+
   const gridChildren = useMemo(() => (
     <EventGapHandles
       gaps={eventGaps}
@@ -1235,30 +1567,11 @@ export function SchedulerMain({
     />
   ), [eventGaps, config, filteredResources, filteredDepartments, isCtrlPressed, startGapDrag]);
 
-  const isAnyModalOpen = useMemo(() => {
-    return modalOpen || 
-           commentModalOpen || 
-           managementModalOpen || 
-           shortcutsModalOpen || 
-           profileModalOpen || 
-           settingsModalOpen || 
-           workspaceManagementModalOpen;
-  }, [
-    modalOpen,
-    commentModalOpen,
-    managementModalOpen,
-    shortcutsModalOpen,
-    profileModalOpen,
-    settingsModalOpen,
-    workspaceManagementModalOpen
-  ]);
-
   return (
     <div 
       className="flex flex-col w-full bg-white text-slate-900 select-none relative" 
-      style={{ height: '100vh', overflow: 'hidden' }}
+      style={{ height: '100dvh', overflow: 'hidden' }}
     >
-      <RealtimeCursors />
 
       <SchedulerToolbar
         workspace={workspace}
@@ -1267,6 +1580,7 @@ export function SchedulerMain({
         onOpenSettingsModal={handleOpenSettingsModal}
         onOpenWorkspaceManagementModal={handleOpenWorkspaceManagementModal}
         onSignOut={onSignOut}
+        onOpenShareModal={() => setShareModalOpen(true)}
         accessToken={accessToken}
         scissorsMode={scissorsMode}
         commentMode={commentMode}
@@ -1280,14 +1594,17 @@ export function SchedulerMain({
         onUndo={handleUndo}
         onRedo={handleRedo}
         sidebarCollapsed={sidebarCollapsed}
+        offWeekNumbers={offWeekNumbers}
+        isViewer={isViewer}
       />
 
-      <div className="flex-1 relative scheduler-container min-h-0">
+      <div className="flex-1 relative scheduler-container" style={{ minHeight: 0 }}>
         <SchedulerGrid
           ref={gridRef}
           scrollRef={schedulerRef}
           config={config}
           accessToken={accessToken}
+          workspace={workspace}
           months={months}
           resources={filteredResources}
           departments={sortedDepartments}
@@ -1295,10 +1612,18 @@ export function SchedulerMain({
           lastWeeks={lastWeeks}
           currentWeekIndex={getCurrentWeekIndex(workspace.timeline_year)}
           showCurrentWeekMarker={showCurrentWeekMarker}
-          onCellClick={handleCellClick}
+          onCellClick={(resourceId, week, unitIndex) => {
+            if (isViewer) return;
+            if (offWeekNumbers.has(week + 1)) return;
+            handleCellClick(resourceId, week, unitIndex);
+          }}
           onCellMouseMove={handleCellMouseMove}
           onCellMouseLeave={handleCellMouseLeave}
-          onCellContextMenu={handleCellContextMenu}
+          onCellContextMenu={(e, resourceId, week, unitIndex) => {
+            if (isViewer) return;
+            if (offWeekNumbers.has(week + 1)) return;
+            handleCellContextMenu(e, resourceId, week, unitIndex);
+          }}
           renderEvents={renderEvents}
           hoverHighlight={hoverHighlight}
           ghost={ghost}
@@ -1307,12 +1632,12 @@ export function SchedulerMain({
           companies={companies}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
-          onEditUser={(userId) => {
+          onEditUser={!isViewer ? (userId) => {
             setHighlightUserId(userId);
             setManagementModalTab('users');
             setManagementModalOpen(true);
-          }}
-          onDeleteUser={(userId) => {
+          } : undefined}
+          onDeleteUser={!isViewer ? (userId) => {
             const user = resources.find(r => r.id === userId);
             if (user) {
               const confirmed = window.confirm(
@@ -1323,9 +1648,10 @@ export function SchedulerMain({
                 deleteResource(userId);
               }
             }
-          }}
+          } : undefined}
           isLoading={isLoadingResources}
           onSidebarCollapsedChange={setSidebarCollapsed}
+          offWeekNumbers={offWeekNumbers}
         >
           {gridChildren}
         </SchedulerGrid>
@@ -1358,13 +1684,9 @@ export function SchedulerMain({
         
         workspaceId={String(workspace?.id || '')}
         workspaceName={workspace?.name || ''}
-        workspaceYear={workspace?.year || new Date().getFullYear()}
-        updateWorkspaceName={async (name: string) => {
-          console.log('🔧 TODO: Update workspace name:', name);
-        }}
-        updateWorkspaceYear={async (year: number) => {
-          console.log('🔧 TODO: Update workspace year:', year);
-        }}
+        workspaceYear={workspace?.timeline_year || new Date().getFullYear()}
+        updateWorkspaceName={handleUpdateWorkspaceName}
+        updateWorkspaceYear={handleUpdateWorkspaceYear}
         
         departments={departments}
         companies={companies}
@@ -1388,6 +1710,7 @@ export function SchedulerMain({
         onCompaniesUpdated={loadCompanies}
         updateCompaniesSortOrder={updateCompaniesSortOrder}
         onResourcesUpdated={loadResources}
+        resetResourcesSyncTimer={resetResourcesSyncTimer}
 
         eventPatterns={eventPatterns}
         createProject={createProject}
@@ -1418,6 +1741,7 @@ export function SchedulerMain({
 
         workspaceManagementModalOpen={workspaceManagementModalOpen}
         setWorkspaceManagementModalOpen={setWorkspaceManagementModalOpen}
+        onOffWeeksUpdated={reloadOffWeeks}
       />
 
       <SchedulerContextMenus
@@ -1447,6 +1771,15 @@ export function SchedulerMain({
         onPaste={handlePaste}
         hasCopiedEvent={!!copiedEvent}
       />
+
+      {shareModalOpen && (
+        <ShareWorkspaceModal
+          workspace={workspace}
+          onClose={() => setShareModalOpen(false)}
+          accessToken={accessToken}
+          isViewer={isViewer}
+        />
+      )}
     </div>
   );
 }

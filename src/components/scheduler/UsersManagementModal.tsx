@@ -12,8 +12,8 @@ interface UsersManagementModalProps {
   departments: Department[];
   grades: Grade[];
   companies: Company[];
-  onCreateUser: (userData: { fullName: string; position: string; departmentId: string; grade?: string; companyId?: string | null; avatarUrl?: string }) => Promise<void>;
-  onUpdateUser: (userId: string, userData: { fullName: string; position: string; departmentId: string; grade?: string; companyId?: string | null; avatarUrl?: string }) => Promise<void>;
+  onCreateUser: (userData: { fullName: string; position: string; departmentId: string; grade?: string; companyId?: string | null; avatarUrl?: string; size?: string | null }) => Promise<void>;
+  onUpdateUser: (userId: string, userData: { fullName: string; position: string; departmentId: string; grade?: string; companyId?: string | null; avatarUrl?: string; size?: string | null }) => Promise<void>;
   onDeleteUser: (userId: string) => Promise<void>;
   onResetHistory?: () => void;
   highlightUserId?: string; // ID пользователя для подсветки и скролла
@@ -27,6 +27,7 @@ interface LocalNewUser {
   grade: string;
   companyId: string;
   avatarUrl?: string;
+  size: string;
 }
 
 export function UsersManagementModal({
@@ -42,7 +43,7 @@ export function UsersManagementModal({
   onResetHistory,
   highlightUserId
 }: UsersManagementModalProps) {
-  const [editingUsers, setEditingUsers] = useState<Record<string, { fullName: string; position: string; departmentId: string; grade?: string; companyId?: string; avatarUrl?: string }>>({});
+  const [editingUsers, setEditingUsers] = useState<Record<string, { fullName: string; position: string; departmentId: string; grade?: string; companyId?: string; avatarUrl?: string; size?: string }>>({});
   const [localNewUsers, setLocalNewUsers] = useState<LocalNewUser[]>([]);
   const [deletedUserIds, setDeletedUserIds] = useState<string[]>([]);
   const [hasChanges, setHasChanges] = useState(false);
@@ -64,15 +65,16 @@ export function UsersManagementModal({
 
   useEffect(() => {
     if (isOpen) {
-      const initialState: Record<string, { fullName: string; position: string; departmentId: string; grade?: string; companyId?: string; avatarUrl?: string }> = {};
+      const initialState: Record<string, { fullName: string; position: string; departmentId: string; grade?: string; companyId?: string; avatarUrl?: string; size?: string }> = {};
       resources.forEach(r => {
         initialState[r.id] = {
           fullName: r.fullName,
           position: r.position,
           departmentId: r.departmentId,
-          grade: r.grade || '',
+          grade: r.gradeId || '', // ✅ FIXED: use gradeId (select values are IDs, not names)
           companyId: r.companyId || '',
-          avatarUrl: r.avatarUrl
+          avatarUrl: r.avatarUrl,
+          size: r.size || ''
         };
       });
       setEditingUsers(initialState);
@@ -102,9 +104,10 @@ export function UsersManagementModal({
         editedData.fullName !== originalData.fullName ||
         editedData.position !== originalData.position ||
         editedData.departmentId !== originalData.departmentId ||
-        editedData.grade !== (originalData.grade || '') ||
+        editedData.grade !== (originalData.gradeId || '') ||
         editedData.companyId !== (originalData.companyId || '') ||
-        editedData.avatarUrl !== originalData.avatarUrl
+        editedData.avatarUrl !== originalData.avatarUrl ||
+        editedData.size !== (originalData.size || '')
       )) {
         hasExistingChanges = true;
         break;
@@ -141,7 +144,8 @@ export function UsersManagementModal({
       departmentId: departments[0]?.id || '',
       grade: defaultGradeId,
       companyId: companies[0]?.id || '',
-      avatarUrl: undefined
+      avatarUrl: undefined,
+      size: 'L'
     }]);
   };
 
@@ -175,7 +179,8 @@ export function UsersManagementModal({
               departmentId: u.departmentId,
               grade: u.grade || undefined,
               companyId: (u.companyId && companies.some(c => String(c.id) === String(u.companyId))) ? u.companyId : null,
-              avatarUrl: u.avatarUrl
+              avatarUrl: u.avatarUrl,
+              size: u.size || null
             })
           )
         );
@@ -202,9 +207,10 @@ export function UsersManagementModal({
           editedData.fullName !== originalData.fullName ||
           editedData.position !== originalData.position ||
           editedData.departmentId !== originalData.departmentId ||
-          editedData.grade !== (originalData.grade || '') ||
+          editedData.grade !== (originalData.gradeId || '') ||
           editedData.companyId !== (originalData.companyId || '') ||
-          editedData.avatarUrl !== originalData.avatarUrl
+          editedData.avatarUrl !== originalData.avatarUrl ||
+          editedData.size !== (originalData.size || '')
         )) {
           updatePromises.push(onUpdateUser(userId, dataToSave));
         }
@@ -472,7 +478,8 @@ export function UsersManagementModal({
                   departmentId: newUser.departmentId,
                   grade: newUser.grade,
                   companyId: newUser.companyId,
-                  avatarUrl: newUser.avatarUrl
+                  avatarUrl: newUser.avatarUrl,
+                  size: newUser.size
                 }}
                 departments={departments}
                 grades={grades}
@@ -503,7 +510,8 @@ export function UsersManagementModal({
                     departmentId: userData.departmentId,
                     grade: userData.grade || '',
                     companyId: userData.companyId || '',
-                    avatarUrl: userData.avatarUrl
+                    avatarUrl: userData.avatarUrl,
+                    size: userData.size || ''
                   }}
                   departments={departments}
                   grades={grades}
@@ -594,6 +602,7 @@ interface UserRowProps {
     grade: string;
     companyId: string;
     avatarUrl?: string;
+    size?: string;
   };
   departments: Department[];
   grades: Grade[];
@@ -658,7 +667,7 @@ const UserRow = forwardRef<HTMLDivElement, UserRowProps>(({
         />
       )}
 
-      <div className="grid grid-cols-[56px_1fr_2fr_1.5fr_1.3fr_1.3fr_auto] gap-4 items-center">
+      <div className="grid grid-cols-[56px_1fr_0.6fr_2fr_1.5fr_1.3fr_1.3fr_auto] gap-4 items-center">
         {/* Avatar */}
         <div>
           <input
@@ -719,6 +728,21 @@ const UserRow = forwardRef<HTMLDivElement, UserRowProps>(({
                 {grade.name}
               </option>
             ))}
+          </select>
+        </div>
+
+        {/* Size */}
+        <div>
+          <select
+            value={user.size || ''}
+            onChange={e => onChange('size', e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+          >
+            <option value="">—</option>
+            <option value="S">S</option>
+            <option value="M">M</option>
+            <option value="L">L</option>
+            <option value="XL">XL</option>
           </select>
         </div>
 

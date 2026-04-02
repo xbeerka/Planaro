@@ -45,12 +45,12 @@ export function registerSnapshotRoutes(app: Hono) {
       ] = await Promise.all([
         // 1. Departments
         measuredQuery('Departments', supabase.from('departments')
-          .select('*, users:users(count)')
+          .select('*, resources:resources(count)')
           .eq('workspace_id', workspaceId)
           .order('queue', { ascending: true })),
 
-        // 2. Resources (Users)
-        measuredQuery('Users', supabase.from('users')
+        // 2. Resources (бывшая public.users)
+        measuredQuery('Resources', supabase.from('resources')
           .select(`
             *,
             department:departments(id, name),
@@ -58,6 +58,7 @@ export function registerSnapshotRoutes(app: Hono) {
             company:companies(id, name)
           `)
           .eq('workspace_id', workspaceId)
+          .order('sort_order', { ascending: true, nullsFirst: false })
           .order('id', { ascending: true })),
 
         // 3. Projects
@@ -108,30 +109,30 @@ export function registerSnapshotRoutes(app: Hono) {
         name: dept.name,
         queue: dept.queue ?? 999,
         visible: dept.visible !== undefined ? dept.visible : true,
-        usersCount: dept.users?.[0]?.count ?? 0,
+        color: dept.color || null,
+        usersCount: dept.resources?.[0]?.count ?? 0,
         last_activity_at: dept.last_activity_at
       }));
 
       // 2. Resources
-      const resources = (usersResult.data || []).map(user => {
-        const fullName = user.fullName || user.full_name || user.name || '';
-        const nameParts = fullName.trim().split(' ');
-        const firstName = nameParts[0] || '';
-        const lastName = nameParts.slice(1).join(' ') || '';
+      const resources = (usersResult.data || []).map(row => {
+        const fullName = row.fullName || '';
         
         return {
-          id: `u${user.id}`,
-          firstName,
-          lastName,
+          id: `r${row.id}`,
           fullName,
-          position: user.position || '',
-          departmentId: user.department_id ? `d${user.department_id}` : null,
-          grade: user.grade?.name || '',
-          companyId: user.company_id || null,
-          avatarUrl: user.avatar_url || null,
-          isVisible: user.is_visible !== undefined ? user.is_visible : true,
-          department: user.department,
-          company: user.company
+          position: row.position || '',
+          departmentId: row.department_id ? `d${row.department_id}` : null,
+          grade: row.grade?.name || '',
+          gradeId: row.grade_id ? String(row.grade_id) : undefined,
+          companyId: row.company_id ? String(row.company_id) : null,
+          avatarUrl: row.avatar_url || null,
+          isVisible: row.is_visible !== undefined ? row.is_visible : true,
+          size: row.size || null,
+          sortOrder: row.sort_order ?? 0,
+          authUserId: row.auth_user_id || null,
+          department: row.department,
+          company: row.company
         };
       });
 
@@ -140,8 +141,8 @@ export function registerSnapshotRoutes(app: Hono) {
         id: `p${p.id}`,
         name: p.name,
         workspaceId: String(p.workspace_id),
-        backgroundColor: p.backgroundColor || p.background_color || '#3B82F6',
-        textColor: p.textColor || p.text_color || '#FFFFFF',
+        backgroundColor: p.backgroundColor || '#3B82F6',
+        textColor: p.textColor || '#FFFFFF',
         patternId: p.pattern_id ? `ep${p.pattern_id}` : undefined
       }));
 
@@ -161,7 +162,7 @@ export function registerSnapshotRoutes(app: Hono) {
       // 7. Events
       const events = (eventsResult.data || []).map(event => ({
         id: `e${event.id}`,
-        resourceId: `u${event.user_id}`,
+        resourceId: `r${event.resource_id}`,
         projectId: `p${event.project_id}`,
         startWeek: (event.start_week || 1) - 1,
         weeksSpan: event.weeks_span || 1,
@@ -172,63 +173,77 @@ export function registerSnapshotRoutes(app: Hono) {
 
       // 8. Comments (Complex processing)
       const commentsData = commentsResult.data || [];
-      const authUserIds = new Set<string>();
+      
+      // Collect author_auth_user_ids for avatar lookup
+      const authorAuthUserIds = new Set<string>();
       commentsData.forEach((row: any) => {
-        if (row.auth_user_id) authUserIds.add(row.auth_user_id);
+        if (row.author_auth_user_id) authorAuthUserIds.add(row.author_auth_user_id);
       });
 
-      // Fetch Avatars for Comments
-      const authUserAvatars = new Map<string, string | undefined>();
-      if (authUserIds.size > 0) {
-        await Promise.all(Array.from(authUserIds).map(async (uid) => {
-          try {
-            const { data: { user } } = await supabase.auth.admin.getUserById(uid);
-            if (user && user.user_metadata?.avatar_url) {
-              authUserAvatars.set(uid, user.user_metadata.avatar_url);
+      // Fetch Avatars from profiles table
+      const authorAvatars = new Map<string, string | undefined>();
+      if (authorAuthUserIds.size > 0) {
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('id, avatar_url')
+          .in('id', Array.from(authorAuthUserIds));
+        
+        if (profiles) {
+          profiles.forEach((p: any) => {
+            if (p.avatar_url) authorAvatars.set(p.id, p.avatar_url);
+          });
+        }
+        
+        // Fallback: if profile doesn't have avatar, try auth.admin
+        for (const uid of authorAuthUserIds) {
+          if (!authorAvatars.has(uid)) {
+            try {
+              const { data: { user } } = await supabase.auth.admin.getUserById(uid);
+              if (user?.user_metadata?.avatar_url) {
+                authorAvatars.set(uid, user.user_metadata.avatar_url);
+              }
+            } catch (e) {
+              // Ignore
             }
-          } catch (e) {
-            // Ignore errors
           }
-        }));
+        }
       }
 
       // Map Comments
-      // Optimization: Fetch fallback users map in one go if possible, but for now fallback is rare
-      const comments = await Promise.all(commentsData.map(async (row: any) => {
-        let authorAvatarUrl = undefined;
-        if (row.auth_user_id && authUserAvatars.has(row.auth_user_id)) {
-          authorAvatarUrl = authUserAvatars.get(row.auth_user_id);
-        }
+      const comments = commentsData.map((row: any) => {
+        // Determine author avatar
+        const authorId = row.author_auth_user_id;
+        let authorAvatarUrl = authorId ? authorAvatars.get(authorId) : undefined;
         
-        // Fallback for legacy comments (rare)
-        if (!authorAvatarUrl && row.user_display_name) {
-           // We could try to find it in the 'resources' list we just fetched!
-           // Only if the display name matches a resource name...
-           // But resources list is by user_id.
-           // Let's skip the DB call for fallback to save time, or do it only if absolutely needed.
-           // To be safe, let's skip additional DB calls to keep snapshot fast.
-           // Or search in loaded resources?
-           const resource = resources.find(r => r.fullName === row.user_display_name);
-           if (resource) authorAvatarUrl = resource.avatarUrl || undefined;
+        // Fallback: find avatar from resources by resource_id
+        if (!authorAvatarUrl && row.resource_id) {
+          const resource = resources.find(r => r.id === `r${row.resource_id}`);
+          if (resource) authorAvatarUrl = resource.avatarUrl || undefined;
         }
 
         const currentYear = new Date().getFullYear(); 
         const d = new Date(currentYear, 0, 1 + (row.week_number * 7));
         const weekDate = d.toISOString().split('T')[0];
 
+        // Get display name from resources
+        const resource = resources.find(r => r.id === `r${row.resource_id}`);
+        const displayName = resource?.fullName || row.user_display_name || 'Unknown';
+
         return {
           id: String(row.id),
           workspaceId: String(row.workspace_id),
-          userId: `u${row.user_id}`,
-          userDisplayName: row.user_display_name,
+          resourceId: `r${row.resource_id}`,
+          authorAuthUserId: row.author_auth_user_id || null,
           authorAvatarUrl: authorAvatarUrl,
           comment: row.comment,
           weekDate: weekDate,
           weekIndex: row.week_number,
           createdAt: row.created_at,
-          updatedAt: row.updated_at
+          updatedAt: row.updated_at,
+          // Deprecated - will be removed
+          userDisplayName: displayName
         };
-      }));
+      });
 
       const duration = Date.now() - startTime;
       console.log(`✅ Snapshot ready in ${duration}ms`);

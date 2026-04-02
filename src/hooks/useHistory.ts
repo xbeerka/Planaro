@@ -18,12 +18,15 @@ export function useHistory(
     pushState,
     resetHistory: originalResetHistory,
     updateHistoryEventId,
+    rebaseEvent,
+    rebaseDeleteEvent,
+    rebaseInsertEvent,
     canUndo,
     canRedo,
     currentEvents,
     currentProjects,
-    currentEventZOrder, // ✅ Получаем eventZOrder
-    getSnapshot, // ✅ Получаем getSnapshot
+    currentEventZOrder,
+    getSnapshot,
   } = useOptimisticHistory(initialEvents, initialProjects);
 
   // Wrapper for saveHistory to match old API
@@ -73,9 +76,12 @@ export function useHistory(
     resetHistory,
     updateHistoryEventId,
     updateHistoryProjectId,
+    rebaseEvent,
+    rebaseDeleteEvent,
+    rebaseInsertEvent,
     currentEvents,
     currentProjects,
-    currentEventZOrder, // ✅ Экспортируем eventZOrder
-    getSnapshot, // ✅ Экспортируем getSnapshot
+    currentEventZOrder,
+    getSnapshot,
   };
 }

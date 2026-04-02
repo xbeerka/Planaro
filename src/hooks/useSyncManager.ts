@@ -1,4 +1,4 @@
-import { useRef, useCallback, useEffect, useState } from 'react';
+import { useRef, useCallback, useEffect } from 'react';
 import { SchedulerEvent } from '../types/scheduler';
 
 export type SyncOperation = 'create' | 'update' | 'delete';
@@ -22,9 +22,10 @@ export function useSyncManager({ onSync, delay = 2000 }: SyncManagerOptions) {
   // Таймер debounce
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   
-  // Состояние синхронизации
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [queueSize, setQueueSize] = useState(0);
+  // Состояние синхронизации - useRef вместо useState чтобы избежать
+  // "Cannot update a component while rendering a different component"
+  const isSyncingRef = useRef(false);
+  const queueSizeRef = useRef(0);
   
   // Ref для отслеживания in-flight (чтобы не потерять данные при ошибке)
   const inFlightRef = useRef<Map<string, SyncItem> | null>(null);
@@ -58,7 +59,7 @@ export function useSyncManager({ onSync, delay = 2000 }: SyncManagerOptions) {
       } else if (current.op === 'create' && op === 'delete') {
         // Create + Delete = Nothing (отмена создания)
         queueRef.current.delete(id);
-        setQueueSize(queueRef.current.size);
+        queueSizeRef.current = queueRef.current.size;
         console.log(`🗑️ SyncManager: Create + Delete = NoOp для ${id}`);
         return;
       } else if (current.op === 'update' && op === 'update') {
@@ -72,7 +73,7 @@ export function useSyncManager({ onSync, delay = 2000 }: SyncManagerOptions) {
     }
 
     queueRef.current.set(id, newItem);
-    setQueueSize(queueRef.current.size);
+    queueSizeRef.current = queueRef.current.size;
     scheduleFlush();
   }, [scheduleFlush]);  
   /**
@@ -80,7 +81,7 @@ export function useSyncManager({ onSync, delay = 2000 }: SyncManagerOptions) {
    */
   const flush = useCallback(async (context?: any) => {
     if (queueRef.current.size === 0) return;
-    if (isSyncing) {
+    if (isSyncingRef.current) {
       // Reschedule flush to ensure these changes are sent
       scheduleFlush();
       return;
@@ -90,9 +91,9 @@ export function useSyncManager({ onSync, delay = 2000 }: SyncManagerOptions) {
     const itemsToSync = new Map(queueRef.current);
     inFlightRef.current = itemsToSync; // Бэкап на случай ошибки
     queueRef.current.clear();
-    setQueueSize(0);
+    queueSizeRef.current = 0;
     
-    setIsSyncing(true);
+    isSyncingRef.current = true;
     
     try {
       await onSync(itemsToSync, context);
@@ -111,16 +112,16 @@ export function useSyncManager({ onSync, delay = 2000 }: SyncManagerOptions) {
             queueRef.current.set(id, item);
           }
         });
-        setQueueSize(queueRef.current.size);
+        queueSizeRef.current = queueRef.current.size;
         inFlightRef.current = null;
         
         // Пробуем снова через задержку (Exponential backoff можно добавить позже)
         scheduleFlush();
       }
     } finally {
-      setIsSyncing(false);
+      isSyncingRef.current = false;
     }
-  }, [isSyncing, onSync]); // Removed scheduleFlush to avoid circular dependency
+  }, [onSync]); // Removed scheduleFlush and isSyncing to avoid circular dependency
 
   // Re-attach flush to scheduleFlush via ref
   const flushRef = useRef(flush);
@@ -160,12 +161,16 @@ export function useSyncManager({ onSync, delay = 2000 }: SyncManagerOptions) {
     };
   }, []);
 
+  // Геттеры для совместимости (читают из ref)
+  const getQueueSize = useCallback(() => queueSizeRef.current, []);
+  const getIsSyncing = useCallback(() => isSyncingRef.current, []);
+
   return {
     queueChange,
     flush,
     hasPendingChanges,
     remapKey, // Экспортируем
-    queueSize,
-    isSyncing
+    get queueSize() { return queueSizeRef.current; },
+    get isSyncing() { return isSyncingRef.current; },
   };
 }

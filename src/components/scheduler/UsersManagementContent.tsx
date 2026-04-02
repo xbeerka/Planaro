@@ -69,6 +69,9 @@ interface UsersManagementContentProps {
   onHasChanges: (hasChanges: boolean) => void;
   onClose: () => void;
   highlightedUserId?: string | null;
+  onRefreshResources?: () => Promise<void>;
+  resetResourcesSyncTimer?: () => void;
+  workspaceId?: string;
 }
 
 interface LocalNewUser {
@@ -80,10 +83,14 @@ interface LocalNewUser {
   companyId: string;
   avatarUrl?: string | null;
   isVisible?: boolean;
+  size?: 'S' | 'M' | 'L' | 'XL' | null;
 }
 
 export interface UsersManagementHandle {
   onAdd: () => void;
+  save: () => Promise<void>;
+  isSaving: boolean;
+  isUploading: boolean;
 }
 
 export const UsersManagementContent = forwardRef<
@@ -114,6 +121,9 @@ export const UsersManagementContent = forwardRef<
       onHasChanges,
       onClose,
       highlightedUserId,
+      onRefreshResources,
+      resetResourcesSyncTimer,
+      workspaceId,
     },
     ref,
   ) => {
@@ -133,6 +143,11 @@ export const UsersManagementContent = forwardRef<
     const fileInputRefs = useRef<
       Record<string, HTMLInputElement | null>
     >({});
+    // ✅ Хранилище файлов аватаров для отложенной загрузки (загрузка только при Save)
+    const pendingAvatarFilesRef = useRef<Record<string, File>>({});
+
+    // ✅ Трекинг удалённых ID после сохранения — предотвращает мерцание при ре-инициализации из stale resources
+    const recentlySavedDeletedIdsRef = useRef<Set<string>>(new Set());
 
     const [searchQuery, setSearchQuery] = useState("");
     const [selectedDepartment, setSelectedDepartment] =
@@ -158,7 +173,17 @@ export const UsersManagementContent = forwardRef<
 
     useImperativeHandle(ref, () => ({
       onAdd: handleAddNewUser,
+      save: handleSave,
+      isSaving,
+      isUploading,
     }));
+
+    // Helper to check if we have any local changes to prevent overwrites
+    const getHasLocalChanges = () => {
+      return localNewUsers.length > 0 || 
+             deletedUserIds.length > 0 || 
+             hasUserInteractedRef.current;
+    };
 
     // Initialize editing state
     useEffect(() => {
@@ -167,42 +192,44 @@ export const UsersManagementContent = forwardRef<
 
       // ✅ Check if we should block the update due to local changes
       // We block if there are new users, deleted users, or unsaved edits
-      const hasLocalChanges = 
-        localNewUsers.length > 0 || 
-        deletedUserIds.length > 0 || 
-        hasUserInteractedRef.current;
-
-      // If already initialized and we have local changes, prevent overwrite
-      if (hasInitializedRef.current && resources.length > 0 && hasLocalChanges) {
+      if (hasInitializedRef.current && getHasLocalChanges()) {
         return;
       }
+
+      // ✅ Helper: resolve grade name from gradeId (for realtime updates that only have gradeId)
+      const resolveGradeName = (r: Resource): string => {
+        if (r.grade) return r.grade;
+        if (r.gradeId) {
+          const found = grades.find(g => String(g.id) === String(r.gradeId));
+          return found?.name || '';
+        }
+        return '';
+      };
 
       const initialState: Record<
         string,
         Partial<Resource>
       > = {};
       resources.forEach((r) => {
+        // ✅ Пропускаем недавно удалённые ресурсы (stale data из parent)
+        if (recentlySavedDeletedIdsRef.current.has(r.id)) return;
         initialState[r.id] = {
           fullName: r.fullName,
           position: r.position,
           departmentId: r.departmentId,
-          grade: r.grade || "",
+          grade: resolveGradeName(r),
           companyId: r.companyId || "",
           avatarUrl: r.avatarUrl,
           isVisible: r.isVisible ?? true,
+          size: r.size || null,
         };
       });
-      
-      // 🔍 DEBUG: Log first resource to see what component received
-      if (resources.length > 0) {
-        // console.log('🔍 UsersManagementContent - ПЕРВЫЙ РЕСУРС:', JSON.stringify(resources[0], null, 2));
-      }
       
       setEditingUsers(initialState);
       
       // ✅ Only reset UI state (filters, sort) on FIRST load
       // This allows background syncs to update data without clearing the user's search/filter
-      if (!hasInitializedRef.current) {
+      if (!hasInitializedRef.current && !getHasLocalChanges()) {
         setLocalNewUsers([]);
         setDeletedUserIds([]);
         setUploadingAvatars({});
@@ -214,10 +241,10 @@ export const UsersManagementContent = forwardRef<
       // ✅ Reset interaction flag after successful sync
       hasUserInteractedRef.current = false;
 
-      if (resources.length > 0) {
-        hasInitializedRef.current = true;
-      }
-    }, [resources, isSaving, localNewUsers.length, deletedUserIds.length]);
+      // Once we've initialized, we mark it as true regardless of resources.length
+      // so we don't accidentally reset the form when adding the first user
+      hasInitializedRef.current = true;
+    }, [resources, isSaving, grades]);
 
     // Sort departments for dropdowns
     const sortedDepartments = useMemo(() => {
@@ -252,7 +279,7 @@ export const UsersManagementContent = forwardRef<
       // ✅ Don't reset while saving to avoid UI flickering/race conditions
       if (isSaving) return;
 
-      // 🛡️ Guard: If resources are loaded but editingUsers is empty/mismatch during init, skip check
+      // ️ Guard: If resources are loaded but editingUsers is empty/mismatch during init, skip check
       // This prevents "flickering" badge when switching tabs or loading data
       if (resources.length > 0 && Object.keys(editingUsers).length === 0 && deletedUserIds.length === 0) {
         return;
@@ -278,7 +305,8 @@ export const UsersManagementContent = forwardRef<
             editedData.companyId !==
               (originalData.companyId || "") ||
             editedData.avatarUrl !== originalData.avatarUrl ||
-            editedData.isVisible !== originalData.isVisible)
+            editedData.isVisible !== originalData.isVisible ||
+            (editedData.size || null) !== (originalData.size || null))
         ) {
           hasExistingChanges = true;
           break;
@@ -298,13 +326,15 @@ export const UsersManagementContent = forwardRef<
 
     const handleAddNewUser = () => {
       const tempId = `temp-${Date.now()}-${Math.random()}`;
+      // ✅ По умолчанию "Без ��епартамента" (пустая строка)
+      const defaultDeptId = "";
       setLocalNewUsers((prev) => [
         ...prev,
         {
           tempId,
           fullName: "",
           position: "",
-          departmentId: "",
+          departmentId: defaultDeptId,
           grade: "",
           companyId: "",
           avatarUrl: undefined,
@@ -385,18 +415,19 @@ export const UsersManagementContent = forwardRef<
           file,
           200,
         );
-        const avatarUrl = await onUploadUserAvatar(
-          userId,
-          resizedFile,
-        );
+
+        // ✅ Создаём локальный blob URL для превью (без загрузки на сервер)
+        // Реальная загрузка произойдёт при нажатии "Сохранить"
+        const blobUrl = URL.createObjectURL(resizedFile);
+        pendingAvatarFilesRef.current[userId] = resizedFile;
 
         setEditingUsers((prev) => ({
           ...prev,
-          [userId]: { ...prev[userId], avatarUrl },
+          [userId]: { ...prev[userId], avatarUrl: blobUrl },
         }));
       } catch (error) {
-        console.error("Error uploading avatar:", error);
-        alert("Ошибка загрузки аватара");
+        console.error("Error preparing avatar:", error);
+        alert("Ошибка подготовки аватара");
       } finally {
         setUploadingAvatars((prev) => ({
           ...prev,
@@ -443,6 +474,8 @@ export const UsersManagementContent = forwardRef<
 
     const handleAvatarRemove = (userId: string) => {
       hasUserInteractedRef.current = true;
+      // ✅ Очищаем pending файл если был
+      delete pendingAvatarFilesRef.current[userId];
       setEditingUsers((prev) => ({
         ...prev,
         [userId]: { ...prev[userId], avatarUrl: null },
@@ -481,107 +514,144 @@ export const UsersManagementContent = forwardRef<
       if (isSaving) return;
       setIsSaving(true);
       try {
-        // Step 1: Delete users
-        if (deletedUserIds.length > 0) {
-          console.log(
-            `🗑️ Удаление ${deletedUserIds.length} сотрудников...`,
-          );
-          await Promise.all(
-            deletedUserIds.map((id) => onDeleteUser(id)),
-          );
-          console.log(
-            `✅ ${deletedUserIds.length} сотрудников удалено`,
-          );
-        }
+        // ✅ Блокируем Realtime на время сохранения (чтобы UPDATE от сервера не сбросил стейт)
+        if (resetResourcesSyncTimer) resetResourcesSyncTimer();
+        
+        console.log('💾 === handleSave START ===');
+        console.log('💾 deletedUserIds:', deletedUserIds);
+        console.log('💾 localNewUsers:', localNewUsers.map(u => ({ tempId: u.tempId, fullName: u.fullName, departmentId: u.departmentId })));
+        console.log('💾 editingUsers keys:', Object.keys(editingUsers));
 
-        // Helper: конвертируем название грейда в ID
+        // Helper: конве��тируем название грейда в ID
         const getGradeId = (gradeName: string | undefined): string | undefined => {
           if (!gradeName) return undefined;
           const grade = grades.find(g => g.name === gradeName);
-          return grade?.id;
+          return grade ? String(grade.id) : undefined;
         };
 
-        // Step 2: Create new users
-        const validNewUsers = localNewUsers.filter(
-          (u) => u.fullName.trim() && u.position.trim(),
-        );
-        if (validNewUsers.length > 0) {
-          console.log(
-            `💾 Создание ${validNewUsers.length} новых сотрудников...`,
-          );
-          await Promise.all(
-            validNewUsers.map((u) =>
-              onCreateUser({
-                fullName: u.fullName.trim(),
-                position: u.position.trim(),
-                departmentId: u.departmentId,
-                grade: u.grade || undefined,  // ✅ Название грейда (для отображения)
-                gradeId: getGradeId(u.grade),  // ✅ ID грейда (для бэкенда)
-                companyId: (u.companyId && companies.some(c => String(c.id) === String(u.companyId))) ? u.companyId : null,
-                avatarUrl: u.avatarUrl,
-                isVisible: u.isVisible,
-              }),
-            ),
-          );
-          console.log(
-            `✅ ${validNewUsers.length} новых сотрудников сохранено`,
-          );
+        // ── Снимаем snapshot данных и СРАЗУ очищаем UI ──
+        const deletedIdsSnapshot = [...deletedUserIds];
+        const newUsersSnapshot = [...localNewUsers];
+        const editingSnapshot: Record<string, Partial<Resource>> = {};
+        for (const uid in editingUsers) {
+          editingSnapshot[uid] = { ...editingUsers[uid] };
+        }
+        const pendingFiles = { ...pendingAvatarFilesRef.current };
+        const pendingFileUserIds = Object.keys(pendingFiles);
+
+        // ✅ Очищаем локальное состояние СРАЗУ — убираем временные строки из UI до API-вызовов
+        setLocalNewUsers([]);
+        setDeletedUserIds([]);
+        // НЕ очищаем editingUsers здесь — иначе UI покажет старые данные из resources до завершения сохранения
+
+        // ✅ Запоминаем удалённые ID чтобы отфильтровать при ре-инициализации из stale resources
+        if (deletedIdsSnapshot.length > 0) {
+          deletedIdsSnapshot.forEach(id => recentlySavedDeletedIdsRef.current.add(id));
         }
 
-        // Step 3: Update existing users
-        const updatesBatch: any[] = [];
-        const updatePromises: Promise<void>[] = []; // Keep for backward compatibility/fallback if needed
+        // ── 1. Удаления (параллельно) ──
+        const deletePromise = deletedIdsSnapshot.length > 0
+          ? (console.log(`🗑️ Удаление ${deletedIdsSnapshot.length} сотрудников параллельно...`),
+             Promise.all(deletedIdsSnapshot.map((id) => onDeleteUser(id)))
+               .then(() => console.log(`✅ ${deletedIdsSnapshot.length} сотрудников удалено`)))
+          : Promise.resolve();
 
-        for (const userId in editingUsers) {
-          const editedData = editingUsers[userId];
-          const originalData = resources.find(
-            (r) => r.id === userId,
-          );
+        // ── 2. Создания (параллельно) ──
+        const validNewUsers = newUsersSnapshot.filter((u) => u.fullName.trim());
+        const skippedCount = newUsersSnapshot.length - validNewUsers.length;
+        if (skippedCount > 0) console.warn(`⚠️ Пропущено ${skippedCount} новых сотрудников без имени`);
 
-          // Skip update if name is empty
-          if (!editedData.fullName?.trim()) {
-            continue;
+        const createPromise = validNewUsers.length > 0
+          ? (console.log(`💾 Создание ${validNewUsers.length} новых сотрудников параллельно...`),
+             Promise.all(validNewUsers.map((u) =>
+               onCreateUser({
+                 fullName: u.fullName.trim(),
+                 position: u.position.trim(),
+                 departmentId: u.departmentId,
+                 grade: u.grade || undefined,
+                 gradeId: getGradeId(u.grade),
+                 companyId: (u.companyId && companies.some(c => String(c.id) === String(u.companyId))) ? u.companyId : null,
+                 avatarUrl: u.avatarUrl,
+                 isVisible: u.isVisible,
+                 size: u.size,
+               }),
+             )).then(() => console.log(`✅ ${validNewUsers.length} новых сотрудников создано`)))
+          : Promise.resolve();
+
+        // ── 3. Аватары + обновления (аватары нужны ДО batch update) ──
+        const updatePromise = (async () => {
+          // Сначала загружаем аватары (нужны URL для batch update)
+          if (pendingFileUserIds.length > 0) {
+            console.log(`📸 Загрузка ${pendingFileUserIds.length} аватаров...`);
+            await Promise.all(pendingFileUserIds.map(async (userId) => {
+              const file = pendingFiles[userId];
+              const currentAvatarUrl = editingSnapshot[userId]?.avatarUrl;
+              if (!currentAvatarUrl || deletedIdsSnapshot.includes(userId)) return;
+              try {
+                const serverUrl = await onUploadUserAvatar(userId, file);
+                editingSnapshot[userId] = { ...editingSnapshot[userId], avatarUrl: serverUrl };
+              } catch (err) {
+                console.error(`❌ Ошибка загрузки аватара для ${userId}:`, err);
+              }
+            }));
+            pendingAvatarFilesRef.current = {};
           }
 
-          if (
-            originalData &&
-            (editedData.fullName !== originalData.fullName ||
-              editedData.position !== originalData.position ||
-              editedData.departmentId !==
-                originalData.departmentId ||
-              editedData.grade !== (originalData.grade || "") ||
-              editedData.companyId !==
-                (originalData.companyId || "") ||
-              editedData.avatarUrl !== originalData.avatarUrl ||
-              editedData.isVisible !== originalData.isVisible)
-          ) {
-            // Validate companyId
-            const isValidCompany = editedData.companyId && companies.some(c => String(c.id) === String(editedData.companyId));
-            
-            updatesBatch.push({
-              id: userId,
-              name: editedData.fullName.trim(), // API expects 'name'
-              position: editedData.position?.trim() || "",
-              departmentId: editedData.departmentId,
-              grade: editedData.grade || undefined,
-              gradeId: getGradeId(editedData.grade),
-              companyId: isValidCompany ? editedData.companyId : null,
-              avatarUrl: editedData.avatarUrl,
-              isVisible: editedData.isVisible,
-            });
+          // Потом batch update
+          const updatesBatch: any[] = [];
+          for (const userId in editingSnapshot) {
+            const editedData = editingSnapshot[userId];
+            const originalData = resources.find((r) => r.id === userId);
+            if (!editedData.fullName?.trim()) continue;
+            if (originalData &&
+              (editedData.fullName !== originalData.fullName ||
+                editedData.position !== originalData.position ||
+                editedData.departmentId !== originalData.departmentId ||
+                editedData.grade !== (originalData.grade || "") ||
+                editedData.companyId !== (originalData.companyId || "") ||
+                editedData.avatarUrl !== originalData.avatarUrl ||
+                editedData.isVisible !== originalData.isVisible ||
+                (editedData.size || null) !== (originalData.size || null))
+            ) {
+              const isValidCompany = editedData.companyId && companies.some(c => String(c.id) === String(editedData.companyId));
+              updatesBatch.push({
+                id: userId,
+                name: editedData.fullName.trim(),
+                position: editedData.position?.trim() || "",
+                departmentId: editedData.departmentId,
+                grade: editedData.grade || undefined,
+                gradeId: getGradeId(editedData.grade),
+                companyId: isValidCompany ? editedData.companyId : null,
+                avatarUrl: editedData.avatarUrl ?? null,
+                isVisible: editedData.isVisible,
+                size: editedData.size || null,
+              });
+            }
           }
+          if (updatesBatch.length > 0) {
+            console.log(`💾 Пакетное обновление ${updatesBatch.length} сотрудников...`);
+            await usersApi.batchUpdate(updatesBatch);
+            console.log(`✅ Batch update завершён`);
+          }
+        })();
+
+        // ── Параллельное выполнение всех трёх операций ──
+        await Promise.all([deletePromise, createPromise, updatePromise]);
+
+        console.log('💾 === handleSave SUCCESS ===');
+
+        // ✅ Рефрешим ресурсы ОДНИМ запросом (все операции уже завершены на сервере)
+        // Это даёт атомарное обновление UI — все изменения появляются разом
+        if (onRefreshResources) {
+          console.log('🔄 Загрузка актуального списка сотрудников...');
+          await onRefreshResources();
+          console.log('✅ Ресурсы обновлены');
         }
 
-        if (updatesBatch.length > 0) {
-          console.log(
-            `💾 Пакетное сохранение ${updatesBatch.length} изменений...`,
-          );
-          await usersApi.batchUpdate(updatesBatch);
-          console.log(
-            `✅ Все изменения сохранены`,
-          );
-        }
+        // ✅ Очищаем editingUsers ПОСЛЕ рефреша — UI не моргнёт старыми данными
+        setEditingUsers({});
 
+        // Закрываем модалку ПОСЛЕ рефреша — пользователь увидит актуальные данные
         onClose();
       } catch (error) {
         console.error(
@@ -589,6 +659,7 @@ export const UsersManagementContent = forwardRef<
           error,
         );
         alert("Ошибка при сохранении сотрудников");
+      } finally {
         setIsSaving(false);
       }
     };
@@ -603,10 +674,23 @@ export const UsersManagementContent = forwardRef<
       ).toUpperCase();
     };
 
+    // ✅ Очищаем recentlySavedDeletedIds когда resources prop уже не содержит удалённых
+    useEffect(() => {
+      if (recentlySavedDeletedIdsRef.current.size > 0) {
+        const resourceIds = new Set(resources.map(r => r.id));
+        const stillPresent = [...recentlySavedDeletedIdsRef.current].filter(id => resourceIds.has(id));
+        if (stillPresent.length === 0) {
+          recentlySavedDeletedIdsRef.current.clear();
+        }
+      }
+    }, [resources]);
+
     // Filter and sort resources
     const visibleResources = resources
       .filter((r) => {
         if (deletedUserIds.includes(r.id)) return false;
+        // ✅ Фильтруем недавно удалённые (ожидаем рефреш от parent)
+        if (recentlySavedDeletedIdsRef.current.has(r.id)) return false;
 
         const matchesSearch =
           searchQuery === "" ||
@@ -675,6 +759,7 @@ export const UsersManagementContent = forwardRef<
                   }
                   placeholder="Поиск по имени или должности..."
                   className="flex-1 py-2 pr-10 bg-transparent border-none focus:outline-none text-[14px]"
+                  data-search-focus="100"
                 />
                 {searchQuery && (
                   <button
@@ -740,6 +825,7 @@ export const UsersManagementContent = forwardRef<
                       companyId: newUser.companyId,
                       avatarUrl: newUser.avatarUrl,
                       isVisible: newUser.isVisible,
+                      size: newUser.size,
                     }}
                     departments={sortedDepartments}
                     grades={grades}
@@ -797,7 +883,7 @@ export const UsersManagementContent = forwardRef<
               });
 
               // Sort departments by queue
-              const sortedDepartments = Array.from(
+              const groupDepartments = Array.from(
                 groupedByDepartment.keys(),
               )
                 .map((deptId) =>
@@ -820,7 +906,7 @@ export const UsersManagementContent = forwardRef<
               return (
                 <>
                   {/* Users with department sections */}
-                  {sortedDepartments.map((dept) => {
+                  {groupDepartments.map((dept) => {
                     const deptResources =
                       groupedByDepartment.get(dept.id) || [];
                     // Sort resources within department by grade (Lead → Senior → Middle → Junior)
@@ -860,14 +946,17 @@ export const UsersManagementContent = forwardRef<
                         </div>
                         {sortedDeptResources.map((resource) => {
                           // Fallback to resource data if editing state isn't ready yet (prevents flash)
+                          // ✅ Resolve grade name from gradeId for fallback
+                          const resolvedGrade = resource.grade || (resource.gradeId ? (grades.find(g => String(g.id) === String(resource.gradeId))?.name || '') : '');
                           const userData = editingUsers[resource.id] || {
                             fullName: resource.fullName,
                             position: resource.position,
                             departmentId: resource.departmentId,
-                            grade: resource.grade || "",
+                            grade: resolvedGrade,
                             companyId: resource.companyId || "",
                             avatarUrl: resource.avatarUrl,
                             isVisible: resource.isVisible ?? true,
+                            size: resource.size || null,
                           };
 
                           return (
@@ -889,6 +978,7 @@ export const UsersManagementContent = forwardRef<
                                   userData.companyId || "",
                                 avatarUrl: userData.avatarUrl,
                                 isVisible: userData.isVisible,
+                                size: userData.size,
                               }}
                               departments={sortedDepartments}
                               grades={grades}
@@ -948,14 +1038,17 @@ export const UsersManagementContent = forwardRef<
                         usersWithoutDept,
                       ).map((resource) => {
                         // Fallback to resource data if editing state isn't ready yet (prevents flash)
+                        // ✅ Resolve grade name from gradeId for fallback
+                        const resolvedGrade = resource.grade || (resource.gradeId ? (grades.find(g => String(g.id) === String(resource.gradeId))?.name || '') : '');
                         const userData = editingUsers[resource.id] || {
                           fullName: resource.fullName,
                           position: resource.position,
                           departmentId: resource.departmentId,
-                          grade: resource.grade || "",
+                          grade: resolvedGrade,
                           companyId: resource.companyId || "",
                           avatarUrl: resource.avatarUrl,
                           isVisible: resource.isVisible ?? true,
+                          size: resource.size || null,
                         };
 
                         return (
@@ -975,6 +1068,7 @@ export const UsersManagementContent = forwardRef<
                                 userData.companyId || "",
                               avatarUrl: userData.avatarUrl,
                               isVisible: userData.isVisible,
+                              size: userData.size,
                             }}
                             departments={sortedDepartments}
                             grades={grades}
@@ -1038,21 +1132,7 @@ export const UsersManagementContent = forwardRef<
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="border-t bg-gray-50 px-6 py-4 flex items-center justify-end gap-3">
-          <button
-            onClick={handleSave}
-            disabled={isSaving || isUploading}
-            className={`px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium flex items-center gap-2 ${
-              isSaving || isUploading ? "opacity-70 cursor-not-allowed" : ""
-            }`}
-          >
-            {isSaving && (
-              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-            )}
-            {isUploading ? "Загрузка фото..." : isSaving ? "Сохранение..." : "Сохранить"}
-          </button>
-        </div>
+
       </>
     );
   },
@@ -1073,6 +1153,7 @@ interface UserRowProps {
     companyId: string;
     avatarUrl?: string | null;
     isVisible?: boolean;
+    size?: 'S' | 'M' | 'L' | 'XL' | null;
   };
   departments: Department[];
   grades: Grade[];
@@ -1199,17 +1280,17 @@ const UserRow = forwardRef<HTMLDivElement, UserRowProps>(
               </div>
             </div>
 
-            {/* Внешний grid: 1 гибкая колонка (в ней ФИО + Должность) + 3 фиксированные по 100px */}
-            <div className="grid grid-cols-[minmax(0,1fr)_repeat(3,100px)] gap-3 items-center min-w-0 w-full">
-              {/* Левая гр��ппа: ФИО + Должность (вложенный grid) */}
-              <div className="grid grid-cols-2 gap-3 items-center min-w-0 w-full">
+            {/* Внешний grid: 1 гибкая колонка (в ней ФИО + Должность) + 4 фиксированные колонки */}
+            <div className="grid grid-cols-[minmax(0,1fr)_90px_80px_90px_56px] gap-2 items-center min-w-0 w-full">
+              {/* Левая грппа: ФИО + Должность (вложенный grid) */}
+              <div className="grid grid-cols-2 gap-2 items-center min-w-0 w-full">
                 <TextInput
                   value={user.fullName}
                   onChange={(e) =>
                     onChange("fullName", e.target.value)
                   }
                   placeholder="Имя Фамилия"
-                  className="min-w-0 w-full box-border h-9 px-3 bg-white border border-gray-200 rounded-lg text-[14px] leading-none outline-none placeholder:text-gray-400 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                  className="min-w-0 w-full box-border h-8 px-2 bg-white border border-gray-200 rounded-lg text-[12px] leading-none outline-none placeholder:text-gray-400 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                 />
 
                 <TextInput
@@ -1218,7 +1299,7 @@ const UserRow = forwardRef<HTMLDivElement, UserRowProps>(
                     onChange("position", e.target.value)
                   }
                   placeholder="Должность"
-                  className="min-w-0 w-full box-border h-9 px-3 bg-white border border-gray-200 rounded-lg text-[14px] leading-none outline-none placeholder:text-gray-400 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                  className="min-w-0 w-full box-border h-8 px-2 bg-white border border-gray-200 rounded-lg text-[12px] leading-none outline-none placeholder:text-gray-400 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                 />
               </div>
 
@@ -1228,9 +1309,9 @@ const UserRow = forwardRef<HTMLDivElement, UserRowProps>(
                 onChange={(e) =>
                   onChange("departmentId", e.target.value)
                 }
-                className="h-9 w-full pl-3 pr-8 bg-white border border-gray-200 rounded-lg text-[14px] leading-none transition-all outline-none cursor-pointer text-gray-700 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                className="h-8 w-full pl-2 pr-6 bg-white border border-gray-200 rounded-lg text-[12px] leading-none transition-all outline-none cursor-pointer text-gray-700 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
               >
-                <option value="">Без департамента</option>
+                <option value="">Отдел</option>
                 {departments.map((dept) => (
                   <option key={dept.id} value={dept.id}>
                     {dept.name}
@@ -1244,7 +1325,7 @@ const UserRow = forwardRef<HTMLDivElement, UserRowProps>(
                 onChange={(e) =>
                   onChange("grade", e.target.value)
                 }
-                className="h-9 w-full pl-3 pr-8 bg-white border border-gray-200 rounded-lg text-[14px] leading-none transition-all outline-none cursor-pointer text-gray-700 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                className="h-8 w-full pl-2 pr-6 bg-white border border-gray-200 rounded-lg text-[12px] leading-none transition-all outline-none cursor-pointer text-gray-700 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
               >
                 <option value="">Грейд</option>
                 {grades.map((grade) => (
@@ -1254,19 +1335,34 @@ const UserRow = forwardRef<HTMLDivElement, UserRowProps>(
                 ))}
               </SelectInput>
 
-              {/* Company - фиксированная колонка */}
+              {/* Company - фиксирванная колонка */}
               <SelectInput
                 value={user.companyId}
                 onChange={(e) =>
                   onChange("companyId", e.target.value)
                 }
-                className="h-9 w-full pl-3 pr-8 bg-white border border-gray-200 rounded-lg text-[14px] leading-none transition-all outline-none cursor-pointer text-gray-700 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                className="h-8 w-full pl-2 pr-6 bg-white border border-gray-200 rounded-lg text-[12px] leading-none transition-all outline-none cursor-pointer text-gray-700 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
               >
                 {companies.map((company) => (
                   <option key={company.id} value={company.id}>
                     {company.name}
                   </option>
                 ))}
+              </SelectInput>
+
+              {/* Size - фиксированная колонка */}
+              <SelectInput
+                value={user.size || ""}
+                onChange={(e) =>
+                  onChange("size", e.target.value)
+                }
+                className="h-8 w-full pl-2 pr-5 bg-white border border-gray-200 rounded-lg text-[12px] leading-none transition-all outline-none cursor-pointer text-gray-700 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              >
+                <option value="">Size</option>
+                <option value="S">S</option>
+                <option value="M">M</option>
+                <option value="L">L</option>
+                <option value="XL">XL</option>
               </SelectInput>
             </div>
           </div>

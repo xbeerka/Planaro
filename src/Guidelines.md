@@ -13,7 +13,8 @@
 - **Следуй существующей структуре** - не меняй организацию папок без необходимости
 - **Все изменения только по кнопке "Сохранить"** - никаких автосохранений в модальных окнах
 - **Логирование обязательно** - детальные console.log на важных этапах для диагностики
-- **Параллельное выполнение** - используй Promise.all() для batch ��пераций
+- **Параллельное выполнение** - используй Promise.all() для batch операций
+- **Документирование Edge Function изменений** - если меняешь что-то в Supabase Edge Function (`/supabase/functions/server/`), ОБЯЗАТЕЛЬНО в конце ответа напиши что именно поменял
 
 ## 🗄️ База данных
 
@@ -21,12 +22,63 @@
 - `workspaces` - воркспейсы с привязкой к году
 - `workspaces_summary` - сводная информация (кол-во департаментов, дата обновления)
 - `departments` - отделы с queue (порядок сортировки) в рамках воркспейса
-- `users` - сотрудники с привязкой к департаменту, грейду и компании
+- `resources` - ресурсы (сотрудники) с привязкой к департаменту, грейду и компании (**НЕ `users`!**)
 - `projects` - проекты с цветами (backgroundColor, textColor) и workspace_id
-- `events` - события с привязкой к сотруднику, проекту, паттерну
+- `events` - события с привязкой к ресурсу (`resource_id`), проекту, workspace_id (**НЕ `user_id`!**)
 - `event_patterns` - паттерны событий (vacation, bench, etc.)
 - `grades` - грейды сотрудников с привязкой к воркспейсу (workspace_id)
 - `companies` - компании с привязкой к воркспейсу (workspace_id)
+- `profiles` - auth-пользователи (колонка `full_name`, snake_case)
+
+### Схема таблицы `resources`
+```sql
+create table public.resources (
+  id serial not null,
+  "fullName" text not null,          -- camelCase в кавычках!
+  position text null,
+  department_id integer null,
+  grade_id integer null,
+  company_id integer null,
+  workspace_id integer not null,
+  updated_at timestamptz default now(),
+  created_at timestamptz not null default now(),
+  avatar_url text null,
+  is_visible boolean not null default true,
+  size public.user_size null,        -- enum: 'S', 'M', 'L', 'XL'
+  sort_order integer null,
+  constraint resources_pkey primary key (id)
+);
+-- FK: company_id → companies(id), department_id → departments(id),
+--     grade_id → grades(id), workspace_id → workspaces(id)
+-- Triggers: trg_users_department_change, users_update_updated_at
+```
+
+### Схема таблицы `events`
+```sql
+create table public.events (
+  id serial not null,
+  resource_id integer null,          -- FK → resources(id) ON DELETE CASCADE
+  project_id integer null,           -- FK → projects(id) ON DELETE SET NULL
+  start_week integer not null,
+  weeks_span integer not null,
+  unit_start integer not null,       -- CHECK: 0-3
+  units_tall integer not null,       -- CHECK: 1-4
+  workspace_id integer not null,     -- FK → workspaces(id) ON DELETE CASCADE
+  updated_at timestamptz default now(),
+  created_at timestamptz not null default now(),
+  constraint events_pkey primary key (id)
+);
+-- Triggers: events_update_updated_at, trg_events_department_activity,
+--           trg_events_workspace_consistency
+```
+
+### ⚠️ КРИТИЧНО: Переименования
+- Таблица `users` → `resources`
+- Колонка `events.user_id` → `events.resource_id`
+- Колонка имени в `resources`: `"fullName"` (camelCase в кавычках!)
+- Колонка имени в `profiles`: `full_name` (snake_case, без изменений)
+- **Нигде в коде не должно быть `user_id` при обращении к `events`!**
+- **Нигде в коде не должно быть таблицы `users` при обращении к ресурсам!**
 
 ### Правила работы с БД
 - **Не создавай миграции** - используй существующую схему
@@ -64,7 +116,7 @@
   - **Drag от точки захвата (v1.4.0)** - при захвате события вычисляется за какой юнит взялись (offsetUnit), этот юнит следует за курсором
   - **Определение строки по курсору** - событие переносится на новую строку только когда курсор реально на ней
   - **Математика**: `offsetUnit = floor(offsetY / unitStride)` при startDrag, `unitStart = floor(withinRow / unitStride) - offsetUnit` при move
-- **Resize** - 4 направления (top, bottom, left, right) с плавной анимацией
+- **Resize** - 4 направления (top, bottom, left, right) с плавно�� анимацией
 - **Gap Handles (v1.5.0)** - двусторонний resize границ между событиями при зажатой Cmd/Ctrl
   - При зажатой Cmd/Ctrl появляются синие пипки на промежутках между событиями
   - Вертикальные handles: между событиями сверху-снизу (одна неделя, касаются)
@@ -572,7 +624,7 @@ console.log('✅ Событие создано:', eventId);
 - **Smart Search Fix (v8.3.0)**:
   - ✅ **Strict Substring Matching**: Введена строгая проверка для совпадений в середине слова. Допускается на 1 ошибку меньше, чем для начала слова. Это устраняет ложные срабатывания (например, "Лайтфи" -> "Platform").
   - ✅ **Prefix Lenience**: Для начала слова (префикса) сохранены мягкие пороги ошибок (2 ошибки для 5+ букв), что критично для поиска с опечатками и транслитерацией.
-  - ✅ **Highlight Word Start**: Подсветка теперь корректно определяет начала слов и приме��яет соответствующие пороги ошибок.
+  - ✅ **Highlight Word Start**: Подсветка теперь корректно определяет начала слов и примеяет соответствующие пороги ошибок.
   - ✅ **Файлы**: `/utils/search.ts`, `/utils/highlightMatch.tsx`.
 - **Smart Search Fix (v8.2.0)**:
   - ✅ **Double Phonetic Normalization**: Теперь нормализуется не только запрос, но и целевая строка (`target`). Это позволяет находить "Лайтфи" (Litfi) в "LiteFinance" (Litfinans) через префиксное совпадение.
@@ -603,7 +655,7 @@ console.log('✅ Событие создано:', eventId);
   - ✅ **Проблема**: Центральное событие получало лишнее уменьшение ширины (-1 gap), если сбоку было 2 и более соседей, даже если они не расширялись.
   - ✅ **Причина**: В расчете `pressure` (Rule 3) использовалось `Math.max(1, expand)`, что считало каждый соседний проект за единицу давления по умолчанию.
   - ✅ **Решение**: Убрано `Math.max(1, ...)`. Теперь давление создает только реальное расширение соседа (`expand > 0`).
-  - ✅ **Результат**: Множественные соседи без расширения больше не "кусают" центральное событие. Откусывание срабатывает только при реальной угрозе наложения.
+  - ✅ **Результат**: Множественные соседи без расширения б��льше не "кусают" центральное событие. Откусывание срабатывает только при реальной угрозе наложения.
 - **Event Neighbors v8.0.1 (Roof Bug Fix)**:
   - ✅ **Проблема**: "Крыша" (Scenario A) - событие не получало дополнительный отступ справа, когда его сосед снизу (форма Б) был частью "стены" (склеен горизонтально).
   - ✅ **Причина**: Правило 2 (Б над А) сбрасывало расширение соседей верхнего события, не учитывая, что нижнее событие может быть частью стены.
@@ -616,7 +668,7 @@ console.log('✅ Событие создано:', eventId);
   - ✅ **STAGE 2 - TOPOLOGY**: Классификация паттернов (А/Б/В/Г формы)
   - ✅ **STAGE 3 - RULES**: Явное применение правил расширения (независимо)
   - ✅ **STAGE 4 - CORNER FLAGS**: Определение скруглений углов
-  - ✅ **STAGE 5 - NAME HIDING**: Ло��ика скрытия названий
+  - ✅ **STAGE 5 - NAME HIDING**: Лоика скрытия названий
   - ✅ **Предсказуемость**: Каждое правило изолировано, результат не зависит от порядка
   - ✅ **Отладка**: Логирование каждого этапа, можно точно определить проблему
   - ✅ **Расширяемость**: Добавление нового правила не ломает существующие

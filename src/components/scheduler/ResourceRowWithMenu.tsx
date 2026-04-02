@@ -11,6 +11,7 @@ interface ResourceRowWithMenuProps {
   rowHeight?: number;
   isHovered?: boolean;
   showOnlyAvatar?: boolean; // ✨ Новый проп для collapsed режима
+  departmentColor?: string;
 }
 
 export const ResourceRowWithMenu = memo(function ResourceRowWithMenu({
@@ -23,6 +24,7 @@ export const ResourceRowWithMenu = memo(function ResourceRowWithMenu({
   rowHeight = 144, // Default to standard height
   isHovered = false,
   showOnlyAvatar = false, // ✨ По умолчанию false
+  departmentColor,
 }: ResourceRowWithMenuProps) {
   // Responsive logic based on rowHeight
   const numericHeight = Number(rowHeight);
@@ -31,7 +33,7 @@ export const ResourceRowWithMenu = memo(function ResourceRowWithMenu({
   // ✅ Показываем аватарку если не XS или если свернут сайдбар (showOnlyAvatar=true)
   // Для S (96px) теперь показываем аватарку (раньше скрывали)
   const showAvatar = !isExtraSmall || showOnlyAvatar;
-  const showRole = !isExtraSmall && !showOnlyAvatar; // ✅ Скрываем роль если showOnlyAvatar=true
+  const showRole = !isExtraSmall && !showOnlyAvatar; // ✅ Скрываем роль при XS (≤60px) или showOnlyAvatar=true
 
   // ✅ Для режима S (96px) и ниже используем компактную аватарку (28px), 
   // но только если сайдбар развернут (!showOnlyAvatar)
@@ -119,7 +121,7 @@ export const ResourceRowWithMenu = memo(function ResourceRowWithMenu({
           ) : (
             <div
               style={{
-                background: "#f6f6f6",
+                background: departmentColor ? "rgba(0,0,0,0.05)" : "#f6f6f6",
                 borderRadius: avatarRadius,
                 width: "100%",
                 height: "100%",

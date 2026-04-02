@@ -1,0 +1,338 @@
+[vite] connecting...
+[vite] connected.
+🔌 Supabase client создан для Realtime: https://zhukuvbdjyneoloarlqy.supabase.co
+⚠️ No stored credentials found
+✅ Auth Success Handler: {
+  "tokenPrefix": "eyJhbGci",
+  "authType": "signin",
+  "hasDisplayName": false,
+  "sessionId": "aed500d7-2196-4a8c-85ce-dfb5c1d08d23"
+}
+✅ Realtime Workspaces: подключено
+📡 Realtime Events: подключаемся для workspace 52
+📡 Realtime Projects: подключаемся для workspace 52
+📡 Realtime Resources: подключаемся для workspace 52
+📡 Realtime Departments: подключаемся для workspace 52
+📍 Auto-scroll to week 12
+✅ Cache total load time: 37ms
+💾 Auto-Backup: Triggering...
+✅ Snapshot received in 6853ms
+📊 REQUEST MONITOR REPORT (последняя минута):
+   Всего запросов: 3
+   ✅ presence-batch-all-workspaces: 3 req/min
+🖱️ Panning started: {
+  "button": 1,
+  "buttonName": "middle",
+  "startX": 1743,
+  "startY": 481,
+  "initialScrollLeft": 1200,
+  "initialScrollTop": 2017,
+  "targetTagName": "DIV",
+  "targetClass": "",
+  "scrollableTagName": "DIV",
+  "scrollableClassName": "scheduler-scroll-container"
+}
+🖱️ Panning move: {
+  "dx": -2,
+  "dy": -1,
+  "startScrollLeft": 1200,
+  "startScrollTop": 2017,
+  "calcScrollLeft": 1202,
+  "calcScrollTop": 2018,
+  "actualScrollLeft": 1202,
+  "actualScrollTop": 2017
+}
+🖱️ Panning move: {
+  "dx": -8,
+  "dy": -1,
+  "startScrollLeft": 1200,
+  "startScrollTop": 2017,
+  "calcScrollLeft": 1208,
+  "calcScrollTop": 2018,
+  "actualScrollLeft": 1208,
+  "actualScrollTop": 2017
+}
+🖱️ Panning move: {
+  "dx": -28,
+  "dy": -2,
+  "startScrollLeft": 1200,
+  "startScrollTop": 2017,
+  "calcScrollLeft": 1228,
+  "calcScrollTop": 2019,
+  "actualScrollLeft": 1228,
+  "actualScrollTop": 2017
+}
+🖱️ Panning move: {
+  "dx": -78,
+  "dy": -3,
+  "startScrollLeft": 1200,
+  "startScrollTop": 2017,
+  "calcScrollLeft": 1278,
+  "calcScrollTop": 2020,
+  "actualScrollLeft": 1278,
+  "actualScrollTop": 2017
+}
+🖱️ Panning move: {
+  "dx": -151,
+  "dy": -5,
+  "startScrollLeft": 1200,
+  "startScrollTop": 2017,
+  "calcScrollLeft": 1351,
+  "calcScrollTop": 2022,
+  "actualScrollLeft": 1351,
+  "actualScrollTop": 2017
+}
+🖱️ Panning move: {
+  "dx": -252,
+  "dy": -8,
+  "startScrollLeft": 1200,
+  "startScrollTop": 2017,
+  "calcScrollLeft": 1452,
+  "calcScrollTop": 2025,
+  "actualScrollLeft": 1452,
+  "actualScrollTop": 2017
+}
+🖱️ Panning move: {
+  "dx": -1103,
+  "dy": -15,
+  "startScrollLeft": 1200,
+  "startScrollTop": 2017,
+  "calcScrollLeft": 2303,
+  "calcScrollTop": 2032,
+  "actualScrollLeft": 2303,
+  "actualScrollTop": 2017
+}
+🖱️ Panning ended
+📌 PENDING: added e38049 and ev_temp_1774541331198_86594
+📝 History push: 2 событий изменено пользователем: [
+  "e38049",
+  "ev_temp_1774541331198_86594"
+]
+❌ Warning: Cannot update a component (`%s`) while rendering a different component (`%s`). To locate the bad setState() call inside `%s`, follow the stack trace as described in https://reactjs.org/link/setstate-in-render%s SchedulerMain SchedulerProvider SchedulerProvider 
+    at SchedulerProvider (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/src/contexts/SchedulerContext.tsx:45:37)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at UIProvider (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/src/contexts/UIContext.tsx:21:30)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at AppContent (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/src/App.tsx:103:49)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at ErrorBoundary (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/src/App.tsx:47:5)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at ToastProvider (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/src/components/ui/ToastContext.tsx:22:33)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at App (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/src/App.tsx:631:3)
+    at o0 (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:117:4420)
+    at N (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:572:13259)
+    at n3 (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:626:13925)
+    at bH (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:643:10316)
+    at div
+    at an (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:117:14190)
+    at Tz (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:633:235156)
+    at ym (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:633:246294)
+    at ib (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:102:145913)
+    at hu (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:436:8433)
+✨ History rebase INSERT: e38084 добавлен во все снапшоты
+🔄 SyncManager: Swapping ev_temp_1774541331198_86594 -> e38084
+📝 SyncManager: Updating history ID ev_temp_1774541331198_86594 -> e38084
+✅ PENDING: removed e38049, ev_temp_1774541331198_86594
+⏭️ Собтие не измнилось - восстанавливаем DOM стили напрямую
+2
+📝 History push: 1 событий изменено пользователем: [
+  "e38084"
+]
+2
+📝 History push: 1 событий изменено пользователем: [
+  "e38049"
+]
+📦 Queue drain: 1 items
+📝 History push: 1 событий изменено пользователем: [
+  "e38049"
+]
+📦 Queue drain: 1 items
+3
+📝 History push: 1 событий изменено пользователем: [
+  "e38084"
+]
+📝 History saved before deleting event: e38084
+✅ Event successfully deleted: e38084
+🔄 UNDO: восстановлено 198 событий, 106 проектов, 0 z-order (past: 8, future: 1)
+3
+⚠️ Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s e38084-true 
+    at div
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at div
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at div
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at div
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at div
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/src/components/scheduler/SchedulerGrid.tsx:788:11
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at div
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at div
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at SchedulerMain (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/src/components/scheduler/SchedulerMain.tsx:80:3)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at PresenceProvider (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/src/contexts/PresenceContext.tsx:21:36)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at FilterProvider (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/src/contexts/FilterContext.tsx:22:34)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at SettingsProvider (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/src/contexts/SettingsContext.tsx:22:36)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at SchedulerProvider (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/src/contexts/SchedulerContext.tsx:45:37)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at UIProvider (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/src/contexts/UIContext.tsx:21:30)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at AppContent (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/src/App.tsx:103:49)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at ErrorBoundary (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/src/App.tsx:47:5)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at ToastProvider (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/src/components/ui/ToastContext.tsx:22:33)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at App (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/src/App.tsx:631:3)
+    at o0 (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:117:4420)
+    at N (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:572:13259)
+    at n3 (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:626:13925)
+    at bH (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:643:10316)
+    at div
+    at an (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:117:14190)
+    at Tz (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:633:235156)
+    at ym (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:633:246294)
+    at ib (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:102:145913)
+    at hu (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:436:8433)
+🔄 UNDO: восстановлено 198 событий, 106 проектов, 0 z-order (past: 7, future: 2)
+4
+⚠️ Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.%s e38084-true 
+    at div
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at div
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at div
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at div
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at div
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/src/components/scheduler/SchedulerGrid.tsx:788:11
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at div
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at div
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at SchedulerMain (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/src/components/scheduler/SchedulerMain.tsx:80:3)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at PresenceProvider (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/src/contexts/PresenceContext.tsx:21:36)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at FilterProvider (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/src/contexts/FilterContext.tsx:22:34)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at SettingsProvider (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/src/contexts/SettingsContext.tsx:22:36)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at SchedulerProvider (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/src/contexts/SchedulerContext.tsx:45:37)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at UIProvider (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/src/contexts/UIContext.tsx:21:30)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at AppContent (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/src/App.tsx:103:49)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at ErrorBoundary (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/src/App.tsx:47:5)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at ToastProvider (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/src/components/ui/ToastContext.tsx:22:33)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at App (https://app-4q532wiw4hvly5xtwgjh5g6un34yusql243sxoni4pqrpo6lnd2q.makeproxy-c.figma.site/src/App.tsx:631:3)
+    at o0 (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:117:4420)
+    at N (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:572:13259)
+    at n3 (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:626:13925)
+    at bH (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:643:10316)
+    at div
+    at an (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:117:14190)
+    at Tz (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:633:235156)
+    at ym (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:633:246294)
+    at ib (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:102:145913)
+    at hu (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:436:8433)
+🗑️ History rebase DELETE: e38084 удалён из всех снапшотов
+🔄 UNDO: восстановлено 196 событий, 106 проектов, 0 z-order (past: 6, future: 3)
+🔄 UNDO: восстановлено 196 событий, 106 проектов, 0 z-order (past: 5, future: 4)
+🔄 UNDO: восстановлено 196 событий, 106 проектов, 0 z-order (past: 4, future: 5)
+🔄 UNDO: восстановлено 196 событий, 106 проектов, 0 z-order (past: 3, future: 6)
+🔄 UNDO: восстановлено 196 событий, 106 проектов, 0 z-order (past: 2, future: 7)
+🔄 REDO: восстановлено 196 событий, 106 проектов, 0 z-order (past: 3, future: 6)
+🔄 UNDO: восстановлено 196 событий, 106 проектов, 0 z-order (past: 2, future: 7)
+🔄 UNDO: восстановлено 196 событий, 106 проектов, 0 z-order (past: 1, future: 8)
+🔄 UNDO: восстановлено 196 событий, 106 проектов, 0 z-order (past: 0, future: 9)
+🔄 REDO: восстановлено 196 событий, 106 проектов, 0 z-order (past: 1, future: 8)
+🔄 REDO: восстановлено 196 событий, 106 проектов, 0 z-order (past: 2, future: 7)
+🔄 REDO: восстановлено 196 событий, 106 проектов, 0 z-order (past: 3, future: 6)
+🔄 REDO: восстановлено 196 событий, 106 проектов, 0 z-order (past: 4, future: 5)
+🔄 REDO: восстановлено 196 событий, 106 проектов, 0 z-order (past: 5, future: 4)
+🔄 REDO: восстановлено 196 событий, 106 проектов, 0 z-order (past: 6, future: 3)
+🔄 REDO: восстановлено 196 событий, 106 проектов, 0 z-order (past: 7, future: 2)
+🔄 REDO: восстановлено 196 событий, 106 проектов, 0 z-order (past: 8, future: 1)
+🔄 REDO: восстановлено 196 событий, 106 проектов, 2 z-order (past: 9, future: 0)

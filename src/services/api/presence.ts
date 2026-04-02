@@ -1,4 +1,13 @@
-import { apiRequest, apiRequestNoResponse } from './base';
+/**
+ * Presence API — DEPRECATED (KV Store based)
+ * 
+ * Presence теперь полностью через Supabase Realtime Presence (PresenceContext).
+ * Этот файл оставлен для обратной совместимости, но все методы — заглушки.
+ * 
+ * Реальная presence логика:
+ * - /contexts/PresenceContext.tsx — для курсоров и онлайн в конкретном воркспейсе
+ * - /hooks/useWorkspacesPresence.ts — для списка воркспейсов (экран выбора)
+ */
 
 export interface OnlineUser {
   userId: string;
@@ -9,48 +18,9 @@ export interface OnlineUser {
 }
 
 export const presenceApi = {
-  // Send heartbeat
-  sendHeartbeat: async (workspaceId: string): Promise<void> => {
-    return apiRequestNoResponse('/presence/heartbeat', {
-      method: 'POST',
-      body: { workspace_id: workspaceId },
-      retries: 3,
-      retryDelay: 1000
-    });
-  },
-
-  // Get online users for a single workspace
-  getOnlineUsers: async (workspaceId: string): Promise<OnlineUser[]> => {
-    const response = await apiRequest<{ users: OnlineUser[] }>(`/presence/online/${workspaceId}`, {
-      method: 'GET',
-      retries: 3,
-      retryDelay: 1000
-    });
-    return response.users || [];
-  },
-
-  // Batch get online users
-  getOnlineUsersBatch: async (workspaceIds: string[]): Promise<Record<string, OnlineUser[]>> => {
-    const response = await apiRequest<{ workspaces: Record<string, OnlineUser[]> } | Record<string, OnlineUser[]>>('/presence/online-batch', {
-      method: 'POST',
-      body: { workspace_ids: workspaceIds },
-      retries: 3,
-      retryDelay: 1000
-    });
-    
-    // Handle both response formats (legacy and new)
-    if ('workspaces' in response) {
-      return response.workspaces;
-    }
-    return response;
-  },
-  
-  // Leave workspace
-  leaveWorkspace: async (workspaceId: string): Promise<void> => {
-    return apiRequestNoResponse(`/presence/leave/${workspaceId}`, {
-      method: 'DELETE',
-      retries: 1, // Try once, if fails it will expire by TTL anyway
-      retryDelay: 500
-    });
-  }
+  // All methods are no-ops — presence is handled by Supabase Realtime Presence
+  sendHeartbeat: async (_workspaceId: string): Promise<void> => {},
+  getOnlineUsers: async (_workspaceId: string): Promise<OnlineUser[]> => [],
+  getOnlineUsersBatch: async (_workspaceIds: string[]): Promise<Record<string, OnlineUser[]>> => ({}),
+  leaveWorkspace: async (_workspaceId: string): Promise<void> => {},
 };

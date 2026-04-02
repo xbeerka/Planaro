@@ -1,0 +1,58 @@
+[vite] connecting...
+[vite] connected.
+🔌 Supabase client создан: https://zhukuvbdjyneoloarlqy.supabase.co
+✅ Global error handlers initialized
+❌ ReferenceError: Loader2 is not defined
+    at RenameOrgModal (https://app-7sdxpxr4uyp5wq3rpeuwkdp4mqiier4eoudu3tdjaoathbdlgswq.makeproxy-c.figma.site/src/components/workspace/WorkspaceListScreen.tsx:1745:76)
+    at ms (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:37:68027)
+    at _c (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:37:110700)
+    at _4 (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:37:127859)
+    at HTMLUnknownElement.y (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:25:54006)
+    at Object.ik (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:25:54331)
+    at iz (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:25:55284)
+    at ep (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:37:166948)
+    at SX (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:37:160942)
+    at S$ (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:37:160557)
+Message: Loader2 is not defined
+Stack: ReferenceError: Loader2 is not defined
+    at RenameOrgModal (https://app-7sdxpxr4uyp5wq3rpeuwkdp4mqiier4eoudu3tdjaoathbdlgswq.makeproxy-c.figma.site/src/components/workspace/WorkspaceListScreen.tsx:1745:76)
+    at ms (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:37:68027)
+    at _c (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:37:110700)
+    at _4 (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:37:127859)
+    at HTMLUnknownElement.y (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:25:54006)
+    at Object.ik (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:25:54331)
+    at iz (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:25:55284)
+    at ep (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:37:166948)
+    at SX (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:37:160942)
+    at S$ (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:37:160557)
+Recent actions: []
+Message: Loader2 is not defined
+Stack: ReferenceError: Loader2 is not defined
+    at RenameOrgModal (https://app-7sdxpxr4uyp5wq3rpeuwkdp4mqiier4eoudu3tdjaoathbdlgswq.makeproxy-c.figma.site/src/components/workspace/WorkspaceListScreen.tsx:1745:76)
+    at ms (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:37:68027)
+    at _c (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:37:110700)
+    at _4 (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:37:127859)
+    at HTMLUnknownElement.y (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:25:54006)
+    at Object.ik (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:25:54331)
+    at iz (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:25:55284)
+    at ep (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:37:166948)
+    at SX (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:37:160942)
+    at S$ (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:37:160557)
+Recent actions: []
+❌ ❌ ErrorBoundary: ReferenceError: Loader2 is not defined {
+  "componentStack": "\n    at RenameOrgModal (https://app-7sdxpxr4uyp5wq3rpeuwkdp4mqiier4eoudu3tdjaoathbdlgswq.makeproxy-c.figma.site/src/components/workspace/WorkspaceListScreen.tsx:1585:3)\n    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:290:12522\n    at FGCmp (https://app-7sdxpxr4uyp5wq3rpeuwkdp4mqiier4eoudu3tdjaoathbdlgswq.makeproxy-c.figma.site/@id/fginspector:3:55)\n    at div\n    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:290:12522\n    at FGCmp (https://app-7sdxpxr4uyp5wq3rpeuwkdp4mqiier4eoudu3tdjaoathbdlgswq.makeproxy-c.figma.site/@id/fginspector:3:55)\n    at WorkspaceListScreen (https://app-7sdxpxr4uyp5wq3rpeuwkdp4mqiier4eoudu3tdjaoathbdlgswq.makeproxy-c.figma.site/src/components/workspace/WorkspaceListScreen.tsx:69:3)\n    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:290:12522\n    at FGCmp (https://app-7sdxpxr4uyp5wq3rpeuwkdp4mqiier4eoudu3tdjaoathbdlgswq.makeproxy-c.figma.site/@id/fginspector:3:55)\n    at AppContent (https://app-7sdxpxr4uyp5wq3rpeuwkdp4mqiier4eoudu3tdjaoathbdlgswq.makeproxy-c.figma.site/src/App.tsx:112:49)\n    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:290:12522\n    at FGCmp (https://app-7sdxpxr4uyp5wq3rpeuwkdp4mqiier4eoudu3tdjaoathbdlgswq.makeproxy-c.figma.site/@id/fginspector:3:55)\n    at ErrorBoundary (https://app-7sdxpxr4uyp5wq3rpeuwkdp4mqiier4eoudu3tdjaoathbdlgswq.makeproxy-c.figma.site/src/App.tsx:52:5)\n    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:290:12522\n    at FGCmp (https://app-7sdxpxr4uyp5wq3rpeuwkdp4mqiier4eoudu3tdjaoathbdlgswq.makeproxy-c.figma.site/@id/fginspector:3:55)\n    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:290:12522\n    at FGCmp (https://app-7sdxpxr4uyp5wq3rpeuwkdp4mqiier4eoudu3tdjaoathbdlgswq.makeproxy-c.figma.site/@id/fginspector:3:55)\n    at ErrorLoggerProvider (https://app-7sdxpxr4uyp5wq3rpeuwkdp4mqiier4eoudu3tdjaoathbdlgswq.makeproxy-c.figma.site/src/contexts/ErrorLoggerContext.tsx:22:39)\n    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:290:12522\n    at FGCmp (https://app-7sdxpxr4uyp5wq3rpeuwkdp4mqiier4eoudu3tdjaoathbdlgswq.makeproxy-c.figma.site/@id/fginspector:3:55)\n    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:290:12522\n    at FGCmp (https://app-7sdxpxr4uyp5wq3rpeuwkdp4mqiier4eoudu3tdjaoathbdlgswq.makeproxy-c.figma.site/@id/fginspector:3:55)\n    at ToastProvider (https://app-7sdxpxr4uyp5wq3rpeuwkdp4mqiier4eoudu3tdjaoathbdlgswq.makeproxy-c.figma.site/src/components/ui/ToastContext.tsx:22:33)\n    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:290:12522\n    at FGCmp (https://app-7sdxpxr4uyp5wq3rpeuwkdp4mqiier4eoudu3tdjaoathbdlgswq.makeproxy-c.figma.site/@id/fginspector:3:55)\n    at App (https://app-7sdxpxr4uyp5wq3rpeuwkdp4mqiier4eoudu3tdjaoathbdlgswq.makeproxy-c.figma.site/src/App.tsx:679:3)\n    at o0 (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:117:4420)\n    at O (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:572:13259)\n    at rt (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:626:13925)\n    at vP (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:643:10316)\n    at div\n    at an (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:117:14190)\n    at yA (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:633:248080)\n    at y6 (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:633:259218)\n    at ib (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:102:147576)\n    at hu (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:436:8433)"
+}
+Message: Loader2 is not defined
+Stack: ReferenceError: Loader2 is not defined
+    at RenameOrgModal (https://app-7sdxpxr4uyp5wq3rpeuwkdp4mqiier4eoudu3tdjaoathbdlgswq.makeproxy-c.figma.site/src/components/workspace/WorkspaceListScreen.tsx:1745:76)
+    at ms (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:37:68027)
+    at _c (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:37:110700)
+    at _4 (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:37:127859)
+    at ep (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:37:166810)
+    at SX (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:37:160942)
+    at S$ (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:37:160557)
+    at Sz (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:37:160323)
+    at SI (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:37:156868)
+    at SN (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-c80ab23917594aa8.min.js.br:37:158222)
+Recent actions: []
+✅ Организация переименована: "2Александр Синицкий" → "Александр Синицкий"

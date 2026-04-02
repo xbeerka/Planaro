@@ -14,7 +14,129 @@ import {
 const supabase = createAdminClient();
 const supabaseAuth = createAuthClient();
 
+// ✅ Автоматическое исправление триггеров enforce_event_workspace_consistency и events_department_activity_trigger
+// Триггер может содержать устаревшую ссылку на NEW.user_id (переименовано в resource_id)
+let triggerFixAttempted = false;
+
+async function fixEventsTriggerIfNeeded() {
+  if (triggerFixAttempted) return;
+  triggerFixAttempted = true;
+  
+  try {
+    console.log('🔧 Исправляем триггеры PostgreSQL для таблицы events...');
+    
+    // Используем прямой SQL через Postgres client
+    const dbUrl = Deno.env.get('SUPABASE_DB_URL');
+    if (!dbUrl) {
+      console.warn('⚠️ SUPABASE_DB_URL не настроен, пропускаем исправление триггеров');
+      return;
+    }
+    
+    const { default: postgres } = await import('https://deno.land/x/postgresjs@v3.4.5/mod.js');
+    const sql = postgres(dbUrl, { max: 1 }); // Single connection
+    
+    try {
+      // 1️⃣ Пересоздаём функцию enforce_event_workspace_consistency (workspace consistency)
+      console.log('🔧 1/2: Исправляем enforce_event_workspace_consistency...');
+      await sql.unsafe(`
+        CREATE OR REPLACE FUNCTION enforce_event_workspace_consistency()
+        RETURNS TRIGGER AS $$
+        DECLARE
+          resource_ws_id INTEGER;
+          project_ws_id INTEGER;
+        BEGIN
+          -- Проверяем совместимость resource и workspace
+          SELECT workspace_id INTO resource_ws_id FROM resources WHERE id = NEW.resource_id;
+          
+          -- Проверяем совместимость project и workspace
+          SELECT workspace_id INTO project_ws_id FROM projects WHERE id = NEW.project_id;
+          
+          -- Проверка resource
+          IF resource_ws_id IS DISTINCT FROM NEW.workspace_id THEN
+            RAISE EXCEPTION 'Resource workspace_id (%) does not match event workspace_id (%)', resource_ws_id, NEW.workspace_id;
+          END IF;
+          
+          -- Проверка project (пропускаем если project_id = NULL — например при удалении проекта через CASCADE)
+          IF NEW.project_id IS NOT NULL AND project_ws_id IS DISTINCT FROM NEW.workspace_id THEN
+            RAISE EXCEPTION 'Project workspace_id (%) does not match event workspace_id (%)', project_ws_id, NEW.workspace_id;
+          END IF;
+          
+          RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql;
+      `);
+      
+      // 2️⃣ Пересоздаём функцию events_department_activity_trigger (department activity tracking)
+      console.log('🔧 2/2: Исправляем events_department_activity_trigger...');
+      await sql.unsafe(`
+        CREATE OR REPLACE FUNCTION events_department_activity_trigger()
+        RETURNS TRIGGER AS $$
+        DECLARE
+          dept_id INTEGER;
+          old_dept_id INTEGER;
+        BEGIN
+          -- Для INSERT и UPDATE получаем department_id из resources
+          IF TG_OP = 'INSERT' OR TG_OP = 'UPDATE' THEN
+            SELECT department_id INTO dept_id FROM resources WHERE id = NEW.resource_id;
+            
+            IF dept_id IS NOT NULL THEN
+              UPDATE departments 
+              SET updated_at = NOW()
+              WHERE id = dept_id;
+            END IF;
+          END IF;
+          
+          -- Для UPDATE проверяем изменение resource_id (сотрудник переназначен)
+          IF TG_OP = 'UPDATE' AND OLD.resource_id IS DISTINCT FROM NEW.resource_id THEN
+            -- Обновляем старый департамент
+            SELECT department_id INTO old_dept_id FROM resources WHERE id = OLD.resource_id;
+            IF old_dept_id IS NOT NULL THEN
+              UPDATE departments 
+              SET updated_at = NOW()
+              WHERE id = old_dept_id;
+            END IF;
+          END IF;
+          
+          -- Для DELETE обновляем старый департамент
+          IF TG_OP = 'DELETE' THEN
+            SELECT department_id INTO old_dept_id FROM resources WHERE id = OLD.resource_id;
+            IF old_dept_id IS NOT NULL THEN
+              UPDATE departments 
+              SET updated_at = NOW()
+              WHERE id = old_dept_id;
+            END IF;
+          END IF;
+          
+          IF TG_OP = 'DELETE' THEN
+            RETURN OLD;
+          ELSE
+            RETURN NEW;
+          END IF;
+        END;
+        $$ LANGUAGE plpgsql;
+      `);
+      
+      console.log('✅ Все триггеры успешно исправлены!');
+    } finally {
+      await sql.end();
+    }
+  } catch (err: any) {
+    console.error('❌ Ошибка при исправлении триггеров:', err.message);
+    // Не бросаем ошибку - приложение должно работать даже если триггеры не исправлены
+  }
+}
+
 export function registerEventsRoutes(app: Hono) {
+
+  // Попытка исправить триггер при первом запросе к событиям
+  let triggerFixPromise: Promise<void> | null = null;
+  
+  const ensureTriggerFixed = () => {
+    if (!triggerFixPromise) {
+      triggerFixPromise = fixEventsTriggerIfNeeded();
+    }
+    return triggerFixPromise;
+  };
 
   // ==================== EVENTS ====================
 
@@ -98,7 +220,7 @@ export function registerEventsRoutes(app: Hono) {
       // So we subtract 1 when reading from DB to convert DB range (1-52) to frontend range (0-51)
       const transformedEvents = allEvents.map(event => ({
         id: `e${event.id}`,
-        resourceId: `u${event.user_id}`,  // ✅ ИСПРАВЛЕНО: префикс "u"
+        resourceId: `r${event.resource_id}`,  // DB column is resource_id, frontend uses resourceId with "r" prefix
         projectId: `p${event.project_id}`,
         startWeek: (event.start_week || 1) - 1, // DB: 1-52 → Frontend: 0-51
         weeksSpan: event.weeks_span || 1,
@@ -113,7 +235,7 @@ export function registerEventsRoutes(app: Hono) {
       if (transformedEvents.length > 0) {
         const uniqueResources = new Set(transformedEvents.map(e => e.resourceId)).size;
         const uniqueProjects = new Set(transformedEvents.map(e => e.projectId)).size;
-        console.log(`   📊 Уникальных сотрудников: ${uniqueResources}, проектов: ${uniqueProjects}`);
+        console.log(`   📊 Уникальных сотрудников: ${uniqueResources}, проетов: ${uniqueProjects}`);
       }
       
       return c.json(transformedEvents);
@@ -170,7 +292,7 @@ export function registerEventsRoutes(app: Hono) {
       
       const transformedEvents = events.map(event => ({
         id: `e${event.id}`,
-        resourceId: `u${event.user_id}`,  // ✅ Delta sync: префикс "u"
+        resourceId: `r${event.resource_id}`,  // ✅ Delta sync: префикс "r"
         projectId: `p${event.project_id}`,
         startWeek: (event.start_week || 1) - 1,
         weeksSpan: event.weeks_span || 1,
@@ -236,6 +358,9 @@ export function registerEventsRoutes(app: Hono) {
   // Create new event
   app.post("/make-server-73d66528/events", async (c) => {
     try {
+      // ✅ Исправляем триггер перед созданием события
+      await ensureTriggerFixed();
+      
       console.log('➕ Создание нового события...');
       
       const body = await c.req.json();
@@ -259,7 +384,7 @@ export function registerEventsRoutes(app: Hono) {
       const timelineYear = workspace?.timeline_year || new Date().getFullYear();
       const weeksInYear = getWeeksInYear(timelineYear);
       
-      const userId = parseInt(resourceId.replace('u', ''));  // ✅ ИСПРАВЛЕНО: префикс "u"
+      const resourceIdNum = parseInt(resourceId.replace('r', ''));  // ✅ ИСПРАВЛЕНО: префикс "r"
       const projectIdNum = parseInt(projectId.replace('p', ''));
       const patternIdNum = patternId ? parseInt(patternId.replace('ep', '')) : null;
       
@@ -269,7 +394,7 @@ export function registerEventsRoutes(app: Hono) {
       const { data, error } = await supabase
         .from('events')
         .insert({
-          user_id: userId,
+          resource_id: resourceIdNum,
           project_id: projectIdNum,
           start_week: startWeek + 1, // Frontend: 0-51 → DB: 1-52
           weeks_span: validWeeksSpan,
@@ -290,7 +415,7 @@ export function registerEventsRoutes(app: Hono) {
       
       const event = {
         id: `e${data.id}`,
-        resourceId: `u${data.user_id}`,  // ✅ Create event: префикс "u"
+        resourceId: `r${data.resource_id}`,  // ✅ Create event: префикс "r"
         projectId: `p${data.project_id}`,
         startWeek: (data.start_week || 1) - 1,
         weeksSpan: data.weeks_span || 1,
@@ -335,7 +460,7 @@ export function registerEventsRoutes(app: Hono) {
       const weeksInYear = getWeeksInYear(timelineYear);
       
       const eventsToInsert = eventsData.map(event => {
-        const userId = parseInt(event.resourceId.replace('u', ''));  // ✅ ИСПРАВЛЕНО: префикс "u"
+        const resourceId = parseInt(event.resourceId.replace('r', ''));  // ✅ ИСПРАВЛЕНО: префикс "r"
         const projectId = parseInt(event.projectId.replace('p', ''));
         const patternId = event.patternId ? parseInt(event.patternId.replace('ep', '')) : null;
         
@@ -344,7 +469,7 @@ export function registerEventsRoutes(app: Hono) {
         const weeksSpan = Math.max(1, Math.min(event.weeksSpan || 1, maxWeeks));
         
         return {
-          user_id: userId,
+          resource_id: resourceId,
           project_id: projectId,
           start_week: startWeek + 1,
           weeks_span: weeksSpan,
@@ -372,7 +497,7 @@ export function registerEventsRoutes(app: Hono) {
       
       const transformedEvents = data?.map(ev => ({
         id: `e${ev.id}`,
-        resourceId: `u${ev.user_id}`,  // ✅ Batch create: префикс "u"
+        resourceId: `r${ev.resource_id}`,  // ✅ Batch create: префикс "r"
         projectId: `p${ev.project_id}`,
         startWeek: (ev.start_week || 1) - 1,
         weeksSpan: ev.weeks_span || 1,
@@ -419,7 +544,7 @@ export function registerEventsRoutes(app: Hono) {
       const updateData: any = {};
       
       if (body.resourceId !== undefined) {
-        updateData.user_id = parseInt(body.resourceId.replace('u', ''));  // ✅ ИСПРАВЛЕНО: префикс "u"
+        updateData.resource_id = parseInt(body.resourceId.replace('r', ''));  // ✅ ИСПРАВЛЕНО: префикс "r"
       }
       if (body.projectId !== undefined) {
         updateData.project_id = parseInt(body.projectId.replace('p', ''));
@@ -460,7 +585,7 @@ export function registerEventsRoutes(app: Hono) {
       
       const event = {
         id: `e${data.id}`,
-        resourceId: `u${data.user_id}`,  // ✅ Update event: префикс "u"
+        resourceId: `r${data.resource_id}`,  // ✅ Update event: префикс "r"
         projectId: `p${data.project_id}`,
         startWeek: (data.start_week || 1) - 1,
         weeksSpan: data.weeks_span || 1,
@@ -522,6 +647,9 @@ export function registerEventsRoutes(app: Hono) {
   // 🚀 BATCH API - пакетные операции с событиями
   app.post("/make-server-73d66528/events/batch", async (c) => {
     try {
+      // ✅ Исправляем триггер перед первой операцией с событиями
+      await ensureTriggerFixed();
+      
       console.log('📦 BATCH: начало пакетной операции...');
       const body = await c.req.json();
       
@@ -598,7 +726,7 @@ export function registerEventsRoutes(app: Hono) {
         try {
           const eventsToCreate = creates.map(op => {
             const body = op.data;
-            const userId = parseInt(body.resourceId.replace('u', ''));  // ✅ ИСПРАВЛЕНО: префикс "u"
+            const resourceId = parseInt(body.resourceId.replace('r', ''));  // ✅ ИСПРАВЛЕНО: префикс "r"
             const projectId = parseInt(body.projectId.replace('p', ''));
             const patternId = body.patternId ? parseInt(body.patternId.replace('ep', '')) : null;
             
@@ -608,7 +736,7 @@ export function registerEventsRoutes(app: Hono) {
             weeksSpan = Math.max(1, Math.min(weeksSpan, maxWeeks));
             
             const eventData: any = {
-              user_id: userId,
+              resource_id: resourceId,
               project_id: projectId,
               start_week: startWeek + 1,
               weeks_span: weeksSpan,
@@ -649,7 +777,7 @@ export function registerEventsRoutes(app: Hono) {
             } else if (data) {
               const transformed = data.map(ev => ({
                 id: `e${ev.id}`,
-                resourceId: `u${ev.user_id}`,  // ✅ Batch UPSERT: префикс "u"
+                resourceId: `r${ev.resource_id}`,  // ✅ Batch UPSERT: префикс "r"
                 projectId: `p${ev.project_id}`,
                 startWeek: (ev.start_week || 1) - 1,
                 weeksSpan: ev.weeks_span || 1,
@@ -674,7 +802,7 @@ export function registerEventsRoutes(app: Hono) {
             } else if (data) {
               const transformed = data.map(ev => ({
                 id: `e${ev.id}`,
-                resourceId: `u${ev.user_id}`,  // ✅ Batch INSERT: префикс "u"
+                resourceId: `r${ev.resource_id}`,  // ✅ Batch INSERT: префикс "r"
                 projectId: `p${ev.project_id}`,
                 startWeek: (ev.start_week || 1) - 1,
                 weeksSpan: ev.weeks_span || 1,
@@ -710,7 +838,7 @@ export function registerEventsRoutes(app: Hono) {
             const updateData: any = {};
             
             if (body.resourceId !== undefined) {
-              updateData.user_id = parseInt(body.resourceId.replace('u', ''));
+              updateData.resource_id = parseInt(body.resourceId.replace('r', ''));
             }
             if (body.projectId !== undefined) {
               updateData.project_id = parseInt(body.projectId.replace('p', ''));
@@ -750,7 +878,7 @@ export function registerEventsRoutes(app: Hono) {
               console.warn(`⚠️ BATCH update: событие ${eventId} не найдено в БД. Попытка восстановления (Auto-Upsert)...`);
               
               const canRecover = 
-                updateData.user_id !== undefined && 
+                updateData.resource_id !== undefined && 
                 updateData.project_id !== undefined && 
                 updateData.start_week !== undefined && 
                 op.workspace_id !== undefined;
@@ -782,7 +910,7 @@ export function registerEventsRoutes(app: Hono) {
                    return {
                      success: {
                        id: `e${recoveredData.id}`,
-                       resourceId: `u${recoveredData.user_id}`,
+                       resourceId: `r${recoveredData.resource_id}`,
                        projectId: `p${recoveredData.project_id}`,
                        startWeek: (recoveredData.start_week || 1) - 1,
                        weeksSpan: recoveredData.weeks_span || 1,
@@ -801,7 +929,7 @@ export function registerEventsRoutes(app: Hono) {
             return {
               success: {
                 id: `e${data.id}`,
-                resourceId: `u${data.user_id}`,
+                resourceId: `r${data.resource_id}`,
                 projectId: `p${data.project_id}`,
                 startWeek: (data.start_week || 1) - 1,
                 weeksSpan: data.weeks_span || 1,

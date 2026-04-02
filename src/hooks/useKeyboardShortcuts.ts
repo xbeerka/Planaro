@@ -9,6 +9,7 @@ interface UseKeyboardShortcutsProps {
   onSetModeScissors?: () => void;
   onSetModeComment?: () => void;
   schedulerRef: React.RefObject<HTMLDivElement>;
+  isAnyModalOpen?: boolean; // ✅ Блокирует mode-хоткеи при открытых модалках
 }
 
 export function useKeyboardShortcuts({
@@ -19,7 +20,8 @@ export function useKeyboardShortcuts({
   onSetModeCursor,
   onSetModeScissors,
   onSetModeComment,
-  schedulerRef
+  schedulerRef,
+  isAnyModalOpen = false
 }: UseKeyboardShortcutsProps) {
   const [isSpacePressed, setIsSpacePressed] = useState(false);
   const [isCtrlPressed, setIsCtrlPressed] = useState(false);
@@ -43,7 +45,23 @@ export function useKeyboardShortcuts({
       }
 
       if ((e.key === 'Control' || e.key === 'Meta') && !isCtrlPressed) {
-        setIsCtrlPressed(true);
+        // Не активируем gap handles если зажаты другие модификаторы (Cmd+Shift+4 = скриншот)
+        // или если открыта модалка/попап/дропдаун
+        const hasOverlay = isAnyModalOpen || 
+          document.querySelector('[data-radix-popper-content-wrapper]') !== null ||
+          document.querySelector('[data-radix-dropdown-menu-content]') !== null ||
+          document.querySelector('[role="dialog"]') !== null ||
+          document.querySelector('[data-dropdown-open="true"]') !== null ||
+          document.querySelector('.filter-dropdown-portal') !== null;
+        if (!e.shiftKey && !e.altKey && !hasOverlay) {
+          setIsCtrlPressed(true);
+        }
+      }
+
+      // Если Ctrl/Cmd зажат и нажата любая другая клавиша — сбрасываем gap handles
+      // (это комбинация типа Cmd+Shift+4, Cmd+C, Cmd+V и т.д.)
+      if (isCtrlPressed && e.key !== 'Control' && e.key !== 'Meta') {
+        setIsCtrlPressed(false);
       }
 
       // Undo: Cmd+Z / Ctrl+Z (без Shift)
@@ -64,6 +82,33 @@ export function useKeyboardShortcuts({
         onEscape();
       }
 
+      // ✅ Ctrl/Cmd+F — фокус на ближайший видимый поиск
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        // Ищем видимые поля поиска с data-search-focus (приоритет: чем больше число, тем важнее)
+        const searchInputs = Array.from(
+          document.querySelectorAll<HTMLInputElement>('input[data-search-focus]')
+        ).filter(el => {
+          // Проверяем видимость: элемент должен быть в DOM и видим
+          const rect = el.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0 && getComputedStyle(el).visibility !== 'hidden';
+        });
+
+        if (searchInputs.length > 0) {
+          e.preventDefault(); // Блокируем браузерный поиск
+          // Сортируем по приоритету (data-search-focus="число"), берём максимальный
+          searchInputs.sort((a, b) => {
+            const pa = Number(a.dataset.searchFocus) || 0;
+            const pb = Number(b.dataset.searchFocus) || 0;
+            return pb - pa;
+          });
+          searchInputs[0].focus();
+          searchInputs[0].select();
+          console.log('🔍 Ctrl+F: фокус на поиск', searchInputs[0].dataset.searchFocus);
+        }
+        // Если нет поисковых полей — не блокируем, пусть сработает стандартный браузерный поиск
+        return;
+      }
+
       // Show keyboard shortcuts: ? (Shift + /)
       if (e.key === '?' && onShowShortcuts && !isTyping) {
         e.preventDefault();
@@ -71,7 +116,8 @@ export function useKeyboardShortcuts({
       }
 
       // Mode hotkeys: V/М = cursor, X/Ч = scissors, C/С = comment
-      if (!isTyping && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      // ✅ Блокируем mode-хоткеи при открытых модалках
+      if (!isTyping && !e.ctrlKey && !e.metaKey && !e.altKey && !isAnyModalOpen) {
         const key = e.key.toLowerCase();
         if ((key === 'v' || key === 'м') && onSetModeCursor) {
           e.preventDefault();
@@ -102,14 +148,35 @@ export function useKeyboardShortcuts({
       }
     };
 
+    // ✅ Сброс модификаторов при потере фокуса окна (фикс залипания Ctrl/Cmd)
+    const handleBlur = () => {
+      setIsSpacePressed(false);
+      isSpacePressedRef.current = false;
+      setIsCtrlPressed(false);
+      if (schedulerRef.current) {
+        schedulerRef.current.style.cursor = 'default';
+      }
+    };
+
+    // ✅ Сброс при скрытии вкладки (скриншот macOS может не триггерить blur)
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        handleBlur();
+      }
+    };
+
     window.addEventListener('keydown', handleKeyDown, { passive: false });
     window.addEventListener('keyup', handleKeyUp, { passive: false });
+    window.addEventListener('blur', handleBlur);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', handleBlur);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [onUndo, onRedo, onEscape, onShowShortcuts, onSetModeCursor, onSetModeScissors, onSetModeComment, isSpacePressed, isCtrlPressed, schedulerRef]);
+  }, [onUndo, onRedo, onEscape, onShowShortcuts, onSetModeCursor, onSetModeScissors, onSetModeComment, isSpacePressed, isCtrlPressed, schedulerRef, isAnyModalOpen]);
 
   return { isSpacePressed, isCtrlPressed };
 }

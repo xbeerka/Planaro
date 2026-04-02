@@ -23,13 +23,16 @@ export function Dialog({ open, onOpenChange, children }: DialogProps) {
 interface DialogContentProps {
   className?: string;
   children: React.ReactNode;
+  onKeyDown?: React.KeyboardEventHandler<HTMLDivElement>;
 }
 
-export function DialogContent({ className = "", children }: DialogContentProps) {
+export function DialogContent({ className = "", children, onKeyDown }: DialogContentProps) {
   return (
     <div
       className={`relative bg-background z-[5001] grid w-full max-w-[calc(100%-2rem)] gap-4 rounded-lg border p-6 shadow-lg sm:max-w-lg ${className}`}
       onClick={(e) => e.stopPropagation()}
+      onKeyDown={onKeyDown}
+      tabIndex={-1}
     >
       {children}
     </div>

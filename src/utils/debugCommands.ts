@@ -79,9 +79,4 @@ window.debugHelp = () => {
 
 // Автоматически показать справку при загрузке (только в dev режиме)
 if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.DEV) {
-  console.log('');
-  console.log('💡 TIP: Введите debugHelp() для справки по debug командам');
-  console.log('');
 }
-
-export {}; // Make this a module

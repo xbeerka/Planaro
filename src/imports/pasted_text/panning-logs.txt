@@ -1,0 +1,380 @@
+[vite] connecting...
+[vite] connected.
+🔌 Supabase client создан: https://zhukuvbdjyneoloarlqy.supabase.co
+✅ Snapshot received in 2210ms
+🖱️ Panning started: {
+  "button": 1,
+  "buttonName": "middle",
+  "startX": 450,
+  "startY": 477,
+  "initialScrollLeft": 1320,
+  "initialScrollTop": 0,
+  "targetTagName": "DIV",
+  "targetClass": "handle-container absolute left-0 right-0 cursor-ns-resize opacity-0 hover:opacity-100 transition-opacity z-[150]",
+  "scrollableTagName": "DIV",
+  "scrollableClassName": "scheduler-scroll-container"
+}
+🖱️ Panning move: {
+  "dx": 2,
+  "dy": 0,
+  "startScrollLeft": 1320,
+  "startScrollTop": 0,
+  "calcScrollLeft": 1318,
+  "calcScrollTop": 0,
+  "actualScrollLeft": 1318,
+  "actualScrollTop": 0
+}
+🖱️ Panning move: {
+  "dx": 9,
+  "dy": -1,
+  "startScrollLeft": 1320,
+  "startScrollTop": 0,
+  "calcScrollLeft": 1311,
+  "calcScrollTop": 1,
+  "actualScrollLeft": 1311,
+  "actualScrollTop": 1
+}
+🖱️ Panning move: {
+  "dx": 24,
+  "dy": -3,
+  "startScrollLeft": 1320,
+  "startScrollTop": 0,
+  "calcScrollLeft": 1296,
+  "calcScrollTop": 3,
+  "actualScrollLeft": 1296,
+  "actualScrollTop": 3
+}
+🖱️ Panning move: {
+  "dx": 54,
+  "dy": -5,
+  "startScrollLeft": 1320,
+  "startScrollTop": 0,
+  "calcScrollLeft": 1266,
+  "calcScrollTop": 5,
+  "actualScrollLeft": 1266,
+  "actualScrollTop": 5
+}
+🖱️ Panning move: {
+  "dx": 150,
+  "dy": -6,
+  "startScrollLeft": 1320,
+  "startScrollTop": 0,
+  "calcScrollLeft": 1170,
+  "calcScrollTop": 6,
+  "actualScrollLeft": 1170,
+  "actualScrollTop": 6
+}
+🖱️ Panning move: {
+  "dx": 217,
+  "dy": -3,
+  "startScrollLeft": 1320,
+  "startScrollTop": 0,
+  "calcScrollLeft": 1103,
+  "calcScrollTop": 3,
+  "actualScrollLeft": 1103,
+  "actualScrollTop": 3
+}
+🖱️ Panning move: {
+  "dx": 296,
+  "dy": -1,
+  "startScrollLeft": 1320,
+  "startScrollTop": 0,
+  "calcScrollLeft": 1024,
+  "calcScrollTop": 1,
+  "actualScrollLeft": 1024,
+  "actualScrollTop": 1
+}
+🖱️ Panning move: {
+  "dx": 385,
+  "dy": 1,
+  "startScrollLeft": 1320,
+  "startScrollTop": 0,
+  "calcScrollLeft": 935,
+  "calcScrollTop": 0,
+  "actualScrollLeft": 935,
+  "actualScrollTop": 0
+}
+🖱️ Panning move: {
+  "dx": 474,
+  "dy": 1,
+  "startScrollLeft": 1320,
+  "startScrollTop": 0,
+  "calcScrollLeft": 846,
+  "calcScrollTop": 0,
+  "actualScrollLeft": 846,
+  "actualScrollTop": 0
+}
+🖱️ Panning move: {
+  "dx": 564,
+  "dy": 2,
+  "startScrollLeft": 1320,
+  "startScrollTop": 0,
+  "calcScrollLeft": 756,
+  "calcScrollTop": 0,
+  "actualScrollLeft": 756,
+  "actualScrollTop": 0
+}
+🖱️ Panning move: {
+  "dx": 656,
+  "dy": 3,
+  "startScrollLeft": 1320,
+  "startScrollTop": 0,
+  "calcScrollLeft": 664,
+  "calcScrollTop": 0,
+  "actualScrollLeft": 664,
+  "actualScrollTop": 0
+}
+🖱️ Panning move: {
+  "dx": 950,
+  "dy": 17,
+  "startScrollLeft": 1320,
+  "startScrollTop": 0,
+  "calcScrollLeft": 370,
+  "calcScrollTop": 0,
+  "actualScrollLeft": 370,
+  "actualScrollTop": 0
+}
+🖱️ Panning ended
+🖱️ Panning started: {
+  "button": 1,
+  "buttonName": "middle",
+  "startX": 768,
+  "startY": 703,
+  "initialScrollLeft": 308,
+  "initialScrollTop": 0,
+  "targetTagName": "DIV",
+  "targetClass": "scheduler-event absolute flex gap-2 select-none min-w-[40px] pointer-events-auto items-start       ",
+  "scrollableTagName": "DIV",
+  "scrollableClassName": "scheduler-scroll-container"
+}
+🖱️ Panning move: {
+  "dx": 0,
+  "dy": -1,
+  "startScrollLeft": 308,
+  "startScrollTop": 0,
+  "calcScrollLeft": 308,
+  "calcScrollTop": 1,
+  "actualScrollLeft": 308,
+  "actualScrollTop": 1
+}
+🖱️ Panning move: {
+  "dx": 0,
+  "dy": -17,
+  "startScrollLeft": 308,
+  "startScrollTop": 0,
+  "calcScrollLeft": 308,
+  "calcScrollTop": 17,
+  "actualScrollLeft": 308,
+  "actualScrollTop": 17
+}
+🖱️ Panning move: {
+  "dx": -2,
+  "dy": -34,
+  "startScrollLeft": 308,
+  "startScrollTop": 0,
+  "calcScrollLeft": 310,
+  "calcScrollTop": 34,
+  "actualScrollLeft": 310,
+  "actualScrollTop": 34
+}
+🖱️ Panning move: {
+  "dx": -51,
+  "dy": -341,
+  "startScrollLeft": 308,
+  "startScrollTop": 0,
+  "calcScrollLeft": 359,
+  "calcScrollTop": 341,
+  "actualScrollLeft": 359,
+  "actualScrollTop": 341
+}
+🖱️ Panning move: {
+  "dx": -52,
+  "dy": -347,
+  "startScrollLeft": 308,
+  "startScrollTop": 0,
+  "calcScrollLeft": 360,
+  "calcScrollTop": 347,
+  "actualScrollLeft": 360,
+  "actualScrollTop": 347
+}
+🖱️ Panning move: {
+  "dx": -53,
+  "dy": -349,
+  "startScrollLeft": 308,
+  "startScrollTop": 0,
+  "calcScrollLeft": 361,
+  "calcScrollTop": 349,
+  "actualScrollLeft": 361,
+  "actualScrollTop": 349
+}
+3
+🖱️ Panning move: {
+  "dx": -53,
+  "dy": -350,
+  "startScrollLeft": 308,
+  "startScrollTop": 0,
+  "calcScrollLeft": 361,
+  "calcScrollTop": 350,
+  "actualScrollLeft": 361,
+  "actualScrollTop": 350
+}
+🖱️ Panning move: {
+  "dx": -55,
+  "dy": -351,
+  "startScrollLeft": 308,
+  "startScrollTop": 0,
+  "calcScrollLeft": 363,
+  "calcScrollTop": 351,
+  "actualScrollLeft": 363,
+  "actualScrollTop": 351
+}
+🖱️ Panning move: {
+  "dx": -62,
+  "dy": -353,
+  "startScrollLeft": 308,
+  "startScrollTop": 0,
+  "calcScrollLeft": 370,
+  "calcScrollTop": 353,
+  "actualScrollLeft": 370,
+  "actualScrollTop": 353
+}
+🖱️ Panning move: {
+  "dx": -301,
+  "dy": -381,
+  "startScrollLeft": 308,
+  "startScrollTop": 0,
+  "calcScrollLeft": 609,
+  "calcScrollTop": 381,
+  "actualScrollLeft": 609,
+  "actualScrollTop": 381
+}
+🖱️ Panning move: {
+  "dx": -504,
+  "dy": -399,
+  "startScrollLeft": 308,
+  "startScrollTop": 0,
+  "calcScrollLeft": 812,
+  "calcScrollTop": 399,
+  "actualScrollLeft": 812,
+  "actualScrollTop": 399
+}
+🖱️ Panning move: {
+  "dx": -529,
+  "dy": -402,
+  "startScrollLeft": 308,
+  "startScrollTop": 0,
+  "calcScrollLeft": 837,
+  "calcScrollTop": 402,
+  "actualScrollLeft": 837,
+  "actualScrollTop": 402
+}
+🖱️ Panning move: {
+  "dx": -538,
+  "dy": -404,
+  "startScrollLeft": 308,
+  "startScrollTop": 0,
+  "calcScrollLeft": 846,
+  "calcScrollTop": 404,
+  "actualScrollLeft": 846,
+  "actualScrollTop": 404
+}
+2
+🖱️ Panning move: {
+  "dx": -540,
+  "dy": -404,
+  "startScrollLeft": 308,
+  "startScrollTop": 0,
+  "calcScrollLeft": 848,
+  "calcScrollTop": 404,
+  "actualScrollLeft": 848,
+  "actualScrollTop": 404
+}
+🖱️ Panning move: {
+  "dx": -539,
+  "dy": -404,
+  "startScrollLeft": 308,
+  "startScrollTop": 0,
+  "calcScrollLeft": 847,
+  "calcScrollTop": 404,
+  "actualScrollLeft": 847,
+  "actualScrollTop": 404
+}
+🖱️ Panning ended
+2
+📝 History push: 1 событий изменено пользователем: [
+  "e38187"
+]
+📌 PENDING: added e38187 and ev_temp_1775040408896_20359
+📝 History push: 4 событий изменено пользователем: [
+  "e37862",
+  "e38004",
+  "e38187",
+  "ev_temp_1775040408896_20359"
+]
+❌ Warning: Cannot update a component (`%s`) while rendering a different component (`%s`). To locate the bad setState() call inside `%s`, follow the stack trace as described in https://reactjs.org/link/setstate-in-render%s SchedulerMain SchedulerProvider SchedulerProvider 
+    at SchedulerProvider (https://app-xzqfoqglychxpjev5fsuur345sqlsbfmxh6kj334iutlmqmsso3a.makeproxy-c.figma.site/src/contexts/SchedulerContext.tsx?t=1775039220662:45:37)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-eaba1e85cf12e64b.min.js.br:290:12522
+    at FGCmp (https://app-xzqfoqglychxpjev5fsuur345sqlsbfmxh6kj334iutlmqmsso3a.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-eaba1e85cf12e64b.min.js.br:290:12522
+    at FGCmp (https://app-xzqfoqglychxpjev5fsuur345sqlsbfmxh6kj334iutlmqmsso3a.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at UIProvider (https://app-xzqfoqglychxpjev5fsuur345sqlsbfmxh6kj334iutlmqmsso3a.makeproxy-c.figma.site/src/contexts/UIContext.tsx:21:30)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-eaba1e85cf12e64b.min.js.br:290:12522
+    at FGCmp (https://app-xzqfoqglychxpjev5fsuur345sqlsbfmxh6kj334iutlmqmsso3a.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at AppContent (https://app-xzqfoqglychxpjev5fsuur345sqlsbfmxh6kj334iutlmqmsso3a.makeproxy-c.figma.site/src/App.tsx?t=1775039504508:104:49)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-eaba1e85cf12e64b.min.js.br:290:12522
+    at FGCmp (https://app-xzqfoqglychxpjev5fsuur345sqlsbfmxh6kj334iutlmqmsso3a.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at ErrorBoundary (https://app-xzqfoqglychxpjev5fsuur345sqlsbfmxh6kj334iutlmqmsso3a.makeproxy-c.figma.site/src/App.tsx?t=1775039504508:48:5)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-eaba1e85cf12e64b.min.js.br:290:12522
+    at FGCmp (https://app-xzqfoqglychxpjev5fsuur345sqlsbfmxh6kj334iutlmqmsso3a.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-eaba1e85cf12e64b.min.js.br:290:12522
+    at FGCmp (https://app-xzqfoqglychxpjev5fsuur345sqlsbfmxh6kj334iutlmqmsso3a.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at ToastProvider (https://app-xzqfoqglychxpjev5fsuur345sqlsbfmxh6kj334iutlmqmsso3a.makeproxy-c.figma.site/src/components/ui/ToastContext.tsx:22:33)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-eaba1e85cf12e64b.min.js.br:290:12522
+    at FGCmp (https://app-xzqfoqglychxpjev5fsuur345sqlsbfmxh6kj334iutlmqmsso3a.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at App (https://app-xzqfoqglychxpjev5fsuur345sqlsbfmxh6kj334iutlmqmsso3a.makeproxy-c.figma.site/src/App.tsx?t=1775039504508:671:3)
+    at o0 (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-eaba1e85cf12e64b.min.js.br:117:4420)
+    at O (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-eaba1e85cf12e64b.min.js.br:572:13259)
+    at rt (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-eaba1e85cf12e64b.min.js.br:626:13925)
+    at vx (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-eaba1e85cf12e64b.min.js.br:643:10316)
+    at div
+    at an (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-eaba1e85cf12e64b.min.js.br:117:14190)
+    at yv (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-eaba1e85cf12e64b.min.js.br:633:248080)
+    at y4 (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-eaba1e85cf12e64b.min.js.br:633:259218)
+    at ib (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-eaba1e85cf12e64b.min.js.br:102:146604)
+    at hu (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-eaba1e85cf12e64b.min.js.br:436:8433)
+✅ PENDING: removed e38187, ev_temp_1775040408896_20359
+✨ History rebase INSERT: e38291 добавлен в present
+🔄 SyncManager: Swapping ev_temp_1775040408896_20359 -> e38291
+📝 SyncManager: Updating history ID ev_temp_1775040408896_20359 -> e38291
+📝 History push: 1 событий изменено пользователем: [
+  "e38291"
+]
+📝 History saved before deleting event: e38291
+✅ Event successfully deleted: e38291
+📝 History push: 1 событий изменено пользователем: [
+  "e38187"
+]
+🖱️ Panning started: {
+  "button": 1,
+  "buttonName": "middle",
+  "startX": 1701,
+  "startY": 728,
+  "initialScrollLeft": 847,
+  "initialScrollTop": 404,
+  "targetTagName": "DIV",
+  "targetClass": "",
+  "scrollableTagName": "DIV",
+  "scrollableClassName": "scheduler-scroll-container"
+}
+🖱️ Panning move: {
+  "dx": -4,
+  "dy": -7,
+  "startScrollLeft": 847,
+  "startScrollTop": 404,
+  "calcScrollLeft": 851,
+  "calcScrollTop": 411,
+  "actualScrollLeft": 851,
+  "actualScrollTop": 411
+}
+🖱️ Panning ended
+🗑️ History rebase DELETE: e38291 — removed: 0, protected: 3

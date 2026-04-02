@@ -88,6 +88,9 @@ function SchedulerEventComponent({
   }, [event.id, showGaps, showPatterns]);
 
   const [hoveredScissor, setHoveredScissor] = useState<number | null>(null);
+  const [resizeIndicator, setResizeIndicator] = useState<{ edge: 'top' | 'bottom'; x: number } | null>(null);
+  const topHandleRef = useRef<HTMLDivElement>(null);
+  const bottomHandleRef = useRef<HTMLDivElement>(null);
   
   // Кэшируем проект и стили для избежания повторных вычислений
   const project = useMemo(() => 
@@ -97,6 +100,11 @@ function SchedulerEventComponent({
   
   const fontSize = useMemo(() => getFontSizeForRowHeight(eventRowH), [eventRowH]);
   const baseBorderRadius = useMemo(() => getBorderRadiusForRowHeight(eventRowH), [eventRowH]);
+  
+  // ✅ Расчёт зон для resize handles
+  // Верхние/нижние 25% высоты события + расширение на 75% gap за пределы
+  const resizeZoneExtension = useMemo(() => config.gap * 0.75, [config.gap]);
+  const resizeZoneHeight = useMemo(() => height * 0.25 + resizeZoneExtension, [height, resizeZoneExtension]);
   
   // Adaptive vertical padding based on event height, fixed horizontal padding
   const getPadding = useMemo(() => {
@@ -424,22 +432,62 @@ function SchedulerEventComponent({
       {/* Resize handles - скрываем для заблокированных и pending событий, и на мобильных */}
       {!scissorsMode && !commentMode && !isCtrlPressed && !isBlocked && !isPending && !isMobile && (
         <>
-          {/* Top handle - 50% max height to avoid overlap */}
+          {/* Top handle - 25% высоты события + расширение на 75% gap вверх */}
           <div
-            className="handle-container absolute left-0 right-0 top-0 cursor-ns-resize opacity-0 hover:opacity-100 transition-opacity flex items-start justify-center z-[150]"
-            style={{ pointerEvents: 'auto', height: '50%', maxHeight: '32px' }}
+            ref={topHandleRef}
+            className="handle-container absolute left-0 right-0 cursor-ns-resize opacity-0 hover:opacity-100 transition-opacity z-[150]"
+            style={{ 
+              pointerEvents: 'auto', 
+              top: `-${resizeZoneExtension}px`,
+              height: `${resizeZoneHeight}px`
+            }}
             onPointerDown={(e) => onHandlePointerDown(e, event, 'top')}
+            onMouseMove={(e) => {
+              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+              setResizeIndicator({ edge: 'top', x: e.clientX - rect.left });
+            }}
+            onMouseLeave={() => setResizeIndicator(prev => prev?.edge === 'top' ? null : prev)}
           >
-            <div className="handle-top h-1 rounded-sm bg-white/25 pointer-events-none mt-1" style={{ width: '50%', maxWidth: '60px', minWidth: '12px' }} />
+            <div 
+              className="handle-top h-1 rounded-sm bg-white/25 pointer-events-none absolute"
+              style={{ 
+                width: '50%', 
+                maxWidth: '60px', 
+                minWidth: '12px',
+                top: `${resizeZoneExtension + 4}px`,
+                left: resizeIndicator?.edge === 'top' ? `${resizeIndicator.x}px` : '50%',
+                transform: 'translateX(-50%)',
+              }} 
+            />
           </div>
 
-          {/* Bottom handle - 50% max height to avoid overlap */}
+          {/* Bottom handle - 25% высоты события + расширение на 75% gap вниз */}
           <div
-            className="handle-container absolute left-0 right-0 bottom-0 cursor-ns-resize opacity-0 hover:opacity-100 transition-opacity flex items-end justify-center z-[150]"
-            style={{ pointerEvents: 'auto', height: '50%', maxHeight: '32px' }}
+            ref={bottomHandleRef}
+            className="handle-container absolute left-0 right-0 cursor-ns-resize opacity-0 hover:opacity-100 transition-opacity z-[150]"
+            style={{ 
+              pointerEvents: 'auto',
+              bottom: `-${resizeZoneExtension}px`,
+              height: `${resizeZoneHeight}px`
+            }}
             onPointerDown={(e) => onHandlePointerDown(e, event, 'bottom')}
+            onMouseMove={(e) => {
+              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+              setResizeIndicator({ edge: 'bottom', x: e.clientX - rect.left });
+            }}
+            onMouseLeave={() => setResizeIndicator(prev => prev?.edge === 'bottom' ? null : prev)}
           >
-            <div className="handle-bottom h-1 rounded-sm bg-white/25 pointer-events-none mb-1" style={{ width: '50%', maxWidth: '60px', minWidth: '12px' }} />
+            <div 
+              className="handle-bottom h-1 rounded-sm bg-white/25 pointer-events-none absolute"
+              style={{ 
+                width: '50%', 
+                maxWidth: '60px', 
+                minWidth: '12px',
+                bottom: `${resizeZoneExtension + 4}px`,
+                left: resizeIndicator?.edge === 'bottom' ? `${resizeIndicator.x}px` : '50%',
+                transform: 'translateX(-50%)',
+              }} 
+            />
           </div>
 
           {/* Left handle - higher z-index, fixed width */}

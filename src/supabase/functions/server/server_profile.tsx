@@ -9,6 +9,238 @@ export function registerProfileRoutes(app: Hono) {
 
   // ==================== PROFILE ====================
 
+  // Ensure profile exists (called after login)
+  app.post("/make-server-73d66528/profile/ensure", async (c) => {
+    try {
+      const accessToken = c.req.header('Authorization')?.split(' ')[1];
+      
+      const { data: { user }, error: authError } = await retryOperation(
+        () => supabaseAuth.auth.getUser(accessToken),
+        3, 1000, 'Auth check (Ensure Profile)'
+      );
+
+      if (authError || !user) {
+        return c.json({ error: 'Unauthorized' }, 401);
+      }
+
+      const displayName = user.user_metadata?.name || user.user_metadata?.display_name || user.email?.split('@')[0] || '';
+      const avatarUrl = user.user_metadata?.avatar_url || null;
+
+      console.log(`👤 Ensure profile for ${user.email}, name="${displayName}"`);
+
+      const { data: profile, error } = await supabase
+        .from('profiles')
+        .upsert({
+          id: user.id,
+          full_name: displayName,
+          avatar_url: avatarUrl,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'id' })
+        .select()
+        .single();
+
+      if (error) {
+        console.warn('⚠️ Profile ensure failed (non-critical):', error.message);
+        // Return basic profile from auth metadata (map to frontend format)
+        return c.json({
+          id: user.id,
+          email: user.email,
+          display_name: displayName,
+          full_name: displayName,
+          avatar_url: avatarUrl
+        });
+      }
+
+      console.log(`✅ Profile ensured for ${user.email}`);
+
+      // Ensure user has an organization (create if none exists)
+      try {
+        const { data: existingMembership } = await supabase
+          .from('organization_members')
+          .select('organization_id')
+          .eq('user_id', user.id)
+          .limit(1)
+          .single();
+
+        if (!existingMembership) {
+          console.log(`🏢 Создание организации для ${user.email}...`);
+          
+          const orgName = displayName ? `${displayName}` : (user.email || 'My Organization');
+          
+          const { data: newOrg, error: orgError } = await supabase
+            .from('organizations')
+            .insert({
+              name: orgName,
+              created_at: new Date().toISOString(),
+            })
+            .select()
+            .single();
+
+          if (orgError) {
+            console.error('❌ Ошибка создания организации:', orgError.message);
+          } else if (newOrg) {
+            const { error: memError } = await supabase
+              .from('organization_members')
+              .insert({
+                organization_id: newOrg.id,
+                user_id: user.id,
+                role: 'owner',
+                created_at: new Date().toISOString(),
+              });
+
+            if (memError) {
+              console.error('❌ Ошибка добавления owner в organization_members:', memError.message);
+            } else {
+              console.log(`✅ Организация создана: id=${newOrg.id}, name="${orgName}"`);
+            }
+          }
+        } else {
+          console.log(`🏢 Организация уже есть: ${existingMembership.organization_id}`);
+        }
+      } catch (orgErr) {
+        console.warn('⚠️ Ensure organization skipped:', orgErr);
+      }
+
+      // Auto-accept pending workspace invites for this email
+      try {
+        const userEmail = (user.email || '').toLowerCase();
+        
+        // Find pending workspace_invites
+        const { data: pendingWsInvites } = await supabase
+          .from('workspace_invites')
+          .select('id, workspace_id, role, email')
+          .eq('email', userEmail)
+          .is('accepted_at', null);
+
+        if (pendingWsInvites && pendingWsInvites.length > 0) {
+          console.log(`🔗 Найдено ${pendingWsInvites.length} pending workspace invites для ${userEmail}`);
+
+          // Create workspace_members for each invite
+          const memberRows = pendingWsInvites.map((inv: any) => ({
+            workspace_id: inv.workspace_id,
+            user_id: user.id,
+            role: inv.role || 'viewer',
+            created_at: new Date().toISOString(),
+          }));
+
+          // Insert members one by one, skipping duplicates
+          let memberErr: any = null;
+          for (const row of memberRows) {
+            const { data: existing } = await supabase.from('workspace_members')
+              .select('id').eq('workspace_id', row.workspace_id).eq('user_id', row.user_id).maybeSingle();
+            if (!existing) {
+              const { error } = await supabase.from('workspace_members').insert(row);
+              if (error) { memberErr = error; break; }
+            }
+          }
+
+          if (memberErr) {
+            console.warn('⚠️ Ошибка auto-accept workspace invites:', memberErr.message);
+          } else {
+            // Mark invites as accepted
+            const inviteIds = pendingWsInvites.map((inv: any) => inv.id);
+            await supabase
+              .from('workspace_invites')
+              .update({ accepted_at: new Date().toISOString() })
+              .in('id', inviteIds);
+
+            console.log(`✅ Auto-accepted ${pendingWsInvites.length} workspace invites`);
+          }
+        }
+
+        // Same for organization_invites
+        const { data: pendingOrgInvites } = await supabase
+          .from('organization_invites')
+          .select('id, organization_id, role, email')
+          .eq('email', userEmail)
+          .is('accepted_at', null);
+
+        if (pendingOrgInvites && pendingOrgInvites.length > 0) {
+          console.log(`🔗 Найдено ${pendingOrgInvites.length} pending org invites для ${userEmail}`);
+
+          const orgMemberRows = pendingOrgInvites.map((inv: any) => ({
+            organization_id: inv.organization_id,
+            user_id: user.id,
+            role: inv.role || 'viewer',
+            created_at: new Date().toISOString(),
+          }));
+
+          let orgErr: any = null;
+          for (const row of orgMemberRows) {
+            const { data: existing } = await supabase.from('organization_members')
+              .select('id').eq('organization_id', row.organization_id).eq('user_id', row.user_id).maybeSingle();
+            if (!existing) {
+              const { error } = await supabase.from('organization_members').insert(row);
+              if (error) { orgErr = error; break; }
+            }
+          }
+
+          if (!orgErr) {
+            const orgInviteIds = pendingOrgInvites.map((inv: any) => inv.id);
+            await supabase
+              .from('organization_invites')
+              .update({ accepted_at: new Date().toISOString() })
+              .in('id', orgInviteIds);
+
+            console.log(`✅ Auto-accepted ${pendingOrgInvites.length} org invites`);
+          }
+        }
+      } catch (inviteErr) {
+        // Non-critical: tables may not exist yet
+        console.log('ℹ️ Auto-accept invites skipped (tables may not exist)');
+      }
+
+      return c.json({
+        ...profile,
+        email: user.email,
+        display_name: profile.full_name || displayName,
+      });
+    } catch (error: any) {
+      return handleError(c, 'Ensure Profile', error);
+    }
+  });
+
+  // Get current user profile
+  app.get("/make-server-73d66528/profile", async (c) => {
+    try {
+      const accessToken = c.req.header('Authorization')?.split(' ')[1];
+      
+      const { data: { user }, error: authError } = await retryOperation(
+        () => supabaseAuth.auth.getUser(accessToken),
+        3, 1000, 'Auth check (Get Profile)'
+      );
+
+      if (authError || !user) {
+        return c.json({ error: 'Unauthorized' }, 401);
+      }
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .maybeSingle();
+
+      if (profile) {
+        return c.json({
+          ...profile,
+          email: user.email,
+          display_name: profile.full_name || '',
+        });
+      }
+
+      // Fallback: return from auth metadata
+      return c.json({
+        id: user.id,
+        email: user.email,
+        display_name: user.user_metadata?.name || user.user_metadata?.display_name || '',
+        full_name: user.user_metadata?.name || user.user_metadata?.display_name || '',
+        avatar_url: user.user_metadata?.avatar_url || null
+      });
+    } catch (error: any) {
+      return handleError(c, 'Get Profile', error);
+    }
+  });
+
   // Upload avatar (for current user profile)
   app.post("/make-server-73d66528/profile/upload-avatar", async (c) => {
     try {
@@ -80,7 +312,7 @@ export function registerProfileRoutes(app: Hono) {
         });
 
       if (uploadError) {
-        console.error('❌ Ошибка загрузки в Storage:', uploadError);
+        console.error('❌ Ошибка заг��узки в Storage:', uploadError);
         return c.json({ error: 'Ошибка загрузки файла' }, 500);
       }
 
@@ -153,6 +385,21 @@ export function registerProfileRoutes(app: Hono) {
       if (error) {
         console.error('❌ Ошибка обновления профиля:', error);
         return c.json({ error: 'Ошибка обновления профиля' }, 500);
+      }
+
+      // Upsert into profiles table
+      const profileData: any = { id: user.id, updated_at: new Date().toISOString() };
+      if (display_name !== undefined) profileData.full_name = display_name;
+      if (avatar_url !== undefined) profileData.avatar_url = avatar_url;
+
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .upsert(profileData, { onConflict: 'id' });
+
+      if (profileError) {
+        console.warn('⚠️ Ошибка upsert profiles (не критично):', profileError.message);
+      } else {
+        console.log('✅ Профиль в таблице profiles обновлён');
       }
 
       console.log(`✅ Профиль обновлён для ${user.email}`);

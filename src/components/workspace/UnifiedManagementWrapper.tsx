@@ -7,7 +7,6 @@ import { projectsApi } from '../../services/api/projects';
 import { gradesApi } from '../../services/api/grades';
 import { companiesApi } from '../../services/api/companies';
 import { eventPatternsApi } from '../../services/api/eventPatterns';
-import { usersApi } from '../../services/api/users';
 import { toast } from 'sonner@2.0.3';
 import { updateWorkspace } from '../../services/api/workspaces';
 
@@ -112,7 +111,7 @@ export function UnifiedManagementWrapper({
 
   const handleCreateUser = async (data: any) => {
     try {
-      const newUser = await usersApi.create(data);
+      const newUser = await resourcesApi.create(data, accessToken || undefined, String(workspace.id));
       setResources((prev) => [...prev, newUser]);
       toast.success('Создано', {
         description: 'Сотрудник добавлен',
@@ -129,7 +128,7 @@ export function UnifiedManagementWrapper({
 
   const handleUpdateUser = async (userId: string, data: any) => {
     try {
-      const updatedUser = await usersApi.update(userId, data);
+      const updatedUser = await resourcesApi.update(userId, data, accessToken || undefined);
       setResources((prev) =>
         prev.map((r) => (r.id === userId ? updatedUser : r))
       );
@@ -148,7 +147,7 @@ export function UnifiedManagementWrapper({
 
   const handleDeleteUser = async (userId: string) => {
     try {
-      await usersApi.delete(userId);
+      await resourcesApi.delete(userId, accessToken || undefined);
       setResources((prev) => prev.filter((r) => r.id !== userId));
       toast.success('Удалено', {
         description: 'Сотрудник удален',
@@ -337,6 +336,15 @@ export function UnifiedManagementWrapper({
       onDeleteUser={handleDeleteUser}
       onUploadUserAvatar={handleUploadUserAvatar}
       highlightedUserId={undefined}
+      onRefreshResources={async () => {
+        try {
+          const data = await resourcesApi.getAll(accessToken || undefined, workspace.id);
+          setResources(data);
+        } catch (err) {
+          console.error('❌ Ошибка рефреша ресурсов:', err);
+        }
+      }}
+      workspaceId={String(workspace.id)}
       
       // Departments tab
       onRenameDepartment={handleRenameDepartment}

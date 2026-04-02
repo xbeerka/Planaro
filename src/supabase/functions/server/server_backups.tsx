@@ -266,7 +266,7 @@ export const registerBackupRoutes = (app: Hono) => {
           id: e.id,
           workspace_id: workspaceId,
           project_id: e.project_id,
-          user_id: e.user_id,
+          resource_id: e.resource_id || e.user_id,
           start_week: e.start_week,
           weeks_span: e.weeks_span,
           unit_start: e.unit_start,

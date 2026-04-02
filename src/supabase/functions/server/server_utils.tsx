@@ -22,6 +22,21 @@ export function createAuthClient() {
   return createClient(supabaseUrl, supabaseAnonKey);
 }
 
+/**
+ * User Supabase client (anon key + access token)
+ * Используется для операций от имени пользователя (включая Realtime)
+ * @param accessToken - JWT токен пользователя
+ */
+export function createUserClient(accessToken: string) {
+  return createClient(supabaseUrl, supabaseAnonKey, {
+    global: {
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    }
+  });
+}
+
 // ==================== HELPER FUNCTIONS ====================
 
 /**

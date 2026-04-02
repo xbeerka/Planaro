@@ -1,0 +1,60 @@
+❌ Warning: Cannot update a component (`%s`) while rendering a different component (`%s`). To locate the bad setState() call inside `%s`, follow the stack trace as described in https://reactjs.org/link/setstate-in-render%s SchedulerMain SchedulerGrid SchedulerGrid 
+    at https://app-4ma7rottowwbfqyqnpginu3xjtxoleenzwe3hhr6tbv6abhhjsmq.makeproxy-c.figma.site/src/components/scheduler/SchedulerGrid.tsx?t=1774519800698:788:11
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4ma7rottowwbfqyqnpginu3xjtxoleenzwe3hhr6tbv6abhhjsmq.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at div
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4ma7rottowwbfqyqnpginu3xjtxoleenzwe3hhr6tbv6abhhjsmq.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at div
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4ma7rottowwbfqyqnpginu3xjtxoleenzwe3hhr6tbv6abhhjsmq.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at SchedulerMain (https://app-4ma7rottowwbfqyqnpginu3xjtxoleenzwe3hhr6tbv6abhhjsmq.makeproxy-c.figma.site/src/components/scheduler/SchedulerMain.tsx?t=1774519800698:80:3)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4ma7rottowwbfqyqnpginu3xjtxoleenzwe3hhr6tbv6abhhjsmq.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4ma7rottowwbfqyqnpginu3xjtxoleenzwe3hhr6tbv6abhhjsmq.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at PresenceProvider (https://app-4ma7rottowwbfqyqnpginu3xjtxoleenzwe3hhr6tbv6abhhjsmq.makeproxy-c.figma.site/src/contexts/PresenceContext.tsx:21:36)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4ma7rottowwbfqyqnpginu3xjtxoleenzwe3hhr6tbv6abhhjsmq.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4ma7rottowwbfqyqnpginu3xjtxoleenzwe3hhr6tbv6abhhjsmq.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at FilterProvider (https://app-4ma7rottowwbfqyqnpginu3xjtxoleenzwe3hhr6tbv6abhhjsmq.makeproxy-c.figma.site/src/contexts/FilterContext.tsx:22:34)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4ma7rottowwbfqyqnpginu3xjtxoleenzwe3hhr6tbv6abhhjsmq.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4ma7rottowwbfqyqnpginu3xjtxoleenzwe3hhr6tbv6abhhjsmq.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at SettingsProvider (https://app-4ma7rottowwbfqyqnpginu3xjtxoleenzwe3hhr6tbv6abhhjsmq.makeproxy-c.figma.site/src/contexts/SettingsContext.tsx:22:36)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4ma7rottowwbfqyqnpginu3xjtxoleenzwe3hhr6tbv6abhhjsmq.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4ma7rottowwbfqyqnpginu3xjtxoleenzwe3hhr6tbv6abhhjsmq.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at SchedulerProvider (https://app-4ma7rottowwbfqyqnpginu3xjtxoleenzwe3hhr6tbv6abhhjsmq.makeproxy-c.figma.site/src/contexts/SchedulerContext.tsx?t=1774519800698:45:37)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4ma7rottowwbfqyqnpginu3xjtxoleenzwe3hhr6tbv6abhhjsmq.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4ma7rottowwbfqyqnpginu3xjtxoleenzwe3hhr6tbv6abhhjsmq.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at UIProvider (https://app-4ma7rottowwbfqyqnpginu3xjtxoleenzwe3hhr6tbv6abhhjsmq.makeproxy-c.figma.site/src/contexts/UIContext.tsx:21:30)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4ma7rottowwbfqyqnpginu3xjtxoleenzwe3hhr6tbv6abhhjsmq.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at AppContent (https://app-4ma7rottowwbfqyqnpginu3xjtxoleenzwe3hhr6tbv6abhhjsmq.makeproxy-c.figma.site/src/App.tsx?t=1774519800698:103:49)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4ma7rottowwbfqyqnpginu3xjtxoleenzwe3hhr6tbv6abhhjsmq.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at ErrorBoundary (https://app-4ma7rottowwbfqyqnpginu3xjtxoleenzwe3hhr6tbv6abhhjsmq.makeproxy-c.figma.site/src/App.tsx?t=1774519800698:47:5)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4ma7rottowwbfqyqnpginu3xjtxoleenzwe3hhr6tbv6abhhjsmq.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4ma7rottowwbfqyqnpginu3xjtxoleenzwe3hhr6tbv6abhhjsmq.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at ToastProvider (https://app-4ma7rottowwbfqyqnpginu3xjtxoleenzwe3hhr6tbv6abhhjsmq.makeproxy-c.figma.site/src/components/ui/ToastContext.tsx:22:33)
+    at https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:290:12522
+    at FGCmp (https://app-4ma7rottowwbfqyqnpginu3xjtxoleenzwe3hhr6tbv6abhhjsmq.makeproxy-c.figma.site/@id/fginspector:3:55)
+    at App (https://app-4ma7rottowwbfqyqnpginu3xjtxoleenzwe3hhr6tbv6abhhjsmq.makeproxy-c.figma.site/src/App.tsx?t=1774519800698:631:3)
+    at o0 (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:117:4420)
+    at N (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:572:13259)
+    at n3 (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:626:13925)
+    at bH (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:643:10316)
+    at div
+    at an (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:117:14190)
+    at Tz (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:633:235156)
+    at ym (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:633:246294)
+    at ib (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:102:145913)
+    at hu (https://www.figma.com/webpack-artifacts/assets/code_components_preview_iframe-64d6693d577200fa.min.js.br:436:8433)

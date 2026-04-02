@@ -7,12 +7,12 @@ const supabaseAuth = createAuthClient();
 
 // ==================== HELPERS ====================
 
-// Helper to convert "u123" -> 123
-function parseFrontendUserId(frontendId: string): number | null {
+// Helper to convert "r123" -> 123
+function parseResourceId(frontendId: string): number | null {
   if (!frontendId) return null;
   
   let numericStr = frontendId;
-  if (frontendId.startsWith('u')) {
+  if (frontendId.startsWith('r')) {
     numericStr = frontendId.substring(1);
   }
   
@@ -67,7 +67,9 @@ export function registerCommentsRoutes(app: Hono) {
       // 1. Collect unique auth_user_ids to minimize API calls
       const authUserIds = new Set<string>();
       data.forEach((row: any) => {
-        if (row.auth_user_id) authUserIds.add(row.auth_user_id);
+        // Prefer new field, fallback to legacy
+        const authorId = row.author_auth_user_id || row.auth_user_id;
+        if (authorId) authUserIds.add(authorId);
       });
 
       // 2. Fetch auth users in parallel (with caching)
@@ -86,20 +88,20 @@ export function registerCommentsRoutes(app: Hono) {
       const mappedComments = await Promise.all(data.map(async (row: any) => {
         let authorAvatarUrl = undefined;
         
-        // Strategy 1: Look up by auth_user_id (Correct way)
-        if (row.auth_user_id && authUserAvatars.has(row.auth_user_id)) {
-          authorAvatarUrl = authUserAvatars.get(row.auth_user_id);
+        // Strategy 1: Look up by author_auth_user_id (new) or auth_user_id (legacy)
+        const authorId = row.author_auth_user_id || row.auth_user_id;
+        if (authorId && authUserAvatars.has(authorId)) {
+          authorAvatarUrl = authUserAvatars.get(authorId);
         }
         
-        // Strategy 2: Fallback to public.users lookup by display_name (Legacy)
-        // Only if Strategy 1 failed
-        if (!authorAvatarUrl && row.user_display_name) {
-           const { data: author } = await supabase
-             .from('users')
+        // Strategy 2: Fallback to resources lookup by full_name
+        if (!authorAvatarUrl && row.resource_id) {
+           const { data: resource } = await supabase
+             .from('resources')
              .select('avatar_url')
-             .eq('display_name', row.user_display_name)
+             .eq('id', row.resource_id)
              .maybeSingle();
-           if (author) authorAvatarUrl = author.avatar_url;
+           if (resource) authorAvatarUrl = resource.avatar_url;
         }
 
         // Calculate weekDate from week_number (approximate, for display if needed)
@@ -112,7 +114,8 @@ export function registerCommentsRoutes(app: Hono) {
         return {
           id: String(row.id),
           workspaceId: String(row.workspace_id),
-          userId: `u${row.user_id}`, // Resource ID
+          resourceId: `r${row.resource_id}`,
+          userId: `r${row.resource_id}`, // Resource ID
           userDisplayName: row.user_display_name,
           authorAvatarUrl: authorAvatarUrl,
           comment: row.comment,
@@ -157,7 +160,7 @@ export function registerCommentsRoutes(app: Hono) {
       }
       
       // Parse Resource ID
-      const resourceIdInt = parseFrontendUserId(userId);
+      const resourceIdInt = parseResourceId(userId);
       if (resourceIdInt === null) {
         return c.json({ error: 'Invalid User ID format' }, 400);
       }
@@ -165,13 +168,14 @@ export function registerCommentsRoutes(app: Hono) {
       console.log(`💬 Creating comment on Resource ${resourceIdInt} (Auth: ${authUserId})`);
 
       // Insert into DB
-      const newCommentData = {
+      const newCommentData: any = {
         workspace_id: parseInt(workspaceId),
-        user_id: resourceIdInt, 
-        auth_user_id: authUserId, // ✅ Added auth_user_id
-        user_display_name: userDisplayName || 'Unknown',
+        resource_id: resourceIdInt, 
+        author_auth_user_id: authUserId,
+        auth_user_id: authUserId, // legacy field, keep for backward compat
         comment: comment,
-        week_number: weekNumber
+        week_number: weekNumber,
+        user_display_name: userDisplayName || user.user_metadata?.name || user.email || 'Unknown',
       };
       
       const { data, error } = await supabase
@@ -193,20 +197,21 @@ export function registerCommentsRoutes(app: Hono) {
         authorAvatarUrl = user.user_metadata.avatar_url;
       }
       
-      // Strategy 2: Fallback to public.users lookup
-      if (!authorAvatarUrl && userDisplayName) {
-        const { data: author } = await supabase
-          .from('users')
+      // Strategy 2: Fallback to resources lookup by id
+      if (!authorAvatarUrl && resourceIdInt) {
+        const { data: resource } = await supabase
+          .from('resources')
           .select('avatar_url')
-          .eq('display_name', userDisplayName)
+          .eq('id', resourceIdInt)
           .maybeSingle();
-        if (author) authorAvatarUrl = author.avatar_url;
+        if (resource) authorAvatarUrl = resource.avatar_url;
       }
       
       const mappedComment = {
         id: String(data.id),
         workspaceId: String(data.workspace_id),
-        userId: `u${data.user_id}`, 
+        resourceId: `r${data.resource_id}`, 
+        userId: `r${data.resource_id}`, 
         userDisplayName: data.user_display_name,
         authorAvatarUrl: authorAvatarUrl,
         comment: data.comment,
@@ -241,9 +246,9 @@ export function registerCommentsRoutes(app: Hono) {
       
       // Handle resource move
       if (userId !== undefined) {
-          const resourceIdInt = parseFrontendUserId(userId);
+          const resourceIdInt = parseResourceId(userId);
           if (resourceIdInt !== null) {
-             updateData.user_id = resourceIdInt;
+             updateData.resource_id = resourceIdInt;
           }
       }
 
@@ -263,28 +268,30 @@ export function registerCommentsRoutes(app: Hono) {
       // Re-fetch avatar if needed
       let authorAvatarUrl = undefined;
       
-      // Strategy 1: Look up by auth_user_id if present
-      if (data.auth_user_id) {
-        const { data: { user }, error } = await supabase.auth.admin.getUserById(data.auth_user_id);
+      // Strategy 1: Look up by author_auth_user_id (new) or auth_user_id (legacy)
+      const authorUid = data.author_auth_user_id || data.auth_user_id;
+      if (authorUid) {
+        const { data: { user }, error } = await supabase.auth.admin.getUserById(authorUid);
         if (!error && user && user.user_metadata?.avatar_url) {
           authorAvatarUrl = user.user_metadata.avatar_url;
         }
       }
 
-      // Strategy 2: Fallback to public.users lookup
-      if (!authorAvatarUrl && data.user_display_name) {
-          const { data: author } = await supabase
-          .from('users')
+      // Strategy 2: Fallback to resources lookup by id
+      if (!authorAvatarUrl && data.resource_id) {
+          const { data: resource } = await supabase
+          .from('resources')
           .select('avatar_url')
-          .eq('display_name', data.user_display_name)
+          .eq('id', data.resource_id)
           .maybeSingle();
-          if (author) authorAvatarUrl = author.avatar_url;
+          if (resource) authorAvatarUrl = resource.avatar_url;
       }
 
       const mappedComment = {
         id: String(data.id),
         workspaceId: String(data.workspace_id),
-        userId: `u${data.user_id}`,
+        resourceId: `r${data.resource_id}`,
+        userId: `r${data.resource_id}`,
         userDisplayName: data.user_display_name,
         authorAvatarUrl: authorAvatarUrl,
         comment: data.comment,

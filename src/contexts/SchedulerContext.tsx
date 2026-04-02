@@ -25,6 +25,11 @@ import { handleCloudflareError } from '../utils/cloudflareErrorHandler';
 import { toast } from 'sonner@2.0.3';
 import { throttledRequest } from '../utils/requestThrottle';
 import { getWeeksInYear } from '../utils/scheduler'; // ✅ Для динамического вычисления недель
+import { useRealtimeEvents } from '../hooks/useRealtimeEvents';
+import { useRealtimeProjects } from '../hooks/useRealtimeProjects';
+import { useRealtimeComments } from '../hooks/useRealtimeComments';
+import { useRealtimeResources } from '../hooks/useRealtimeResources';
+import { useRealtimeDepartments } from '../hooks/useRealtimeDepartments';
 
 interface SchedulerContextType {
   // Data
@@ -58,9 +63,19 @@ interface SchedulerContextType {
   // 🔄 History ID Updater Registration
   setHistoryIdUpdater: (updater: (oldId: string, newId: string) => void) => void;
 
+  // 🔄 History Rebase Registration (для Realtime)
+  setHistoryRebasers: (rebasers: {
+    rebaseEvent: (eventId: string, newData: Partial<SchedulerEvent>) => void;
+    rebaseDeleteEvent: (eventId: string) => void;
+    rebaseInsertEvent: (event: SchedulerEvent) => void;
+  }) => void;
+
   // 🚫 User interaction state (для отключения polling во время drag/resize)
   isUserInteractingRef: React.MutableRefObject<boolean>;
   setIsUserInteracting: (value: boolean) => void;
+  
+  // 🔑 accessToken ref — чтобы обновление токена НЕ вызывало полную перезагрузку данных
+  accessTokenRef: React.MutableRefObject<string | undefined>;
   
   // ⏱️ Delta Sync control (для блокировки синхронизации после локальных изменений)
   resetDeltaSyncTimer: () => void;
@@ -83,10 +98,10 @@ interface SchedulerContextType {
   setProjects: (projects: Project[] | ((prev: Project[]) => Project[])) => void;
   
   // Department operations
-  createDepartment: (name: string) => Promise<void>;
+  createDepartment: (name: string, color?: string | null) => Promise<void>;
   deleteDepartment: (id: string) => Promise<void>;
   getDepartmentUsersCount: (id: string) => Promise<number>;
-  renameDepartment: (id: string, name: string) => Promise<void>;
+  renameDepartment: (id: string, name: string, color?: string | null) => Promise<void>;
   reorderDepartments: (departments: Department[]) => Promise<void>;
   toggleDepartmentVisibility: (id: string) => Promise<void>;
   
@@ -110,9 +125,9 @@ interface SchedulerContextType {
   updateCompaniesSortOrder: (updates: Array<{ id: string; sortOrder: number }>) => Promise<void>;
   
   // Comment operations
-  createComment: (data: { userId: string; userDisplayName: string; authorAvatarUrl?: string; comment: string; weekDate: string; weekIndex?: number }) => Promise<Comment>;
+  createComment: (data: { userId: string; comment: string; weekDate: string; weekIndex?: number }) => Promise<Comment>;
   updateComment: (id: string, text: string) => Promise<Comment>;
-  moveComment: (id: string, newWeekIndex: number, newUserId: string) => Promise<Comment>;
+  moveComment: (id: string, newWeekIndex: number, newResourceId: string) => Promise<Comment>;
   deleteComment: (id: string) => Promise<void>;
 }
 
@@ -135,18 +150,32 @@ export function SchedulerProvider({ children, accessToken, workspaceId, timeline
     historyIdUpdaterRef.current = updater;
   }, []);
 
+  // 🔄 Reference to history rebasers (for Realtime)
+  const historyRebasersRef = useRef<{
+    rebaseEvent: (eventId: string, newData: Partial<SchedulerEvent>) => void;
+    rebaseDeleteEvent: (eventId: string) => void;
+    rebaseInsertEvent: (event: SchedulerEvent) => void;
+  } | null>(null);
+  const setHistoryRebasers = useCallback((rebasers: {
+    rebaseEvent: (eventId: string, newData: Partial<SchedulerEvent>) => void;
+    rebaseDeleteEvent: (eventId: string) => void;
+    rebaseInsertEvent: (event: SchedulerEvent) => void;
+  }) => {
+    historyRebasersRef.current = rebasers;
+  }, []);
+
   // 🗑️ Отслеживание удаленных событий (для защиты от "воскрешения")
   const deletedEventIdsRef = useRef<Set<string>>(new Set());
   const lastLocalChangeRef = useRef<number>(0);
   
-  // ⏱️ Timestamp последней синхронизации (для delta sync)
-  const lastSyncTimestampRef = useRef<string | null>(null);
+  // ⏱️ Per-event modification timestamps (для защиты от устаревших Realtime-обновлений)
+  const localEventModTimesRef = useRef<Map<string, number>>(new Map());
   
   const pendingOps = usePendingOperations();
   
   // ✨ SyncManager - новый движок синхронизации (v4.0.0)
   const { queueChange, flush: flushSync, remapKey, isSyncing, queueSize, hasPendingChanges } = useSyncManager({
-    delay: 2000, // 2 секунды задержки (Local-First)
+    delay: 500, // 500мс задержки (быстрая синхронзация между пользователями)
     onSync: async (items, context: any) => {
       if (items.size === 0) return;
       
@@ -233,7 +262,11 @@ export function SchedulerProvider({ children, accessToken, workspaceId, timeline
                console.log(`🔄 SyncManager: Swapping ${tempId} -> ${realId}`);
                
                // 1. Обновляем локальный стейт
-               setEventsState(prev => prev.map(e => e.id === tempId ? { ...e, ...createdEvent } : e));
+               // ✅ КРИТИЧНО: Удаляем дубликат с realId (мог прилететь через Realtime INSERT)
+               setEventsState(prev => {
+                 const withoutDuplicate = prev.filter(e => e.id !== realId);
+                 return withoutDuplicate.map(e => e.id === tempId ? { ...e, ...createdEvent } : e);
+               });
                
                // 2. Обновляем loadedEventIds
                loadedEventIds.current.delete(tempId);
@@ -261,7 +294,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId, timeline
         });
       }
       
-      // Удаляем из UI pending успешно обновленные/удаленные
+      // Удаляем з UI pending успешно обновленные/удаленные
       operations.forEach(op => {
         if (op.op !== 'create') {
            pendingOps.removePending(op.id);
@@ -288,7 +321,11 @@ export function SchedulerProvider({ children, accessToken, workspaceId, timeline
   const setIsUserInteracting = useCallback((value: boolean) => {
     isUserInteractingRef.current = value;
   }, []);
-  
+
+  // 🔑 accessToken ref — чтобы обновление токена НЕ вызывало полную перезагрузку данных
+  const accessTokenRef = useRef(accessToken);
+  accessTokenRef.current = accessToken;
+
   // Data state
   const [departments, setDepartments] = useState<Department[]>([]);
   const [resources, setResources] = useState<Resource[]>([]);
@@ -298,17 +335,63 @@ export function SchedulerProvider({ children, accessToken, workspaceId, timeline
   const [companies, setCompanies] = useState<Company[]>([]);
   const [comments, setComments] = useState<Comment[]>([]); // ✅ State for comments
   
-  // Refs для tracking локальных изменений (защита от синхронизации)
+  // Refs для tracking локальных изменени (защита от синхронизации)
   const lastResourcesChangeRef = useRef<number>(0);
   const lastDepartmentsChangeRef = useRef<number>(0);
   const lastProjectsChangeRef = useRef<number>(0);
+  const lastCommentsChangeRef = useRef<number>(0);
   
   // Alias для удобства
   const events = eventsState;
 
-  // ==================== OPTIMIZED DATA LOADING ====================
-  // Вместо множества отдельных useEffect, используем один управляемый процесс загрузки
+  // 📡 Realtime подписка на изменения событий от других пользоателей
+  useRealtimeEvents({
+    workspaceId: workspaceId || '',
+    enabled: !!accessToken && !!workspaceId && workspaceId !== 'loading',
+    setEvents: setEventsState,
+    hasPendingChanges,
+    isUserInteractingRef,
+    lastLocalChangeRef,
+    deletedEventIdsRef,
+    historyRebasersRef,
+    localEventModTimesRef,
+  });
+
+  // 📡 Realtime подписка на изменения проектов от других пользователей
+  useRealtimeProjects({
+    workspaceId: workspaceId || '',
+    enabled: !!accessToken && !!workspaceId && workspaceId !== 'loading',
+    setProjects,
+    lastLocalChangeRef: lastProjectsChangeRef,
+  });
+
+  // 📡 Realtime подписка на изменения комментариев от других пользователей
+  useRealtimeComments({
+    workspaceId: workspaceId || '',
+    enabled: !!accessToken && !!workspaceId && workspaceId !== 'loading',
+    setComments,
+    lastLocalChangeRef: lastCommentsChangeRef,
+  });
+
+  // 📡 Realtime подписка на изменения ресурсов от других пользователей
+  useRealtimeResources({
+    workspaceId: workspaceId || '',
+    enabled: !!accessToken && !!workspaceId && workspaceId !== 'loading',
+    setResources,
+    lastLocalChangeRef: lastResourcesChangeRef,
+  });
+
+  // 📡 Realtime подписка на изменения департаментов от других пользователей
+  useRealtimeDepartments({
+    workspaceId: workspaceId || '',
+    enabled: !!accessToken && !!workspaceId && workspaceId !== 'loading',
+    setDepartments,
+    lastLocalChangeRef: lastDepartmentsChangeRef,
+  });
+
+  // ==================== DATA LOADING ====================
   
+  // Загрузка данных воркспейса (только если изменился workspace или токен)
   useEffect(() => {
     // 1. Сброс состояния при выходе из воркспейса
     if (!workspaceId) {
@@ -325,35 +408,43 @@ export function SchedulerProvider({ children, accessToken, workspaceId, timeline
         loadedEventIds.current = new Set();
       }
       
-      // Сбрасываем флаги загрузки
-      setIsLoadingEvents(false);
-      setIsLoadingResources(false);
-      setIsLoadingDepartments(false);
-      setIsLoadingProjects(false);
-      setIsLoadingComments(false);
-      setIsLoadingGrades(false);
-      setIsLoadingEventPatterns(false);
-      setIsLoadingCompanies(false);
+      // ✅ ИСПРАВЛЕНИЕ: Оборачиваем setIsLoading в queueMicrotask чтобы избежать "Cannot update component while rendering"
+      queueMicrotask(() => {
+        setIsLoadingEvents(false);
+        setIsLoadingResources(false);
+        setIsLoadingDepartments(false);
+        setIsLoadingProjects(false);
+        setIsLoadingComments(false);
+        setIsLoadingGrades(false);
+        setIsLoadingEventPatterns(false);
+        setIsLoadingCompanies(false);
+      });
       return;
     }
 
     // 2. Если воркспейс в состоянии загрузки - показываем скелетоны
     if (workspaceId === "loading") {
-      setIsLoadingEvents(true);
-      setIsLoadingResources(true);
-      setIsLoadingDepartments(true);
-      setIsLoadingProjects(true);
-      setIsLoadingComments(true);
-      setIsLoadingGrades(true);
-      setIsLoadingEventPatterns(true);
-      setIsLoadingCompanies(true);
+      // ✅ ИСПРАВЛЕНИЕ: Оборачиваем setIsLoading в queueMicrotask
+      queueMicrotask(() => {
+        setIsLoadingEvents(true);
+        setIsLoadingResources(true);
+        setIsLoadingDepartments(true);
+        setIsLoadingProjects(true);
+        setIsLoadingComments(true);
+        setIsLoadingGrades(true);
+        setIsLoadingEventPatterns(true);
+        setIsLoadingCompanies(true);
+      });
       return;
     }
 
     // 3. Загрузка данных воркспейса
-    if (!accessToken) return;
+    if (!accessTokenRef.current) return;
 
     const loadWorkspaceData = async () => {
+      const currentToken = accessTokenRef.current;
+      if (!currentToken) return;
+      
       // Helper для загрузки с кэшем
       const loadCache = async <T,>(
         key: string, 
@@ -367,7 +458,6 @@ export function SchedulerProvider({ children, accessToken, workspaceId, timeline
           if (cachedData) {
             setter(cachedData);
             const duration = Math.round(performance.now() - start);
-            console.log(`📦 Cache loaded: ${label} (${duration}ms)`);
             if (label === 'events' && Array.isArray(cachedData)) {
               loadedEventIds.current = new Set((cachedData as any[]).map(e => e.id));
             }
@@ -380,20 +470,10 @@ export function SchedulerProvider({ children, accessToken, workspaceId, timeline
       };
 
       // 1. Сначала грузим из кэша (быстрый UI)
-      console.log('🚀 Загрузка кэша...');
-      
       const cacheStart = performance.now();
-      // Устанавливаем флаги загрузки, но если кэш есть - UI отрисуется сразу
-      setIsLoadingEvents(true);
-      setIsLoadingResources(true);
-      setIsLoadingDepartments(true);
-      setIsLoadingProjects(true);
-      setIsLoadingComments(true);
-      setIsLoadingGrades(true);
-      setIsLoadingEventPatterns(true);
-      setIsLoadingCompanies(true);
+      // НЕ ставим isLoading=true сразу — сначала проверяем кэш, чтобы избежать flash скелетона
 
-      await Promise.all([
+      const cacheResults = await Promise.all([
         loadCache('departments', setDepartments, 'departments'),
         loadCache('resources', setResources, 'resources'),
         loadCache('projects', setProjects, 'projects'),
@@ -403,14 +483,27 @@ export function SchedulerProvider({ children, accessToken, workspaceId, timeline
         loadCache('comments', setComments, 'comments'),
         loadCache('events', setEventsState, 'events'),
       ]);
-      console.log(`✅ Cache total load time: ${Math.round(performance.now() - cacheStart)}ms`);
+
+      
+      // ✅ ИСПРАВЛЕНИЕ: Оборачиваем setIsLoading в queueMicrotask
+      // Показываем скелетон ТОЛЬКО для данных без кэша
+      const [hasDepts, hasRes, hasProj, hasGrades, hasPatterns, hasCompanies, hasComments, hasEvents] = cacheResults;
+      queueMicrotask(() => {
+        if (!hasDepts) setIsLoadingDepartments(true);
+        if (!hasRes) setIsLoadingResources(true);
+        if (!hasProj) setIsLoadingProjects(true);
+        if (!hasGrades) setIsLoadingGrades(true);
+        if (!hasPatterns) setIsLoadingEventPatterns(true);
+        if (!hasCompanies) setIsLoadingCompanies(true);
+        if (!hasComments) setIsLoadingComments(true);
+        if (!hasEvents) setIsLoadingEvents(true);
+      });
       
       // 2. Затем грузим свежий снапшот с сервера (одним запросом)
-      console.log('🌍 Загрузка Snapshot...');
       const snapshotStart = performance.now();
       
       try {
-        const snapshot = await getWorkspaceSnapshot(workspaceId, accessToken);
+        const snapshot = await getWorkspaceSnapshot(workspaceId, currentToken);
         const snapshotDuration = Math.round(performance.now() - snapshotStart);
         console.log(`✅ Snapshot received in ${snapshotDuration}ms`);
         
@@ -426,8 +519,6 @@ export function SchedulerProvider({ children, accessToken, workspaceId, timeline
         
         loadedEventIds.current = new Set(snapshot.events.map(e => e.id));
         
-        console.log('✅ Snapshot получен и применен');
-        
         // Обновляем кэш в фоне
         Promise.all([
           setStorageJSON(`cache_departments_${workspaceId}`, snapshot.departments),
@@ -438,7 +529,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId, timeline
           setStorageJSON(`cache_companies_${workspaceId}`, snapshot.companies),
           setStorageJSON(`cache_comments_${workspaceId}`, snapshot.comments),
           setStorageJSON(`cache_events_${workspaceId}`, snapshot.events),
-        ]).catch(err => console.warn('Ошибка обновления кэша:', err));
+        ]).catch(err => console.warn('Ошбка обновления кэша:', err));
         
       } catch (error) {
         console.error('❌ Ошибка загрузки snapshot:', error);
@@ -458,19 +549,20 @@ export function SchedulerProvider({ children, accessToken, workspaceId, timeline
 
     loadWorkspaceData();
 
-  }, [accessToken, workspaceId]); // Запускаем при смене воркспейса или токена
+  }, [workspaceId]); // ✅ Только workspaceId — обновление токена НЕ перезагружает данные
 
   // ✨ Delta Sync - синхронизация ТОЛЬКО изменённых событий
-  // ⚡ БЫСТРАЯ стратегия: 4 секунды для delta, 30 секунд для full
+  // 📡 С Realtime: polling спользуется только как СТРАХОВКА (редкий full sync)
+  // Realtime обрабатывает INSERT/UPDATE/DELETE в реальном времени
   useEffect(() => {
-    if (!accessToken || !workspaceId || isLoadingEvents) return;
+    if (!accessTokenRef.current || !workspaceId || isLoadingEvents) return;
     
-    const DELTA_SYNC_INTERVAL = 5000; // ⚡ 5 секунд (быстрый delta sync!)
-    const FULL_SYNC_INTERVAL = 30000; // 🔄 30 секунд (полная синхронизация)
-    
-    let fullSyncCounter = 0;
+    const FULL_SYNC_INTERVAL = 120000; // 🔄 2 минуты (страховочный full sync, основной канал — Realtime)
     
     const syncChanges = async () => {
+      const currentToken = accessTokenRef.current;
+      if (!currentToken) return;
+      
       // 🛑 Don't sync if tab is hidden
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
         return;
@@ -481,111 +573,99 @@ export function SchedulerProvider({ children, accessToken, workspaceId, timeline
         return;
       }
       
-      // Пропускаем если было локальное изменение < 5 секунд назад
-      // (увеличено с 2 до 5 сек для защиты от быстрых последовательных Undo/Redo)
+      // Пропускаем если было локальное изменение < 10 секунд назад
       const timeSinceLastChange = Date.now() - lastLocalChangeRef.current;
-      if (timeSinceLastChange < 5000) {
+      if (timeSinceLastChange < 10000) {
         return;
       }
       
-      fullSyncCounter++;
-      const isFullSync = fullSyncCounter * DELTA_SYNC_INTERVAL >= FULL_SYNC_INTERVAL;
-      
-      if (isFullSync) {
-        fullSyncCounter = 0;
+      try {
+        // 🛡️ Throttled request - защита от перегрузки
+        const allEvents = await throttledRequest(
+          `events-full-sync-${workspaceId}`,
+          () => eventsApi.getAll(currentToken, workspaceId)
+        );
         
-        try {
-          // 🛡️ Throttled request - защита от перегрузки
-          const allEvents = await throttledRequest(
-            `events-full-sync-${workspaceId}`,
-            () => eventsApi.getAll(accessToken, workspaceId)
+        if (!allEvents) {
+          return;
+        }
+        
+        setEventsState(prev => {
+          // Сравниваем с текущими событиями
+          const currentIds = new Set(prev.map(e => e.id));
+          const serverIds = new Set(allEvents.map(e => e.id));
+          
+          // Находим удалённые события (есть локально, но нет на сервере)
+          const deletedIds = Array.from(currentIds).filter(id => 
+            !serverIds.has(id) && !deletedEventIdsRef.current.has(id)
           );
           
-          if (!allEvents) {
-            // console.log('ℹ️ Full Sync: пропущен (throttle)');
-            return;
+          if (deletedIds.length > 0) {
+            console.log(`🗑️ Full Sync: обнаружено ${deletedIds.length} удалённых событий другими пользователями:`, deletedIds);
           }
           
-          setEventsState(prev => {
-            // Сравниваем с текущими событиями
-            const currentIds = new Set(prev.map(e => e.id));
-            const serverIds = new Set(allEvents.map(e => e.id));
-            
-            // Находим удалённые события (есть локально, но нет на сервере)
-            const deletedIds = Array.from(currentIds).filter(id => 
-              !serverIds.has(id) && !deletedEventIdsRef.current.has(id)
-            );
-            
-            if (deletedIds.length > 0) {
-              console.log(`🗑️ Full Sync: обнаружено ${deletedIds.length} удалённых событий другими пользователями:`, deletedIds);
-            }
-            
-            // Фильтруем события которые были удалены текущим пользователм
-            const filtered = allEvents.filter(event => !deletedEventIdsRef.current.has(event.id));
-            
-            // ✅ КРИТИЧНО: МЕРЖИМ с локальными событиями вместо полной замены!
-            // Это защищает восстановленные Undo/Redo события от перезаписи
-            const mergedEvents = prev.map(localEvent => {
-              // 🛡️ PROTECTION: If event is pending sync, keep local version
-              if (hasPendingChanges(localEvent.id)) {
-                 return localEvent;
-              }
-
-              // Если событие с таким ID есть на сервере - используем данные с сервера
-              const serverEvent = filtered.find(e => e.id === localEvent.id);
-              if (serverEvent) {
-                // ✅ Проверяем - если событие было изменено локально < 60 сек назад,
-                // используем локальную версию (защита от перезаписи после Undo/Redo и при лагах репликации)
-                const timeSinceLastChange = Date.now() - lastLocalChangeRef.current;
-                if (timeSinceLastChange < 60000) {
-                  console.log(`🛡️ Full Sync: защита локального события ${localEvent.id} (изменено ${Math.round(timeSinceLastChange/1000)}с назад)`);
-                  return localEvent; // Используем локальную версию
-                }
-                return serverEvent; // Используем серверную версию
-              }
-              // Если события нет на сервере - проверяем не удалено ли оно
-              if (deletedEventIdsRef.current.has(localEvent.id)) {
-                return null; // Удаляем
-              }
-              // Иначе - это новое локальное событие или удаленное на сервере
-              // 1. Если это временный ID - оставляем (возможно еще летит на сервер)
-              if (localEvent.id.startsWith('ev_temp_')) {
-                 return localEvent;
-              }
-              
-              // 2. Если это старое событие которого нет на сервере - значит удалено другим
-              return null;
-            }).filter(Boolean) as SchedulerEvent[];
-            
-            // Добавляем новые события с сервера, которых у нас нет
-            const newServerEvents = filtered.filter(serverEvent => !currentIds.has(serverEvent.id));
-            if (newServerEvents.length > 0) {
-              console.log(`✨ Full Sync: получено ${newServerEvents.length} новых событий`);
-              return [...mergedEvents, ...newServerEvents];
-            }
-            
-            // Если изменений нет, возвращаем prev для избежания ре-рендера
-            if (mergedEvents.length === prev.length && mergedEvents.every((e, i) => e === prev[i])) {
-              return prev;
-            }
-            
-            return mergedEvents;
-          });
+          // Фильтруем события которые были удалены текущим пользователм
+          const filtered = allEvents.filter(event => !deletedEventIdsRef.current.has(event.id));
           
-          loadedEventIds.current = new Set(allEvents.map(e => e.id));
-        } catch (error) {
-          console.error('❌ Full sync failed:', error);
-          handleCloudflareError(error);
-        }
-      } else {
-        // Delta sync logic (fetch only updates since last sync)
-        // Currently not implemented on backend, falling back to full sync throttled
+          // ✅ КРИТИЧНО: МЕРЖИМ с локальными событиями вместо полной замены!
+          // Это защищает восстановленные Undo/Redo события от перезаписи
+          const mergedEvents = prev.map(localEvent => {
+            // 🛡️ PROTECTION: If event is pending sync, keep local version
+            if (hasPendingChanges(localEvent.id)) {
+               return localEvent;
+            }
+
+            // Если событие с таким ID есть на сервере - используем данные с сервера
+            const serverEvent = filtered.find(e => e.id === localEvent.id);
+            if (serverEvent) {
+              // ✅ Проверяем - если событие ыло изменено локально < 60 сек назад,
+              // используем локальную версию (защита от перезаписи после Undo/Redo и при лагах репликации)
+              const timeSinceLastChange = Date.now() - lastLocalChangeRef.current;
+              if (timeSinceLastChange < 60000) {
+                console.log(`🛡️ Full Sync: защита локального события ${localEvent.id} (изменено ${Math.round(timeSinceLastChange/1000)}с назад)`);
+                return localEvent; // Используем локальную версию
+              }
+              return serverEvent; // Используем серверную версию
+            }
+            // Если события нет на сервере - проверяем не удалено ли оно
+            if (deletedEventIdsRef.current.has(localEvent.id)) {
+              return null; // Удаляем
+            }
+            // Иначе - это новое локальное событие или удаленное на сервере
+            // 1. Если это временный ID - оставляем (возможно еще летит на сервер)
+            if (localEvent.id.startsWith('ev_temp_')) {
+               return localEvent;
+            }
+            
+            // 2. Если это старое событие которого нет на сервере - значит удалено другим
+            return null;
+          }).filter(Boolean) as SchedulerEvent[];
+          
+          // Добавляем новые события с сервера, которых у нас нет
+          const newServerEvents = filtered.filter(serverEvent => !currentIds.has(serverEvent.id));
+          if (newServerEvents.length > 0) {
+            console.log(`✨ Full Sync: получено ${newServerEvents.length} новых событий`);
+            return [...mergedEvents, ...newServerEvents];
+          }
+          
+          // Если изменений нет, возвращаем prev для избежания ре-рендера
+          if (mergedEvents.length === prev.length && mergedEvents.every((e, i) => e === prev[i])) {
+            return prev;
+          }
+          
+          return mergedEvents;
+        });
+        
+        loadedEventIds.current = new Set(allEvents.map(e => e.id));
+      } catch (error) {
+        console.error('❌ Full sync failed:', error);
+        handleCloudflareError(error);
       }
     };
     
-    const timer = setInterval(syncChanges, DELTA_SYNC_INTERVAL);
+    const timer = setInterval(syncChanges, FULL_SYNC_INTERVAL);
     return () => clearInterval(timer);
-  }, [accessToken, workspaceId, isLoadingEvents]); // Dependencies
+  }, [workspaceId, isLoadingEvents]); // ✅ Убран accessToken — используем accessTokenRef
 
   // Rest of the implementation remains the same (createEvent, etc.)
   // We need to preserve all other functions
@@ -614,6 +694,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId, timeline
   const updateEvent = useCallback(async (id: string, updates: Partial<SchedulerEvent>) => {
     setEventsState(prev => prev.map(e => e.id === id ? { ...e, ...updates } : e));
     lastLocalChangeRef.current = Date.now();
+    localEventModTimesRef.current.set(id, Date.now());
     
     queueChange(id, 'update', updates);
   }, [queueChange]);
@@ -672,9 +753,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId, timeline
     if (!accessToken || !workspaceId) return;
     try {
       await resourcesApi.create(data, accessToken, workspaceId);
-      // Refresh resources
-      const newResources = await resourcesApi.getAll(accessToken, workspaceId);
-      setResources(newResources);
+      // ✅ НЕ делаем refresh здесь — handleSave вызовет loadResources один раз в конце
     } catch (error) {
       console.error('Error creating resource:', error);
       throw error;
@@ -685,7 +764,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId, timeline
     if (!accessToken) return;
     try {
       await resourcesApi.update(id, data, accessToken);
-      // Optimistic update
+      // ✅ Optimistic update — мгновенное отображение изменений в UI
       setResources(prev => prev.map(r => r.id === id ? { ...r, ...data } : r));
     } catch (error) {
       console.error('Error updating resource:', error);
@@ -697,6 +776,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId, timeline
     if (!accessToken) return;
     try {
       await resourcesApi.delete(id, accessToken);
+      // ✅ Optimistic update — мгновенное удаление из UI
       setResources(prev => prev.filter(r => r.id !== id));
     } catch (error) {
       console.error('Error deleting resource:', error);
@@ -707,8 +787,10 @@ export function SchedulerProvider({ children, accessToken, workspaceId, timeline
   const loadResources = useCallback(async () => {
     if (!accessToken || !workspaceId) return;
     try {
+      lastResourcesChangeRef.current = Date.now(); // ✅ Блокируем Realtime на время загрузки
       const data = await resourcesApi.getAll(accessToken, workspaceId);
       setResources(data);
+      lastResourcesChangeRef.current = Date.now(); // ✅ И после загрузки тоже
     } catch (error) {
       console.error('Error loading resources:', error);
     }
@@ -781,10 +863,11 @@ export function SchedulerProvider({ children, accessToken, workspaceId, timeline
   }, []);
 
   // Department operations
-  const createDepartment = useCallback(async (name: string) => {
+  const createDepartment = useCallback(async (name: string, color?: string | null) => {
     if (!accessToken || !workspaceId) return;
     try {
-      await departmentsApi.create(name, workspaceId, accessToken);
+      lastDepartmentsChangeRef.current = Date.now();
+      await departmentsApi.create({ name, workspace_id: workspaceId, color: color || undefined } as any, accessToken);
       const newDepts = await departmentsApi.getAll(accessToken, workspaceId);
       setDepartments(newDepts);
     } catch (error) {
@@ -796,6 +879,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId, timeline
   const deleteDepartment = useCallback(async (id: string) => {
     if (!accessToken) return;
     try {
+      lastDepartmentsChangeRef.current = Date.now();
       await departmentsApi.delete(id, accessToken);
       setDepartments(prev => prev.filter(d => d.id !== id));
     } catch (error) {
@@ -809,19 +893,29 @@ export function SchedulerProvider({ children, accessToken, workspaceId, timeline
     return resources.filter(r => r.departmentId === id).length;
   }, [resources]);
   
-  const renameDepartment = useCallback(async (id: string, name: string) => {
+  const renameDepartment = useCallback(async (id: string, name: string, color?: string | null) => {
     if (!accessToken) return;
     try {
-      await departmentsApi.update(id, { name }, accessToken);
-      setDepartments(prev => prev.map(d => d.id === id ? { ...d, name } : d));
+      lastDepartmentsChangeRef.current = Date.now();
+      const updateData: Record<string, any> = { name };
+      if (color !== undefined) updateData.color = color;
+      await departmentsApi.update(id, updateData, accessToken);
+      // Update local state immediately (no re-fetch — reorderDepartments does final re-fetch)
+      setDepartments(prev => prev.map(d => {
+        if (d.id !== id) return d;
+        const updated = { ...d, name };
+        if (color !== undefined) updated.color = color;
+        return updated;
+      }));
     } catch (error) {
       console.error('Error renaming department:', error);
       throw error;
     }
-  }, [accessToken]);
+  }, [accessToken, workspaceId]);
   
   const reorderDepartments = useCallback(async (newDepartments: Department[]) => {
     console.log('🔄 reorderDepartments: Applying new order locally...', newDepartments.map(d => d.name));
+    lastDepartmentsChangeRef.current = Date.now();
 
     // Merge new order with existing data to preserve properties like usersCount
     setDepartments(prevDepts => {
@@ -842,6 +936,10 @@ export function SchedulerProvider({ children, accessToken, workspaceId, timeline
        await departmentsApi.updateQueue({
          departments: newDepartments.map((d, index) => ({ id: d.id, queue: index }))
        }, accessToken);
+       // Re-fetch to get updated last_activity_at from DB
+       const freshDepts = await departmentsApi.getAll(accessToken, workspaceId);
+       console.log('📋 Re-fetched departments after reorder, colors:', freshDepts.map((d: any) => ({ id: d.id, name: d.name, color: d.color })));
+       setDepartments(freshDepts);
     }
   }, [accessToken, workspaceId]);
   
@@ -860,10 +958,10 @@ export function SchedulerProvider({ children, accessToken, workspaceId, timeline
   }, [accessToken, workspaceId]);
 
   const updateGrade = useCallback(async (gradeId: string, name: string) => {
-    if (!accessToken) return;
-    await gradesApi.update(gradeId, name, accessToken);
+    if (!accessToken || !workspaceId) return;
+    await gradesApi.update(gradeId, name, Number(workspaceId), accessToken);
     setGrades(prev => prev.map(g => g.id === gradeId ? { ...g, name } : g));
-  }, [accessToken]);
+  }, [accessToken, workspaceId]);
 
   const deleteGrade = useCallback(async (gradeId: string) => {
     if (!accessToken) return;
@@ -915,8 +1013,9 @@ export function SchedulerProvider({ children, accessToken, workspaceId, timeline
   }, [accessToken]);
 
   // Comment operations
-  const createComment = useCallback(async (data: { userId: string; userDisplayName: string; authorAvatarUrl?: string; comment: string; weekDate: string; weekIndex?: number }) => {
+  const createComment = useCallback(async (data: { userId: string; comment: string; weekDate: string; weekIndex?: number }) => {
     if (!accessToken || !workspaceId) throw new Error("No access");
+    lastCommentsChangeRef.current = Date.now();
     const newComment = await commentsApi.createComment({ ...data, workspaceId }, accessToken);
     setComments(prev => [...prev, newComment]);
     return newComment;
@@ -924,30 +1023,41 @@ export function SchedulerProvider({ children, accessToken, workspaceId, timeline
 
   const updateComment = useCallback(async (id: string, text: string) => {
     if (!accessToken || !workspaceId) throw new Error("No access");
+    lastCommentsChangeRef.current = Date.now();
     const updated = await commentsApi.updateComment(id, workspaceId, text, undefined, undefined, accessToken);
-    setComments(prev => prev.map(c => c.id === id ? updated : c));
+    setComments(prev => prev.map(c => c.id === id ? { 
+      ...c, 
+      ...updated, 
+      resourceId: updated.resourceId || (updated as any).userId || c.resourceId,
+      authorAvatarUrl: updated.authorAvatarUrl || c.authorAvatarUrl,
+    } : c));
     return updated;
   }, [accessToken, workspaceId]);
 
-  const moveComment = useCallback(async (id: string, newWeekIndex: number, newUserId: string) => {
+  const moveComment = useCallback(async (id: string, newWeekIndex: number, newResourceId: string) => {
     if (!accessToken || !workspaceId) throw new Error("No access");
-    
+    lastCommentsChangeRef.current = Date.now();
     // 1. Snapshot previous state
     const previousComments = comments;
     
     // 2. Optimistic Update
     setComments(prev => prev.map(c => 
       c.id === id 
-        ? { ...c, weekIndex: newWeekIndex, userId: newUserId } 
+        ? { ...c, weekIndex: newWeekIndex, resourceId: newResourceId } 
         : c
     ));
 
     try {
       // 3. API Call
-      const updated = await commentsApi.updateComment(id, workspaceId, undefined, newWeekIndex, newUserId, accessToken);
+      const updated = await commentsApi.updateComment(id, workspaceId, undefined, newWeekIndex, newResourceId, accessToken);
       
       // 4. Update with real server response (usually matches optimistic)
-      setComments(prev => prev.map(c => c.id === id ? updated : c));
+      setComments(prev => prev.map(c => c.id === id ? { 
+        ...c, 
+        ...updated, 
+        resourceId: updated.resourceId || (updated as any).userId || c.resourceId,
+        authorAvatarUrl: updated.authorAvatarUrl || c.authorAvatarUrl,
+      } : c));
       return updated;
     } catch (error) {
       // 5. Rollback on error
@@ -959,6 +1069,7 @@ export function SchedulerProvider({ children, accessToken, workspaceId, timeline
 
   const deleteComment = useCallback(async (id: string) => {
     if (!accessToken || !workspaceId) throw new Error("No access");
+    lastCommentsChangeRef.current = Date.now();
     await commentsApi.deleteComment(id, workspaceId, accessToken);
     setComments(prev => prev.filter(c => c.id !== id));
   }, [accessToken, workspaceId]);
@@ -988,7 +1099,13 @@ export function SchedulerProvider({ children, accessToken, workspaceId, timeline
     };
   }, [eventsState, projects]);
 
-  const value = {
+  const hasPendingOperationsFn = useCallback(() => queueSize > 0, []);
+  const resetDeltaSyncTimerFn = useCallback(() => { lastLocalChangeRef.current = Date.now(); }, []);
+  const resetProjectsSyncTimerFn = useCallback(() => { lastProjectsChangeRef.current = Date.now(); }, []);
+  const resetResourcesSyncTimerFn = useCallback(() => { lastResourcesChangeRef.current = Date.now(); }, []);
+  const resetDepartmentsSyncTimerFn = useCallback(() => { lastDepartmentsChangeRef.current = Date.now(); }, []);
+
+  const value = useMemo(() => ({
     events: eventsState,
     departments,
     resources,
@@ -1008,14 +1125,16 @@ export function SchedulerProvider({ children, accessToken, workspaceId, timeline
     flushPendingChanges,
     syncRestoredEventsToServer,
     syncDeletedEventsToServer,
-    hasPendingOperations: () => pendingOps.count > 0,
+    hasPendingOperations: hasPendingOperationsFn,
     setHistoryIdUpdater,
+    setHistoryRebasers,
     isUserInteractingRef,
     setIsUserInteracting,
-    resetDeltaSyncTimer: () => { lastLocalChangeRef.current = Date.now(); },
-    resetProjectsSyncTimer: () => { lastProjectsChangeRef.current = Date.now(); },
-    resetResourcesSyncTimer: () => { lastResourcesChangeRef.current = Date.now(); },
-    resetDepartmentsSyncTimer: () => { lastDepartmentsChangeRef.current = Date.now(); },
+    accessTokenRef,
+    resetDeltaSyncTimer: resetDeltaSyncTimerFn,
+    resetProjectsSyncTimer: resetProjectsSyncTimerFn,
+    resetResourcesSyncTimer: resetResourcesSyncTimerFn,
+    resetDepartmentsSyncTimer: resetDepartmentsSyncTimerFn,
     createResource,
     updateResource,
     deleteResource,
@@ -1049,7 +1168,24 @@ export function SchedulerProvider({ children, accessToken, workspaceId, timeline
     updateComment,
     moveComment,
     deleteComment
-  };
+  }), [
+    eventsState, departments, resources, projects, grades, eventPatterns, companies, comments,
+    visibleDepartments, visibleEvents,
+    createEvent, updateEvent, deleteEvent,
+    queueChange, cancelPendingChange, flushPendingChanges,
+    syncRestoredEventsToServer, syncDeletedEventsToServer, hasPendingOperationsFn,
+    setHistoryIdUpdater, setHistoryRebasers, setIsUserInteracting,
+    resetDeltaSyncTimerFn, resetProjectsSyncTimerFn, resetResourcesSyncTimerFn, resetDepartmentsSyncTimerFn,
+    createResource, updateResource, deleteResource, loadResources,
+    toggleUserVisibility, uploadUserAvatar,
+    createProject, updateProject, deleteProject, setProjectsWrapper,
+    createDepartment, deleteDepartment, getDepartmentUsersCount, renameDepartment,
+    reorderDepartments, toggleDepartmentVisibility,
+    getGradeName, getEventsSnapshot,
+    createGrade, updateGrade, deleteGrade, loadGrades, updateGradesSortOrder,
+    createCompany, updateCompany, deleteCompany, loadCompanies, updateCompaniesSortOrder,
+    createComment, updateComment, moveComment, deleteComment
+  ]);
 
   return (
     <SchedulerContext.Provider value={value}>

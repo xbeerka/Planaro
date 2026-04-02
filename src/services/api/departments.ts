@@ -5,6 +5,7 @@ export interface UpdateDepartmentData {
   name?: string;
   visible?: boolean;
   queue?: number;
+  color?: string | null;
 }
 
 export interface UpdateDepartmentQueueData {
@@ -17,6 +18,7 @@ export interface UpdateDepartmentQueueData {
 export interface CreateDepartmentData {
   name: string;
   workspace_id: string;
+  color?: string;
 }
 
 export const departmentsApi = {

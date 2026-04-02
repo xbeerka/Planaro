@@ -14,11 +14,12 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Alert, AlertDescription } from "../ui/alert";
+import { toast } from "sonner@2.0.3";
 
 interface CreateWorkspaceModalProps {
   existingWorkspaces: Workspace[];
   onClose: () => void;
-  onCreate: () => void;
+  onCreate: (params: { name: string; timeline_year: number; base_workspace_id?: string }) => void;
 }
 
 export function CreateWorkspaceModal({ existingWorkspaces, onClose, onCreate }: CreateWorkspaceModalProps) {
@@ -44,23 +45,13 @@ export function CreateWorkspaceModal({ existingWorkspaces, onClose, onCreate }: 
       return;
     }
     
-    try {
-      setIsCreating(true);
-      setError(null);
-      
-      await createWorkspace({
-        name: name.trim(),
-        timeline_year: yearInt,
-        base_workspace_id: baseWorkspaceId === 'new' ? undefined : baseWorkspaceId
-      });
-      
-      onCreate();
-      onClose();
-    } catch (err: any) {
-      console.error('Failed to create workspace:', err);
-      setError(err.message || 'Ошибка при создании пространства');
-      setIsCreating(false);
-    }
+    // Передаём параметры в parent и закрываемся — parent сам делает API-вызов
+    onCreate({
+      name: name.trim(),
+      timeline_year: yearInt,
+      base_workspace_id: baseWorkspaceId === 'new' ? undefined : baseWorkspaceId,
+    });
+    onClose();
   };
 
   const generateYearOptions = () => {
@@ -209,12 +200,11 @@ export function CreateWorkspaceModal({ existingWorkspaces, onClose, onCreate }: 
           )}
 
           <DialogFooter className="pt-4">
-            <Button type="button" variant="outline" onClick={onClose} disabled={isCreating}>
+            <Button type="button" variant="outline" onClick={onClose}>
               Отмена
             </Button>
-            <Button type="submit" disabled={isCreating}>
-              {isCreating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {isCreating ? 'Создание...' : 'Создать'}
+            <Button type="submit">
+              Создать
             </Button>
           </DialogFooter>
         </form>

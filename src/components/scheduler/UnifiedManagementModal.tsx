@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Resource, Department, Project, Grade, Company, EventPattern, SchedulerEvent } from '../../types/scheduler';
 import { UsersManagementContent, UsersManagementHandle } from './UsersManagementContent';
 import { DepartmentsManagementContent, DepartmentsManagementHandle } from './DepartmentsManagementContent';
@@ -38,10 +38,10 @@ interface UnifiedManagementModalProps {
   updateCompaniesSortOrder?: (updates: Array<{ id: string; sortOrder: number }>) => Promise<void>;
   
   // Departments props
-  onRenameDepartment: (deptId: string, newName: string) => void;
+  onRenameDepartment: (deptId: string, newName: string, color?: string | null) => Promise<void>;
   onReorderDepartments: (newOrder: Department[]) => Promise<void>;
   onToggleDepartmentVisibility: (deptId: string) => void;
-  onCreateDepartment: (name: string) => Promise<void>;
+  onCreateDepartment: (name: string, color?: string | null) => Promise<void>;
   onDeleteDepartment: (deptId: string) => Promise<void>;
   onGetDepartmentUsersCount: (deptId: string) => Promise<number>;
   
@@ -56,6 +56,8 @@ interface UnifiedManagementModalProps {
   
   // User selection (for auto-scroll)
   highlightedUserId?: string | null;
+  onRefreshResources?: () => Promise<void>;
+  workspaceId?: string;
 }
 
 export function UnifiedManagementModal({
@@ -95,7 +97,9 @@ export function UnifiedManagementModal({
   onUpdateProject,
   onDeleteProject,
   onResetHistory,
-  highlightedUserId
+  highlightedUserId,
+  onRefreshResources,
+  workspaceId,
 }: UnifiedManagementModalProps) {
   const [activeTab, setActiveTab] = useState<TabType>(defaultTab);
 
@@ -107,6 +111,22 @@ export function UnifiedManagementModal({
   
   const isSmartLoading = isLikelyLoadingUsers || isLikelyLoadingProjects;
   
+  // ✅ Отслеживаем что данные загрузились хотя бы раз — после этого skeleton не показывать
+  const [hasEverLoaded, setHasEverLoaded] = useState(false);
+  
+  useEffect(() => {
+    if (!isSmartLoading && !isLoading && (resources.length > 0 || departments.length > 0 || projects.length > 0)) {
+      setHasEverLoaded(true);
+    }
+  }, [isSmartLoading, isLoading, resources.length, departments.length, projects.length]);
+
+  // Reset hasEverLoaded when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      setHasEverLoaded(false);
+    }
+  }, [isOpen]);
+
   useEffect(() => {
     if (isSmartLoading) {
       const timer = setTimeout(() => setIsTimeoutOver(true), 1000);
@@ -116,23 +136,61 @@ export function UnifiedManagementModal({
     }
   }, [isSmartLoading]);
 
-  const shouldShowSkeleton = isLoading || (isSmartLoading && !isTimeoutOver);
   const [hasUsersChanges, setHasUsersChanges] = useState(false);
   const [hasDepartmentsChanges, setHasDepartmentsChanges] = useState(false);
   const [hasProjectsChanges, setHasProjectsChanges] = useState(false);
+
+  // ✅ НЕ показывать skeleton если есть несохранённые изменения (иначе размонтируется контент и теряется localState)
+  const hasAnyUnsavedChanges = hasUsersChanges || hasDepartmentsChanges || hasProjectsChanges;
+  const shouldShowSkeleton = !hasAnyUnsavedChanges && (isLoading || (isSmartLoading && !isTimeoutOver)) && !hasEverLoaded;
+
   const usersRef = useRef<UsersManagementHandle>(null);
   const departmentsRef = useRef<DepartmentsManagementHandle>(null);
   const projectsRef = useRef<ProjectsManagementHandle>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+
+  const [isUnifiedSaving, setIsUnifiedSaving] = useState(false);
 
   // Reset active tab when modal opens
   useEffect(() => {
     if (isOpen) {
       setActiveTab(defaultTab);
+      // Автофокус на модалку для работы onKeyDown
+      requestAnimationFrame(() => {
+        modalRef.current?.focus();
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]); // ✅ Ignore defaultTab changes while open to prevent jumping
 
   if (!isOpen) return null;
+
+  // ✅ Ctrl/Cmd+F внутри модалки — фокус на поиск активной вкладки
+  const handleModalKeyDown = (e: React.KeyboardEvent) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+      e.preventDefault();
+      e.stopPropagation();
+      e.nativeEvent.stopImmediatePropagation();
+      // Ищем видимый input с data-search-focus внутри модалки
+      const modal = e.currentTarget as HTMLElement;
+      const inputs = Array.from(
+        modal.querySelectorAll<HTMLInputElement>('input[data-search-focus]')
+      ).filter(el => {
+        const rect = el.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      });
+      if (inputs.length > 0) {
+        inputs.sort((a, b) => {
+          const pa = Number(a.dataset.searchFocus) || 0;
+          const pb = Number(b.dataset.searchFocus) || 0;
+          return pb - pa;
+        });
+        inputs[0].focus();
+        inputs[0].select();
+        console.log('🔍 Modal Ctrl+F: фокус на поиск', inputs[0].placeholder);
+      }
+    }
+  };
 
   const tabs = [
     { 
@@ -177,14 +235,58 @@ export function UnifiedManagementModal({
     return 'Добавить';
   };
 
+  const handleUnifiedSave = async () => {
+    if (isUnifiedSaving) return;
+    setIsUnifiedSaving(true);
+    try {
+      const savePromises: Promise<void>[] = [];
+      
+      if (hasUsersChanges && usersRef.current) {
+        console.log('💾 Unified Save: сохранение сотрудников...');
+        savePromises.push(usersRef.current.save());
+      }
+      if (hasDepartmentsChanges && departmentsRef.current) {
+        console.log('💾 Unified Save: сохранение департаментов...');
+        savePromises.push(departmentsRef.current.save());
+      }
+      if (hasProjectsChanges && projectsRef.current) {
+        console.log('💾 Unified Save: сохранение проектов...');
+        savePromises.push(projectsRef.current.save());
+      }
+      
+      if (savePromises.length === 0) {
+        console.log('💾 Unified Save: нет изменений для сохранения');
+        return;
+      }
+      
+      console.log(`💾 Unified Save: запуск ${savePromises.length} операций параллельно...`);
+      await Promise.all(savePromises);
+      console.log('✅ Unified Save: все изменения сохранены');
+    } catch (error) {
+      console.error('❌ Unified Save: ошибка при сохранении:', error);
+    } finally {
+      setIsUnifiedSaving(false);
+    }
+  };
+
+  const isAnySaving = isUnifiedSaving || 
+    (usersRef.current?.isSaving ?? false) || 
+    (departmentsRef.current?.isSaving ?? false) || 
+    (projectsRef.current?.isSaving ?? false);
+
+  const isAnyUploading = usersRef.current?.isUploading ?? false;
+
   return (
     <div 
       className="fixed inset-0 z-[5000] flex items-center justify-center bg-black/40 backdrop-blur-sm transition-all"
       onClick={handleClose}
     >
       <div 
-        className="bg-white rounded-xl shadow-2xl w-full max-w-4xl h-[80vh] flex flex-col border border-gray-100/20"
+        ref={modalRef}
+        className="bg-white rounded-xl shadow-2xl w-full max-w-4xl h-[80vh] flex flex-col border border-gray-100/20 outline-none"
         onClick={e => e.stopPropagation()}
+        onKeyDown={handleModalKeyDown}
+        tabIndex={-1}
       >
         {/* Header */}
         <div className="border-b border-gray-100 bg-white rounded-t-xl px-6 py-4">
@@ -300,6 +402,8 @@ export function UnifiedManagementModal({
               onHasChanges={setHasUsersChanges}
               onClose={onClose}
               highlightedUserId={highlightedUserId}
+              onRefreshResources={onRefreshResources}
+              workspaceId={workspaceId}
             />
           </div>
           
@@ -307,6 +411,7 @@ export function UnifiedManagementModal({
             <DepartmentsManagementContent
               ref={departmentsRef}
               departments={departments}
+              resources={resources}
               onRenameDepartment={onRenameDepartment}
               onReorderDepartments={onReorderDepartments}
               onToggleDepartmentVisibility={onToggleDepartmentVisibility}
@@ -335,6 +440,32 @@ export function UnifiedManagementModal({
             </>
           )}
         </div>
+
+        {/* Unified Footer */}
+        {!shouldShowSkeleton && hasAnyUnsavedChanges && (
+          <div className="border-t bg-gray-50 px-6 py-4 flex items-center justify-end gap-3 rounded-b-xl">
+            <div className="text-sm text-gray-500 hidden">
+              {[
+                hasUsersChanges && 'сотрудники',
+                hasDepartmentsChanges && 'департаменты',
+                hasProjectsChanges && 'проекты',
+              ].filter(Boolean).join(', ')}
+              {' — есть изменения'}
+            </div>
+            <button
+              onClick={handleUnifiedSave}
+              disabled={isAnySaving || isAnyUploading}
+              className={`px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium flex items-center gap-2 ${
+                isAnySaving || isAnyUploading ? 'opacity-70 cursor-not-allowed' : ''
+              }`}
+            >
+              {isAnySaving && (
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              )}
+              {isAnyUploading ? 'Загрузка фото...' : isAnySaving ? 'Сохранение...' : 'Сохранить всё'}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -14,7 +14,6 @@ export async function checkServerHealth(): Promise<boolean> {
     });
     
     if (response.ok) {
-      console.log('✅ Edge Function работает корректно');
       return true;
     } else {
       console.warn('⚠️ Edge Function вернул ошибку:', response.status);

@@ -69,17 +69,17 @@ class RequestMonitor {
     const stats = this.getStats();
     const totalRequests = Object.values(stats).reduce((sum, count) => sum + count, 0);
     
-    console.log('📊 REQUEST MONITOR REPORT (последняя минута):');
-    console.log(`   Всего запросов: ${totalRequests}`);
-    
     const sortedStats = Object.entries(stats)
       .sort((a, b) => b[1] - a[1])
       .filter(([_, count]) => count > 0);
     
+    // Only log if there are actual requests (skip empty reports)
     if (sortedStats.length === 0) {
-      console.log('   Нет активных запросов');
       return;
     }
+    
+    console.log('📊 REQUEST MONITOR REPORT (последняя минута):');
+    console.log(`   Всего запросов: ${totalRequests}`);
     
     sortedStats.forEach(([type, count]) => {
       const emoji = count > this.WARNING_THRESHOLD ? '⚠️' : '✅';

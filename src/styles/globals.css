@@ -22,7 +22,7 @@
   --accent-foreground: #030213;
   --destructive: #d4183d;
   --destructive-foreground: #ffffff;
-  --border: rgba(0, 0, 0, 0.1);
+  --border: oklch(0 0 0 / 0.1);
   --input: transparent;
   --input-background: #f3f3f5;
   --switch-background: #cbced4;
@@ -190,7 +190,7 @@
   }
 }
 
-html {
+html, body {
   font-size: var(--font-size);
 }
 
@@ -315,6 +315,24 @@ html {
 
 .scheduler-event:active {
   cursor: grabbing;
+}
+
+/* 🔐 Viewer mode - read-only: no grab cursors, no hover effects, no pointer on interactive elements */
+body.viewer-mode .scheduler-container,
+body.viewer-mode .scheduler-container *,
+body.viewer-mode .scheduler-event,
+body.viewer-mode .scheduler-event * {
+  cursor: default !important;
+}
+
+body.viewer-mode .scheduler-event:hover {
+  opacity: 1 !important;
+}
+
+body.viewer-mode .scheduler-event .handle-container,
+body.viewer-mode .scheduler-event .scissor-guide,
+body.viewer-mode .scheduler-event .scissor-hit {
+  display: none !important;
 }
 
 /* CSS Grid оптимизация для ячеек */
@@ -613,6 +631,15 @@ mark {
 
 .header-title-container:has(.header-title-right:hover) .header-title-left {
   background-color: #f6f6f6;
+}
+
+/* Disable hover effects for viewer role */
+.header-title-viewer .header-title-left:hover {
+  background-color: transparent;
+}
+
+.header-title-viewer:has(.header-title-left:hover) .header-title-right {
+  background-color: transparent;
 }
 
 /* Force Onest font for Figma generated components to prevent system font fallback */

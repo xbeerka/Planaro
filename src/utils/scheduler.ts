@@ -220,8 +220,6 @@ export function generateUsers(departments: Department[]): Resource[] {
 
       resources.push({
         id: `r${idCounter++}`,
-        firstName,
-        lastName,
         fullName,
         position,
         departmentId: dept.id

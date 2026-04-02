@@ -10,6 +10,8 @@ import React, {
   memo,
 } from "react";
 import { createPortal } from "react-dom";
+import { RealtimeCursors } from "./RealtimeCursors";
+import type { ResourceLayoutItem } from "./RealtimeCursors";
 import {
   Department,
   Resource,
@@ -125,6 +127,7 @@ interface SchedulerGridProps {
   onUndo?: () => void;
   onRedo?: () => void;
   onSidebarCollapsedChange?: (collapsed: boolean) => void;
+  offWeekNumbers?: Set<number>;
 }
 
 // ============================================================
@@ -286,7 +289,7 @@ function SidebarToggleButton({
       className="rounded-[12px] w-[36px] cursor-pointer hover:bg-gray-100 transition-colors"
       onClick={onClick}
       title={
-        collapsed ? "Развернуть сайдбар" : "Свернуть сайдбар"
+        collapsed ? "Развернуть сайдбар" : "Свернуть ����������������айдбар"
       }
     >
       <div className="px-[8px] py-[8px] flex items-center justify-center">
@@ -531,6 +534,7 @@ function SearchInput({
           onBlur={() => setIsFocused(false)}
           placeholder="Поиск"
           className="flex-1 font-normal text-[14px] bg-transparent border-none outline-none placeholder-[#868789] text-black"
+          data-search-focus="10"
         />
         {value && (
           <div
@@ -597,6 +601,7 @@ export const SchedulerGrid = memo(
         onUndo,
         onRedo,
         onSidebarCollapsedChange,
+        offWeekNumbers,
       },
       ref,
     ) => {
@@ -609,7 +614,7 @@ export const SchedulerGrid = memo(
         moveComment,
         deleteComment,
       } = useScheduler();
-      const { showSeparators, showGaps } = useSettings();
+      const { showSeparators, showGaps, showDeptColors } = useSettings();
       const { commentMode, scissorsMode, isLoadingComments } = useUI();
 
       const currentUserDisplayNameFromToken = useMemo(() => {
@@ -720,12 +725,8 @@ export const SchedulerGrid = memo(
       });
 
       const handleToggleSidebar = useCallback(() => {
-        setSidebarCollapsed((prev) => {
-          const newValue = !prev;
-          onSidebarCollapsedChange?.(newValue);
-          return newValue;
-        });
-      }, [onSidebarCollapsedChange]);
+        setSidebarCollapsed((prev) => !prev);
+      }, []);
 
       const timelineYear =
         workspace?.timeline_year || new Date().getFullYear();
@@ -758,27 +759,45 @@ export const SchedulerGrid = memo(
 
         // 2. Vertical Scroll Adjustment (Row Height)
         if (prevEventRowHRef.current !== config.eventRowH) {
+          const oldRowH = prevEventRowHRef.current;
+          const newRowH = config.eventRowH;
+          
           // Only adjust vertical scroll if we are scrolled past the fixed header
-          if (scrollEl.scrollTop > TOTAL_TOP_HEIGHT) {
-            // Calculate relative scroll position within the content area (subtract fixed headers)
-            const contentScrollTop =
-              scrollEl.scrollTop - TOTAL_TOP_HEIGHT;
-
-            // Calculate ratio of height change
-            // We need to account for department headers which don't change height, but they are mixed in.
-            // However, a simple ratio of row heights is usually a good approximation if resources dominate.
-            // For exact precision, we would need to map the exact row at the top, but simple ratio is standard for this UX.
-            // NOTE: The previous TOTAL_TOP_HEIGHT should strictly be the same as current unless header config changes.
-
-            const ratio =
-              config.eventRowH / prevEventRowHRef.current;
-
-            // Apply new scroll position: Header + (ContentScroll * Ratio)
-            const newScrollTop =
-              TOTAL_TOP_HEIGHT + contentScrollTop * ratio;
-
-            scrollEl.scrollTop = newScrollTop;
-            setScrollTop(newScrollTop); // Sync state
+          if (scrollEl.scrollTop > TOTAL_TOP_HEIGHT && gridItems.length > 0) {
+            const contentScrollTop = scrollEl.scrollTop - TOTAL_TOP_HEIGHT;
+            
+            // Walk through items with OLD heights to find the item at the scroll position,
+            // then compute where that same item is with NEW heights.
+            // Department headers have fixed height, resource rows scale with eventRowH.
+            let oldOffset = 0;
+            let newOffset = 0;
+            let matched = false;
+            
+            for (const item of gridItems) {
+              const isResource = item.type === 'resource' || item.type === 'skeleton';
+              const oldH = isResource ? oldRowH : DEPARTMENT_ROW_HEIGHT;
+              const newH = isResource ? newRowH : DEPARTMENT_ROW_HEIGHT;
+              
+              if (oldOffset + oldH > contentScrollTop) {
+                // This item is at the top of the viewport — preserve fractional position within it
+                const fraction = (contentScrollTop - oldOffset) / oldH;
+                const newScrollTop = TOTAL_TOP_HEIGHT + newOffset + fraction * newH;
+                scrollEl.scrollTop = newScrollTop;
+                setScrollTop(newScrollTop);
+                matched = true;
+                break;
+              }
+              
+              oldOffset += oldH;
+              newOffset += newH;
+            }
+            
+            // Fallback: if scrolled past all items, scroll to end
+            if (!matched) {
+              const newScrollTop = TOTAL_TOP_HEIGHT + newOffset;
+              scrollEl.scrollTop = newScrollTop;
+              setScrollTop(newScrollTop);
+            }
           }
           prevEventRowHRef.current = config.eventRowH;
           scrollAdjusted = true;
@@ -808,8 +827,8 @@ export const SchedulerGrid = memo(
         if (!comments) return map;
 
         comments.forEach((comment) => {
-          if (!map.has(comment.userId)) {
-            map.set(comment.userId, []);
+          if (!map.has(comment.resourceId)) {
+            map.set(comment.resourceId, []);
           }
 
           // Calculate week index if not present (backend returns date)
@@ -825,7 +844,7 @@ export const SchedulerGrid = memo(
             comment.weekIndex = weekIndex;
           }
 
-          map.get(comment.userId)!.push(comment);
+          map.get(comment.resourceId)!.push(comment);
         });
         return map;
       }, [comments, timelineYear]);
@@ -891,10 +910,8 @@ export const SchedulerGrid = memo(
         const handleResize = () => {
           if (window.innerWidth < 768) {
             setSidebarCollapsed(true);
-            onSidebarCollapsedChange?.(true);
           } else {
             setSidebarCollapsed(false);
-            onSidebarCollapsedChange?.(false);
           }
         };
 
@@ -903,7 +920,13 @@ export const SchedulerGrid = memo(
         window.addEventListener("resize", handleResize);
         return () =>
           window.removeEventListener("resize", handleResize);
-      }, [onSidebarCollapsedChange]);
+      }, []);
+
+      // ✅ Синхронизация sidebarCollapsed с родителем через useEffect
+      // (предотвращает "Cannot update component while rendering another")
+      useEffect(() => {
+        onSidebarCollapsedChange?.(sidebarCollapsed);
+      }, [sidebarCollapsed, onSidebarCollapsedChange]);
 
       useImperativeHandle(
         ref,
@@ -1032,6 +1055,7 @@ export const SchedulerGrid = memo(
             items.push({
               type: "resource",
               resource,
+              dept,
               row: currentRow,
               offset: currentOffset,
               height: config.eventRowH,
@@ -1052,6 +1076,17 @@ export const SchedulerGrid = memo(
         DEPARTMENT_ROW_HEIGHT,
         config.eventRowH,
       ]);
+
+      // Resource layout items for cursor positioning across different filters
+      const resourceLayoutItems: ResourceLayoutItem[] = useMemo(() => {
+        return gridItems
+          .filter(item => item.type === 'resource' && item.resource)
+          .map(item => ({
+            resourceId: item.resource!.id,
+            yOffset: TOTAL_TOP_HEIGHT + item.offset,
+            height: item.height,
+          }));
+      }, [gridItems, TOTAL_TOP_HEIGHT]);
 
       const totalContentHeight = useMemo(() => {
         if (gridItems.length === 0) return 0;
@@ -1339,7 +1374,7 @@ export const SchedulerGrid = memo(
           ) {
             // Only move if changed
             if (
-              targetItem.resource.id !== state.comment.userId ||
+              targetItem.resource.id !== state.comment.resourceId ||
               weekIndex !== state.comment.weekIndex
             ) {
               await moveComment(
@@ -1460,6 +1495,23 @@ export const SchedulerGrid = memo(
             return;
           }
 
+          // ✅ Fix: проверяем физическую позицию мыши (без scrollLeft) относительно sidebar
+          // Когда календарь прокручен вправо, scrollLeft делает relativeX большим даже если мышь над sidebar
+          if (scrollRef.current) {
+            const scrollRect = scrollRef.current.getBoundingClientRect();
+            const physicalX = e.clientX - scrollRect.left;
+            const currentSidebarWidth = sidebarCollapsed
+              ? LEFT_SIDEBAR_WIDTH_COLLAPSED
+              : LEFT_SIDEBAR_WIDTH;
+            if (physicalX < currentSidebarWidth) {
+              updateHoverHighlight({
+                ...internalHoverHighlight,
+                visible: false,
+              });
+              return;
+            }
+          }
+
           let dataY: number;
           // Optimization & Fix: If event triggered on the interactive overlay, use its rect directly.
           // This avoids issues with external headers/offsets affecting scrollRef calculation.
@@ -1514,6 +1566,18 @@ export const SchedulerGrid = memo(
 
             const xInGrid = relativeX - weekStartX;
             const week = Math.floor(xInGrid / config.weekPx);
+
+            // ✅ Off-week: hide highlight and reset cursor
+            if (offWeekNumbers && offWeekNumbers.has(week + 1)) {
+              updateHoverHighlight({ ...internalHoverHighlight, visible: false });
+              if (onCellMouseMove) {
+                onCellMouseMove(e, item.resource.id, week, 0);
+              }
+              (e.currentTarget as HTMLElement).style.cursor = "default";
+              lastHoverRef.current = { resourceId: "", week: -1, unitIndex: -1 };
+              return;
+            }
+            (e.currentTarget as HTMLElement).style.cursor = "pointer";
 
             const yInRow = dataY - item.offset;
             const unitIndex = Math.floor(
@@ -1654,7 +1718,7 @@ export const SchedulerGrid = memo(
         <div
           className="relative flex flex-col h-full bg-white select-none"
           style={{
-            height: "100vh",
+            height: "100dvh",
           }}
         >
           <style>{`
@@ -1698,6 +1762,7 @@ export const SchedulerGrid = memo(
               right: 0,
               bottom: 0,
               overflow: isLoading ? "hidden" : "auto",
+              overscrollBehavior: "none",
             }}
             onMouseMove={handleGlobalMouseMove}
             onMouseLeave={handleGlobalMouseLeave}
@@ -1833,6 +1898,10 @@ export const SchedulerGrid = memo(
                   if (!scrollRef.current || !onCellContextMenu)
                     return;
 
+                  e.preventDefault();
+                  // Hide hover highlight on right-click
+                  onCellMouseLeave();
+
                   const rect =
                     scrollRef.current.getBoundingClientRect();
                   const relativeY =
@@ -1888,13 +1957,39 @@ export const SchedulerGrid = memo(
               />
             )}
 
+            {/* ========== OFF WEEKS OVERLAY ========== */}
+            {offWeekNumbers && offWeekNumbers.size > 0 && (() => {
+              const sidebarWidth = sidebarCollapsed ? LEFT_SIDEBAR_WIDTH_COLLAPSED : LEFT_SIDEBAR_WIDTH;
+              const layerHeight = Math.max(totalContentHeight, viewportHeight - TOTAL_TOP_HEIGHT);
+              const sortedWeeks = Array.from(offWeekNumbers).sort((a, b) => a - b);
+              return sortedWeeks.map(wn => {
+                const weekIdx = wn - 1;
+                if (weekIdx < 0 || weekIdx >= weeksInYear) return null;
+                return (
+                  <div
+                    key={`off-week-${wn}`}
+                    style={{
+                      position: "absolute",
+                      top: `${TOTAL_TOP_HEIGHT}px`,
+                      left: `${sidebarWidth + (weekIdx === 0 ? 0 : 8) + weekIdx * config.weekPx}px`,
+                      width: `${config.weekPx + (weekIdx === 0 ? 8 : 0)}px`,
+                      height: `${layerHeight}px`,
+                      backgroundColor: "rgb(0 0 0 / 5%)",
+                      pointerEvents: "none",
+                      zIndex: 130,
+                    }}
+                  />
+                );
+              });
+            })()}
+
             {/* ====================================== */}
             {/* UNIFIED CSS GRID */}
             {/* ====================================== */}
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: `${sidebarCollapsed ? LEFT_SIDEBAR_WIDTH_COLLAPSED : LEFT_SIDEBAR_WIDTH}px 0px ${sidebarCollapsed ? 0 : 8}px repeat(${weeksInYear}, ${config.weekPx}px) 4px${commentMode ? " 292px" : ""}`,
+                gridTemplateColumns: `${sidebarCollapsed ? LEFT_SIDEBAR_WIDTH_COLLAPSED : LEFT_SIDEBAR_WIDTH}px 0px 8px repeat(${weeksInYear}, ${config.weekPx}px) 4px${commentMode ? " 292px" : ""}`,
                 minWidth: "max-content",
               }}
             >
@@ -2263,15 +2358,13 @@ export const SchedulerGrid = memo(
                           left: 0,
                           top: `${MONTH_ROW_HEIGHT + WEEK_ROW_HEIGHT}px`,
                           height: `${DEPARTMENT_ROW_HEIGHT}px`,
-                          backgroundColor: "rgba(255, 255, 255, 0.95)",
-                          backdropFilter: "blur(4px)",
-                          WebkitBackdropFilter: "blur(4px)",
+                          backgroundColor: "#fff",
                           zIndex: 201,
                         }}
                       >
                         <SidePaddedBox>
                           {!sidebarCollapsed && (
-                            <div className="px-4 h-full flex items-center justify-between">
+                            <div className="px-4 h-full flex items-center justify-between" style={{ boxShadow: [showDeptColors && item.dept.color ? `inset 2px 0 0 0 ${item.dept.color}` : '', showDeptColors && item.dept.color ? `inset 2px -1px 0 0 rgb(240, 240, 240)` : `inset 0 -1px 0 0 rgb(240, 240, 240)`].filter(Boolean).join(', ') || undefined, backgroundColor: showDeptColors && item.dept.color ? `color-mix(in srgb, ${item.dept.color} 7%, transparent)` : undefined }}>
                               <p className="font-medium text-xs text-[#868789] uppercase truncate mr-2">
                                 {item.dept.name}
                               </p>
@@ -2308,10 +2401,10 @@ export const SchedulerGrid = memo(
                           left: 0,
                           top: `${MONTH_ROW_HEIGHT + WEEK_ROW_HEIGHT}px`,
                           height: `${DEPARTMENT_ROW_HEIGHT}px`,
-                          backgroundColor: "rgba(255, 255, 255, 0.95)",
-                          backdropFilter: "blur(4px)",
-                          WebkitBackdropFilter: "blur(4px)",
+                          backgroundColor: showDeptColors && item.dept.color ? `color-mix(in srgb, ${item.dept.color} 7%, white)` : "#fff",
+                          borderBottom: "1px solid #f0f0f0",
                           zIndex: 165,
+                          pointerEvents: "none",
                         }}
                       />
                     </div>
@@ -2345,6 +2438,8 @@ export const SchedulerGrid = memo(
                           events={events}
                           projects={projects}
                           grades={grades}
+                          companies={companies}
+                          resourceIndex={idx}
                           currentWeekIndex={currentWeekIndex}
                           weeksInYear={weeksInYear}
                           rowHeight={config.eventRowH}
@@ -2352,6 +2447,7 @@ export const SchedulerGrid = memo(
                           showSeparators={showSeparators}
                           isLastInDept={item.isLastInDept}
                           getUserInitials={getUserInitials}
+                          departmentColor={showDeptColors ? item.dept?.color : undefined}
                         />
                       </div>
 
@@ -2502,7 +2598,7 @@ export const SchedulerGrid = memo(
                   top: `${MONTH_ROW_HEIGHT + WEEK_ROW_HEIGHT}px`,
                   height: 0,
                   pointerEvents: "none",
-                  zIndex: 155,
+                  zIndex: 145,
                 }}
               >
                 <div
@@ -2591,6 +2687,14 @@ export const SchedulerGrid = memo(
                   )}
 
                   {children}
+
+                  {/* Realtime Cursors (Rendered INSIDE Events Layer) */}
+                  <RealtimeCursors
+                    scrollContainerRef={scrollRef}
+                    sidebarWidth={sidebarCollapsed ? LEFT_SIDEBAR_WIDTH_COLLAPSED : LEFT_SIDEBAR_WIDTH}
+                    topHeight={MONTH_ROW_HEIGHT + WEEK_ROW_HEIGHT}
+                    resourceLayoutItems={resourceLayoutItems}
+                  />
 
                   {/* Hover Highlight (Rendered INSIDE Events Layer) */}
                   {!isLoading &&
@@ -2686,6 +2790,7 @@ export const SchedulerGrid = memo(
                         <div style={{ pointerEvents: "auto" }}>
                           <CommentMarker
                             comment={comment}
+                            displayName={resources.find(r => r.id === comment.resourceId)?.fullName}
                             cellWidth={config.weekPx}
                             gap={0}
                             rounded={showGaps}
@@ -2888,7 +2993,7 @@ export const SchedulerGrid = memo(
                         const isVisible = gridItems.some(
                           (i) =>
                             i.type === "resource" &&
-                            i.resource?.id === comment.userId,
+                            i.resource?.id === comment.resourceId,
                         );
 
                         return (
@@ -2930,7 +3035,7 @@ export const SchedulerGrid = memo(
                               const targetItem = gridItems.find(
                                 (i) =>
                                   i.type === "resource" &&
-                                  i.resource?.id === comment.userId,
+                                  i.resource?.id === comment.resourceId,
                               );
   
                               if (targetItem) {
@@ -2962,7 +3067,7 @@ export const SchedulerGrid = memo(
                               <div className="flex flex-col grow items-start justify-center min-w-0">
                                 <div className="flex w-full justify-between items-baseline gap-2">
                                   <p className="font-medium leading-[18px] text-[10px] text-[rgba(0,0,0,0.5)] whitespace-nowrap overflow-hidden text-ellipsis">
-                                    {comment.userDisplayName}
+                                    {resources.find(r => r.id === comment.resourceId)?.fullName || comment.userDisplayName || ''}
                                   </p>
                                   <span className="text-[10px] text-[rgba(0,0,0,0.3)] shrink-0">
                                     {new Date(comment.createdAt).toLocaleDateString()}
@@ -3033,6 +3138,7 @@ export const SchedulerGrid = memo(
             >
               <CommentMarker
                 comment={draggedCommentState.comment}
+                displayName={resources.find(r => r.id === draggedCommentState.comment.resourceId)?.fullName}
                 cellWidth={config.weekPx}
                 gap={0}
                 rounded={showGaps}
@@ -3081,7 +3187,7 @@ export const SchedulerGrid = memo(
             }
             authorName={
               !commentModalState.isCreating
-                ? commentModalState.comment?.userDisplayName
+                ? (resources.find(r => r.id === commentModalState.comment?.resourceId)?.fullName || commentModalState.comment?.userDisplayName || '')
                 : undefined
             }
             authorAvatarUrl={
@@ -3105,16 +3211,11 @@ export const SchedulerGrid = memo(
                 await createComment({
                   userId:
                     commentModalState.createData.resourceId,
-                  userDisplayName:
-                    currentUserDisplayName ||
-                    currentUserDisplayNameFromToken ||
-                    "Unknown",
-                  authorAvatarUrl: currentUserAvatarUrl,
                   comment: text,
                   weekDate:
                     commentModalState.createData.weekDate,
                   weekIndex:
-                    commentModalState.createData.weekIndex, // ✅ Pass the explicit week index
+                    commentModalState.createData.weekIndex,
                 });
               } else if (
                 !commentModalState.isCreating &&

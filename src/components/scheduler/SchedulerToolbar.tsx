@@ -112,12 +112,16 @@ function HeaderTitle({
   onOpenSettings,
   onOpenWorkspaceManagement,
   onDelete,
+  onOpenShare,
+  isViewer = false,
 }: {
   name: string;
   onRename?: (newName: string) => void;
   onOpenSettings?: () => void;
   onOpenWorkspaceManagement?: () => void;
   onDelete?: () => void;
+  onOpenShare?: () => void;
+  isViewer?: boolean;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -137,6 +141,7 @@ function HeaderTitle({
 
   const handleStartEdit = (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (isViewer) return;
     setIsEditing(true);
   };
 
@@ -183,9 +188,9 @@ function HeaderTitle({
 
   return (
     <DropdownMenu open={isOpen} onOpenChange={setIsOpen}>
-      <div className="w-full flex gap-[2px] items-center header-title-container">
+      <div className={`w-full flex gap-[2px] items-center header-title-container ${isViewer ? 'header-title-viewer' : ''}`}>
         <div
-          className="px-[4px] h-[20px] rounded-bl-[4px] rounded-tl-[4px] cursor-text transition-colors flex items-center header-title-left flex-1 min-w-0"
+          className={`px-[4px] h-[20px] rounded-bl-[4px] rounded-tl-[4px] transition-colors flex items-center header-title-left flex-1 min-w-0 ${isViewer ? 'cursor-default' : 'cursor-text'}`}
           onClick={handleStartEdit}
         >
           <p className="font-semibold text-[14px] text-black whitespace-nowrap truncate w-full">
@@ -213,36 +218,52 @@ function HeaderTitle({
         align="start"
         className="w-48 rounded-xl"
       >
+        {!isViewer && (
+          <>
+            <DropdownMenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenWorkspaceManagement?.();
+                setIsOpen(false);
+              }}
+              className="py-2.5 cursor-pointer"
+            >
+              Настройки
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenSettings?.();
+                setIsOpen(false);
+              }}
+              className="py-2.5 cursor-pointer"
+            >
+              Управление
+            </DropdownMenuItem>
+          </>
+        )}
         <DropdownMenuItem
           onClick={(e) => {
             e.stopPropagation();
-            onOpenWorkspaceManagement?.();
+            onOpenShare?.();
             setIsOpen(false);
           }}
           className="py-2.5 cursor-pointer"
         >
-          Настройки
+          Поделиться
         </DropdownMenuItem>
-        <DropdownMenuItem
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpenSettings?.();
-            setIsOpen(false);
-          }}
-          className="py-2.5 cursor-pointer"
-        >
-          Управление
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete?.();
-            setIsOpen(false);
-          }}
-          className="text-red-600 focus:text-red-600 focus:bg-red-50 py-2.5 cursor-pointer"
-        >
-          Удалить
-        </DropdownMenuItem>
+        {!isViewer && (
+          <DropdownMenuItem
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete?.();
+              setIsOpen(false);
+            }}
+            className="text-red-600 focus:text-red-600 focus:bg-red-50 py-2.5 cursor-pointer"
+          >
+            Удалить
+          </DropdownMenuItem>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -309,6 +330,7 @@ interface SchedulerToolbarProps {
   onOpenSettingsModal?: () => void;
   onOpenWorkspaceManagementModal?: () => void;
   onSignOut?: () => void;
+  onOpenShareModal?: () => void;
   
   // Header Props
   accessToken: string | null;
@@ -330,6 +352,12 @@ interface SchedulerToolbarProps {
   
   // Sidebar state
   sidebarCollapsed?: boolean;
+  
+  // Off weeks
+  offWeekNumbers?: Set<number>;
+  
+  // Role-based access
+  isViewer?: boolean;
 }
 
 export function SchedulerToolbar({
@@ -339,6 +367,7 @@ export function SchedulerToolbar({
   onOpenSettingsModal,
   onOpenWorkspaceManagementModal,
   onSignOut,
+  onOpenShareModal,
   accessToken,
   scissorsMode,
   commentMode,
@@ -352,10 +381,12 @@ export function SchedulerToolbar({
   onUndo,
   onRedo,
   sidebarCollapsed = false,
+  offWeekNumbers,
+  isViewer = false,
 }: SchedulerToolbarProps) {
   
   return (
-    <div className="flex h-[80px] bg-white z-50 relative shrink-0">
+    <div className="flex h-[80px] bg-white sticky top-0 z-50 relative shrink-0">
       {/* Left Sidebar Header (Title, Back) */}
       <div 
         className="shrink-0 h-full transition-all duration-200"
@@ -374,6 +405,8 @@ export function SchedulerToolbar({
                   onOpenSettings={onOpenSettingsModal}
                   onOpenWorkspaceManagement={onOpenWorkspaceManagementModal}
                   onDelete={onSignOut}
+                  onOpenShare={onOpenShareModal}
+                  isViewer={isViewer}
                 />
                 <YearContainer year={workspace?.timeline_year || new Date().getFullYear()} />
               </div>
@@ -403,7 +436,9 @@ export function SchedulerToolbar({
           canRedo={canRedo}
           onUndo={onUndo}
           onRedo={onRedo}
-          sidebarCollapsed={false} // Always expanded in toolbar for now
+          sidebarCollapsed={false}
+          offWeekNumbers={offWeekNumbers}
+          isViewer={isViewer}
         />
       </div>
     </div>

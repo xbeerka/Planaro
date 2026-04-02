@@ -95,8 +95,10 @@ export function CommentModal({
         {!isCreating && (
           <div className="flex items-center gap-3 mb-2">
             <Avatar className="h-8 w-8">
-              <AvatarImage src={authorAvatarUrl} />
-              <AvatarFallback>{getInitials(authorName)}</AvatarFallback>
+              {authorAvatarUrl && <AvatarImage src={authorAvatarUrl} />}
+              <AvatarFallback className="bg-[#f6f6f6] text-[#868789] text-xs font-medium">
+                {getInitials(authorName)}
+              </AvatarFallback>
             </Avatar>
             <div className="text-sm">
               <div className="font-medium text-gray-900">{authorName}</div>

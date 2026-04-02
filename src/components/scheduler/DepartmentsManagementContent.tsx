@@ -6,11 +6,12 @@ import {
   forwardRef,
   useImperativeHandle,
 } from "react";
-import { Department } from "../../types/scheduler";
+import { Department, Resource } from "../../types/scheduler";
 import { Search, GripVertical } from "lucide-react";
 import {
   TextInput,
   SearchInput,
+  ColorInput,
 } from "./management/SharedInputs";
 import {
   DropdownMenu,
@@ -21,12 +22,13 @@ import {
 
 interface DepartmentsManagementContentProps {
   departments: Department[];
-  onRenameDepartment: (deptId: string, newName: string) => void;
+  resources: Resource[];
+  onRenameDepartment: (deptId: string, newName: string, color?: string | null) => Promise<void>;
   onReorderDepartments: (
     newOrder: Department[],
   ) => Promise<void>;
   onToggleDepartmentVisibility: (deptId: string) => void;
-  onCreateDepartment: (name: string) => Promise<void>;
+  onCreateDepartment: (name: string, color?: string | null) => Promise<void>;
   onDeleteDepartment: (deptId: string) => Promise<void>;
   onGetDepartmentUsersCount: (
     deptId: string,
@@ -37,16 +39,20 @@ interface DepartmentsManagementContentProps {
 
 interface LocalDepartment extends Department {
   displayName: string;
+  displayColor: string;
   usersCount?: number;
 }
 
 interface LocalNewDepartment {
   tempId: string;
   name: string;
+  color: string;
 }
 
 export interface DepartmentsManagementHandle {
   onAdd: () => void;
+  save: () => Promise<void>;
+  isSaving: boolean;
 }
 
 export const DepartmentsManagementContent = forwardRef<
@@ -56,6 +62,7 @@ export const DepartmentsManagementContent = forwardRef<
   (
     {
       departments,
+      resources = [],
       onRenameDepartment,
       onReorderDepartments,
       onToggleDepartmentVisibility,
@@ -84,12 +91,66 @@ export const DepartmentsManagementContent = forwardRef<
     >(null);
     const contentRef = useRef<HTMLDivElement>(null);
 
+    // Подсчёт сотрудников по департаментам из props (мгновенно, без async)
+    const usersCountByDept = useMemo(() => {
+      const counts = new Map<string, number>();
+      for (const r of resources) {
+        if (r.departmentId) {
+          counts.set(r.departmentId, (counts.get(r.departmentId) || 0) + 1);
+        }
+      }
+      return counts;
+    }, [resources]);
+
     useImperativeHandle(ref, () => ({
       onAdd: handleAddNewDepartment,
+      save: handleSave,
+      isSaving,
     }));
 
-    // Initialize local state
+    const generateRandomColor = (): string => {
+      const hue = Math.floor(Math.random() * 360);
+      const saturation = 60 + Math.floor(Math.random() * 30);
+      const lightness = 45 + Math.floor(Math.random() * 20);
+      const h = hue / 360;
+      const s = saturation / 100;
+      const l = lightness / 100;
+      let r, g, b;
+      if (s === 0) {
+        r = g = b = l;
+      } else {
+        const hue2rgb = (p: number, q: number, t: number) => {
+          if (t < 0) t += 1;
+          if (t > 1) t -= 1;
+          if (t < 1 / 6) return p + (q - p) * 6 * t;
+          if (t < 1 / 2) return q;
+          if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+          return p;
+        };
+        const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+        const p = 2 * l - q;
+        r = hue2rgb(p, q, h + 1 / 3);
+        g = hue2rgb(p, q, h);
+        b = hue2rgb(p, q, h - 1 / 3);
+      }
+      const toHex = (x: number) => {
+        const hex = Math.round(x * 255).toString(16);
+        return hex.length === 1 ? '0' + hex : hex;
+      };
+      return `#${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase();
+    };
+
+    // Initialize local state — only on mount (not on every departments change!)
+    // Realtime updates should NOT reset user's local edits
+    const initializedRef = useRef(false);
     useEffect(() => {
+      if (initializedRef.current) return; // Skip re-init
+      if (departments.length === 0) return; // Wait for data
+      initializedRef.current = true;
+
+      console.log('📋 DepartmentsManagement: Initializing from departments prop, colors:', 
+        departments.map(d => ({ id: d.id, name: d.name, color: d.color })));
+
       const sortedDepartments = [...departments].sort(
         (a, b) => {
           const queueA = a.queue ?? 999;
@@ -102,6 +163,7 @@ export const DepartmentsManagementContent = forwardRef<
         sortedDepartments.map((dept) => ({
           ...dept,
           displayName: dept.name,
+          displayColor: dept.color || '',
         })),
       );
 
@@ -128,7 +190,8 @@ export const DepartmentsManagementContent = forwardRef<
         if (
           originalDept &&
           (localDept.displayName !== originalDept.name ||
-            localDept.visible !== originalDept.visible)
+            localDept.visible !== originalDept.visible ||
+            localDept.displayColor !== (originalDept.color || ''))
         ) {
           hasExistingChanges = true;
           break;
@@ -173,6 +236,7 @@ export const DepartmentsManagementContent = forwardRef<
         {
           tempId,
           name: "",
+          color: generateRandomColor(),
         },
       ]);
 
@@ -290,7 +354,7 @@ export const DepartmentsManagementContent = forwardRef<
           );
           await Promise.all(
             validNewDepartments.map((d) =>
-              onCreateDepartment(d.name.trim()),
+              onCreateDepartment(d.name.trim(), d.color),
             ),
           );
           console.log(
@@ -306,16 +370,16 @@ export const DepartmentsManagementContent = forwardRef<
             (d) => d.id === localDept.id,
           );
 
-          if (
-            originalDept &&
-            localDept.displayName !== originalDept.name
-          ) {
+          const nameChanged = originalDept && localDept.displayName !== originalDept.name;
+          const colorChanged = originalDept && localDept.displayColor !== (originalDept.color || '');
+          
+          if (nameChanged || colorChanged) {
+            console.log(`💾 Dept ${localDept.id}: name=${localDept.displayName}, color=${localDept.displayColor}, nameChanged=${nameChanged}, colorChanged=${colorChanged}`);
             updatePromises.push(
-              Promise.resolve(
-                onRenameDepartment(
-                  localDept.id,
-                  localDept.displayName,
-                ),
+              onRenameDepartment(
+                localDept.id,
+                localDept.displayName,
+                localDept.displayColor || null,
               ),
             );
           }
@@ -345,9 +409,10 @@ export const DepartmentsManagementContent = forwardRef<
         // Step 4: Apply reorder
         const reorderedDepartments: Department[] =
           localDepartments.map(
-            ({ displayName, usersCount, ...dept }) => ({
+            ({ displayName, displayColor, usersCount, ...dept }) => ({
               ...dept,
               name: displayName,
+              color: displayColor || null,
             }),
           );
         
@@ -387,6 +452,7 @@ export const DepartmentsManagementContent = forwardRef<
                     setSearchQuery(e.target.value)
                   }
                   className="flex-1 py-2 pr-3 bg-transparent border-none focus:outline-none text-[14px]"
+                  data-search-focus="100"
                 />
               </div>
             </div>
@@ -417,6 +483,34 @@ export const DepartmentsManagementContent = forwardRef<
                       }
                       placeholder="Название департамента"
                       autoFocus
+                    />
+                  </div>
+                  {/* Color picker */}
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <div
+                      onClick={() => {
+                        const newColor = generateRandomColor();
+                        setLocalNewDepartments((prev) =>
+                          prev.map((d) =>
+                            d.tempId === newDept.tempId ? { ...d, color: newColor } : d,
+                          ),
+                        );
+                      }}
+                      className="w-8 h-8 rounded-lg border border-gray-200 cursor-pointer hover:opacity-80 transition-opacity flex-shrink-0"
+                      style={{ backgroundColor: newDept.color || '#e5e5e5' }}
+                      title="Клик для генерации нового цвета"
+                    />
+                    <ColorInput
+                      value={newDept.color}
+                      onChange={(e) => {
+                        setLocalNewDepartments((prev) =>
+                          prev.map((d) =>
+                            d.tempId === newDept.tempId ? { ...d, color: e.target.value } : d,
+                          ),
+                        );
+                      }}
+                      className="w-[90px] box-border h-8 px-2 bg-white border border-gray-200 rounded-lg text-[13px] leading-none outline-none placeholder:text-gray-400 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                      placeholder="#FFFFFF"
                     />
                   </div>
                   <button
@@ -499,10 +593,43 @@ export const DepartmentsManagementContent = forwardRef<
                       />
                     </div>
 
+                    {/* Color picker */}
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      <div
+                        onClick={() => {
+                          const newColor = generateRandomColor();
+                          setLocalDepartments((prev) =>
+                            prev.map((d) =>
+                              d.id === dept.id
+                                ? { ...d, displayColor: newColor }
+                                : d,
+                            ),
+                          );
+                        }}
+                        className="w-8 h-8 rounded-lg border border-gray-200 cursor-pointer hover:opacity-80 transition-opacity flex-shrink-0"
+                        style={{ backgroundColor: dept.displayColor || '#e5e5e5' }}
+                        title="Клик для генерации нового цвета"
+                      />
+                      <ColorInput
+                        value={dept.displayColor}
+                        onChange={(e) => {
+                          setLocalDepartments((prev) =>
+                            prev.map((d) =>
+                              d.id === dept.id
+                                ? { ...d, displayColor: e.target.value }
+                                : d,
+                            ),
+                          );
+                        }}
+                        className="w-[90px] box-border h-8 px-2 bg-white border border-gray-200 rounded-lg text-[13px] leading-none outline-none placeholder:text-gray-400 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                        placeholder="#FFFFFF"
+                      />
+                    </div>
+
                     {/* Users count */}
                     <div className="text-sm text-gray-500 min-w-[60px] text-right flex-shrink-0">
                       <span className="bg-gray-100 px-2 py-1 rounded-md text-xs font-medium text-gray-600">
-                        {dept.usersCount ?? 0} чел.
+                        {usersCountByDept.get(dept.id) || 0} чел.
                       </span>
                     </div>
 
@@ -640,23 +767,6 @@ export const DepartmentsManagementContent = forwardRef<
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="border-t bg-gray-50 px-6 py-4 flex items-center justify-end gap-3">
-          <button
-            onClick={handleSave}
-            disabled={isSaving}
-            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isSaving ? (
-              <>
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                Сохранение...
-              </>
-            ) : (
-              "Сохранить"
-            )}
-          </button>
-        </div>
       </>
     );
   },

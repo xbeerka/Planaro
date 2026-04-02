@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import { SchedulerProvider } from "./contexts/SchedulerContext";
+import React from "react";
+import { SchedulerProvider } from "./contexts/SchedulerContext"; // v8.12 Realtime fix
 import { SettingsProvider } from "./contexts/SettingsContext";
 import { FilterProvider } from "./contexts/FilterContext";
 import { ToastProvider } from "./components/ui/ToastContext";
@@ -10,12 +11,14 @@ import { LoadingScreen } from "./components/ui/spinner";
 import { PresenceProvider } from "./contexts/PresenceContext";
 import { UIProvider } from "./contexts/UIContext";
 import { Workspace } from "./types/scheduler";
+import { encodeId, decodeId } from "./utils/hashId";
 import {
   getStorageItem,
   setStorageItem,
   removeStorageItem,
   getStorageJSON,
   setStorageJSON,
+  clearAllCaches,
 } from "./utils/storage";
 import {
   projectId,
@@ -23,8 +26,56 @@ import {
 } from "./utils/supabase/info";
 import { checkServerHealth } from "./utils/healthCheck";
 import { decodeSupabaseJWT } from "./utils/jwt";
-import { Sitemap } from "./components/Sitemap";
+import { ErrorLoggerProvider } from "./contexts/ErrorLoggerContext";
+import { logError, initGlobalErrorHandlers } from "./utils/errorTracking";
+import type { UserAction } from "./utils/errorTracking";
+import { BugReportButton } from "./components/ui/BugReportButton";
 import "./utils/debugCommands"; // Enable debug commands in console
+
+// Import useErrorLogger hook
+import { useErrorLogger } from "./contexts/ErrorLoggerContext";
+
+// Global ref to access recent actions from error boundary
+let getRecentActionsGlobal: (() => UserAction[]) | null = null;
+
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; error: Error | null }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    // Log error to Supabase with recent actions
+    logError(error, {
+      componentStack: info.componentStack,
+      recentActions: getRecentActionsGlobal ? getRecentActionsGlobal() : [],
+    }).catch((err) => {
+      console.warn('⚠️ Failed to log error:', err);
+    });
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: 40, textAlign: 'center' }}>
+          <h2 style={{ marginBottom: 16 }}>Что-то пошло не так</h2>
+          <p style={{ color: '#666', marginBottom: 16 }}>{this.state.error?.message}</p>
+          <button
+            onClick={() => { this.setState({ hasError: false, error: null }); window.location.reload(); }}
+            style={{ padding: '8px 24px', cursor: 'pointer', borderRadius: 6, border: '1px solid #ccc' }}
+          >
+            Перезагрузить
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 function AppContent() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -70,7 +121,10 @@ function AppContent() {
       // Если перешли к воркспейсу - загружаем его
       const match = path.match(/^\/workspace\/(.+)$/);
       if (match && match[1] && accessToken) {
-        const workspaceId = match[1];
+        const hashOrId = match[1];
+        // Декодируем hash → real ID, fallback на raw значение (обратная совместимость)
+        const realId = decodeId(hashOrId);
+        const workspaceId = realId !== null ? String(realId) : hashOrId;
 
         // Загружаем воркспейс из API
         try {
@@ -87,6 +141,11 @@ function AppContent() {
             const workspace = await response.json();
             setSelectedWorkspace(workspace);
             document.title = `${workspace.name} - Planaro`;
+            // Нормализуем URL на encoded формат
+            const encoded = encodeId(workspace.id);
+            if (hashOrId !== encoded) {
+              window.history.replaceState(null, "", `/workspace/${encoded}`);
+            }
           } else {
             console.warn(
               "❌ Воркспейс не найден:",
@@ -123,7 +182,10 @@ function AppContent() {
 
     // Если воркспейс уже загружен (например, через navigation) - не загружаем снова
     if (match && match[1] && !selectedWorkspace) {
-      const workspaceId = match[1];
+      const hashOrId = match[1];
+      // Декодируем hash → real ID, fallback на raw значение (обратная совместимость)
+      const realId = decodeId(hashOrId);
+      const workspaceId = realId !== null ? String(realId) : hashOrId;
 
       // Загружаем воркспейс из API
       (async () => {
@@ -141,6 +203,11 @@ function AppContent() {
             const workspace = await response.json();
             setSelectedWorkspace(workspace);
             document.title = `${workspace.name} - Planaro`;
+            // Нормализуем URL на encoded формат
+            const encoded = encodeId(workspace.id);
+            if (hashOrId !== encoded) {
+              window.history.replaceState(null, "", `/workspace/${encoded}`);
+            }
           } else {
             console.warn(
               "❌ Воркспейс не найден:",
@@ -152,7 +219,7 @@ function AppContent() {
           }
         } catch (error) {
           console.error(
-            "❌ Ошибка загрузки воркспейса:",
+            " Ошибка загрузки воркспейса:",
             error,
           );
           window.history.pushState(null, "", "/");
@@ -187,7 +254,7 @@ function AppContent() {
         }
 
         if (token && sessionId) {
-          // 🛡️ Проверяем срок действия токена локально перед использо��анием
+          // 🛡️ Проверяем срок действия токена локально перед использоанием
           const payload = decodeSupabaseJWT(token);
           const isExpired = payload?.exp ? (payload.exp * 1000) < Date.now() : true;
 
@@ -229,7 +296,6 @@ function AppContent() {
                 "auth_access_token",
                 data.session.access_token,
               );
-              console.log("✅ Токен валидный и обновлен");
             } else {
               console.log("⚠️ No valid session, clearing auth");
               await removeStorageItem("auth_access_token");
@@ -352,6 +418,29 @@ function AppContent() {
       sessionId,
     });
 
+    // 🔐 Security: Clear all caches when user changes to prevent data leakage
+    const payload = decodeSupabaseJWT(token);
+    const newUserId = payload?.sub;
+    const previousUserId = await getStorageItem("auth_last_user_id");
+    
+    if (newUserId && previousUserId && previousUserId !== newUserId) {
+      console.log("🔐 User changed, clearing all caches:", { previousUserId, newUserId });
+      await clearAllCaches();
+      // Also clear localStorage project usage tracking
+      try {
+        const keys = Object.keys(localStorage);
+        keys.forEach(k => {
+          if (k.startsWith('projectUsage_') || k.startsWith('cache_')) {
+            localStorage.removeItem(k);
+          }
+        });
+      } catch (_) {}
+    }
+    
+    if (newUserId) {
+      await setStorageItem("auth_last_user_id", newUserId);
+    }
+
     setAccessToken(token);
     setIsAuthenticated(true);
 
@@ -364,12 +453,30 @@ function AppContent() {
         "⚠️ No session ID provided to handleAuthSuccess, persistence may fail",
       );
     }
+
+    // Ensure profile exists in profiles table (non-blocking)
+    import('./services/api/profile').then(({ ensureProfile }) => {
+      ensureProfile(token).then(profile => {
+        console.log('✅ Profile ensured after login:', profile?.email);
+      }).catch(err => {
+        console.warn('⚠️ Profile ensure failed (non-critical):', err.message);
+      });
+    });
   };
 
   const handleSignOut = async () => {
-    // Clear cache
-    await setStorageJSON("cache_online_users_batch", null);
-    await removeStorageItem("cache_workspaces_list");
+    // Clear ALL caches (security: prevent next user from seeing this user's data)
+    await clearAllCaches();
+    
+    // Also clear localStorage caches
+    try {
+      const keys = Object.keys(localStorage);
+      keys.forEach(k => {
+        if (k.startsWith('projectUsage_') || k.startsWith('cache_')) {
+          localStorage.removeItem(k);
+        }
+      });
+    } catch (_) {}
 
     // Clear auth
     await removeStorageItem("auth_access_token");
@@ -392,7 +499,7 @@ function AppContent() {
     window.history.pushState(
       null,
       "",
-      `/workspace/${workspace.id}`,
+      `/workspace/${encodeId(workspace.id)}`,
     );
 
     // Update title
@@ -478,10 +585,14 @@ function AppContent() {
   // Это предотвращает мигание формы входа при обновлении страницы
 
   if (
-    window.location.pathname === "/sitemap" ||
+    window.location.pathname === "/sitemap.xml" ||
     window.location.pathname === "/sitemap.html"
   ) {
-    return <Sitemap />;
+    // Редирект на серверный endpoint с правильным Content-Type: application/xml
+    window.location.replace(
+      `https://${projectId}.supabase.co/functions/v1/make-server-73d66528/sitemap.xml`
+    );
+    return null;
   }
 
   if (isCheckingAuth) {
@@ -520,7 +631,7 @@ function AppContent() {
           timelineYear={tempWorkspace.timeline_year}
         >
           <SettingsProvider>
-            <FilterProvider>
+            <FilterProvider key={tempWorkspace.id} workspaceId={tempWorkspace.id}>
               <PresenceProvider
                 workspaceId={tempWorkspace.id}
                 accessToken={accessToken || undefined}
@@ -562,9 +673,9 @@ function AppContent() {
         timelineYear={selectedWorkspace.timeline_year}
       >
         <SettingsProvider>
-          <FilterProvider>
+          <FilterProvider key={selectedWorkspace.id} workspaceId={selectedWorkspace.id}>
             <PresenceProvider
-              workspaceId={selectedWorkspace.id}
+              workspaceId={String(selectedWorkspace.id)}
               accessToken={accessToken || undefined}
             >
               <SchedulerMain
@@ -636,7 +747,32 @@ export default function App() {
 
   return (
     <ToastProvider>
-      <AppContent />
+      <ErrorLoggerProvider>
+        <ErrorLoggerInit />
+        <ErrorBoundary>
+          <AppContent />
+        </ErrorBoundary>
+        <BugReportButton />
+      </ErrorLoggerProvider>
     </ToastProvider>
   );
+}
+
+// Component to initialize global error handlers
+function ErrorLoggerInit() {
+  const { getRecentActions } = useErrorLogger();
+  
+  React.useEffect(() => {
+    // Set global ref for ErrorBoundary access
+    getRecentActionsGlobal = getRecentActions;
+    
+    // Initialize global error handlers
+    initGlobalErrorHandlers(getRecentActions);
+    
+    return () => {
+      getRecentActionsGlobal = null;
+    };
+  }, [getRecentActions]);
+  
+  return null;
 }

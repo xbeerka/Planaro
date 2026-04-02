@@ -5,6 +5,7 @@ export interface CreateWorkspacePayload {
   name: string;
   timeline_year: number;
   base_workspace_id?: string; // для копирования структуры
+  organization_id?: number | string; // целевая организация (если не указано — своя)
 }
 
 export interface UpdateWorkspacePayload {

@@ -140,14 +140,14 @@ const UIContext = createContext<UIContextType | undefined>(undefined);
 
 export function UIProvider({ children }: { children: ReactNode }) {
   // --- Loading States ---
-  const [isLoadingDepartments, setIsLoadingDepartments] = useState(true);
-  const [isLoadingResources, setIsLoadingResources] = useState(true);
-  const [isLoadingProjects, setIsLoadingProjects] = useState(true);
-  const [isLoadingGrades, setIsLoadingGrades] = useState(true);
-  const [isLoadingEventPatterns, setIsLoadingEventPatterns] = useState(true);
-  const [isLoadingCompanies, setIsLoadingCompanies] = useState(true);
-  const [isLoadingEvents, setIsLoadingEvents] = useState(true);
-  const [isLoadingComments, setIsLoadingComments] = useState(true);
+  const [isLoadingDepartments, setIsLoadingDepartments] = useState(false);
+  const [isLoadingResources, setIsLoadingResources] = useState(false);
+  const [isLoadingProjects, setIsLoadingProjects] = useState(false);
+  const [isLoadingGrades, setIsLoadingGrades] = useState(false);
+  const [isLoadingEventPatterns, setIsLoadingEventPatterns] = useState(false);
+  const [isLoadingCompanies, setIsLoadingCompanies] = useState(false);
+  const [isLoadingEvents, setIsLoadingEvents] = useState(false);
+  const [isLoadingComments, setIsLoadingComments] = useState(false);
 
   const isLoading = useMemo(() => {
     return isLoadingDepartments || isLoadingResources || isLoadingProjects || 
@@ -271,63 +271,77 @@ export function UIProvider({ children }: { children: ReactNode }) {
     commentMode,
   ]);
 
+  const value = useMemo(() => ({
+    // Loading
+    isLoadingDepartments, setIsLoadingDepartments,
+    isLoadingResources, setIsLoadingResources,
+    isLoadingProjects, setIsLoadingProjects,
+    isLoadingGrades, setIsLoadingGrades,
+    isLoadingEventPatterns, setIsLoadingEventPatterns,
+    isLoadingCompanies, setIsLoadingCompanies,
+    isLoadingEvents, setIsLoadingEvents,
+    isLoadingComments, setIsLoadingComments,
+    isLoading,
+
+    // Modes
+    scissorsMode,
+    commentMode,
+    handleToggleScissors,
+    handleToggleComment,
+    setScissorsMode,
+    setCommentMode,
+
+    // Pending
+    pendingEventIds,
+    setPendingEventIds,
+
+    // Clipboard
+    copiedEvent,
+    setCopiedEvent,
+
+    // Modals
+    modalOpen, setModalOpen,
+    modalMode, setModalMode,
+    modalInitialData, setModalInitialData,
+    pendingEvent, setPendingEvent,
+
+    commentModalOpen, setCommentModalOpen,
+    pendingComment, setPendingComment,
+
+    managementModalOpen, setManagementModalOpen,
+    managementModalTab, setManagementModalTab,
+    
+    shortcutsModalOpen, setShortcutsModalOpen,
+    profileModalOpen, setProfileModalOpen,
+    settingsModalOpen, setSettingsModalOpen,
+    workspaceManagementModalOpen, setWorkspaceManagementModalOpen,
+
+    // Menus
+    contextMenu, setContextMenu,
+    emptyCellContextMenu, setEmptyCellContextMenu,
+
+    // Visuals
+    hoverHighlight, setHoverHighlight,
+    ghost, setGhost,
+
+    // Actions
+    closeAllModals,
+  }), [
+    isLoadingDepartments, isLoadingResources, isLoadingProjects, isLoadingGrades,
+    isLoadingEventPatterns, isLoadingCompanies, isLoadingEvents, isLoadingComments, isLoading,
+    scissorsMode, commentMode, handleToggleScissors, handleToggleComment,
+    pendingEventIds, copiedEvent,
+    modalOpen, modalMode, modalInitialData, pendingEvent,
+    commentModalOpen, pendingComment,
+    managementModalOpen, managementModalTab,
+    shortcutsModalOpen, profileModalOpen, settingsModalOpen, workspaceManagementModalOpen,
+    contextMenu, emptyCellContextMenu,
+    hoverHighlight, ghost,
+    closeAllModals
+  ]);
+
   return (
-    <UIContext.Provider value={{
-      // Loading
-      isLoadingDepartments, setIsLoadingDepartments,
-      isLoadingResources, setIsLoadingResources,
-      isLoadingProjects, setIsLoadingProjects,
-      isLoadingGrades, setIsLoadingGrades,
-      isLoadingEventPatterns, setIsLoadingEventPatterns,
-      isLoadingCompanies, setIsLoadingCompanies,
-      isLoadingEvents, setIsLoadingEvents,
-      isLoadingComments, setIsLoadingComments,
-      isLoading,
-
-      // Modes
-      scissorsMode,
-      commentMode,
-      handleToggleScissors,
-      handleToggleComment,
-      setScissorsMode,
-      setCommentMode,
-
-      // Pending
-      pendingEventIds,
-      setPendingEventIds,
-
-      // Clipboard
-      copiedEvent,
-      setCopiedEvent,
-
-      // Modals
-      modalOpen, setModalOpen,
-      modalMode, setModalMode,
-      modalInitialData, setModalInitialData,
-      pendingEvent, setPendingEvent,
-
-      commentModalOpen, setCommentModalOpen,
-      pendingComment, setPendingComment,
-
-      managementModalOpen, setManagementModalOpen,
-      managementModalTab, setManagementModalTab,
-      
-      shortcutsModalOpen, setShortcutsModalOpen,
-      profileModalOpen, setProfileModalOpen,
-      settingsModalOpen, setSettingsModalOpen,
-      workspaceManagementModalOpen, setWorkspaceManagementModalOpen,
-
-      // Menus
-      contextMenu, setContextMenu,
-      emptyCellContextMenu, setEmptyCellContextMenu,
-
-      // Visuals
-      hoverHighlight, setHoverHighlight,
-      ghost, setGhost,
-
-      // Actions
-      closeAllModals,
-    }}>
+    <UIContext.Provider value={value}>
       {children}
     </UIContext.Provider>
   );

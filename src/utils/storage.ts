@@ -125,6 +125,49 @@ export async function getStorageJSON<T>(key: string): Promise<T | null> {
   }
 }
 
+// Clear all cached data (keeps auth tokens)
+export async function clearAllCaches(): Promise<void> {
+  try {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        resolve();
+        return;
+      }
+      
+      const transaction = db.transaction(STORE_NAME, 'readwrite');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.openCursor();
+      const keysToDelete: string[] = [];
+      
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (cursor) {
+          const key = cursor.key as string;
+          // Delete everything except auth tokens
+          if (key.startsWith('cache_') || key.startsWith('last_') || key.startsWith('projectUsage_')) {
+            keysToDelete.push(key);
+          }
+          cursor.continue();
+        } else {
+          // All keys collected, delete them
+          const deleteTx = db.transaction(STORE_NAME, 'readwrite');
+          const deleteStore = deleteTx.objectStore(STORE_NAME);
+          keysToDelete.forEach(k => deleteStore.delete(k));
+          deleteTx.oncomplete = () => {
+            console.log(`🧹 Cleared ${keysToDelete.length} cache entries`);
+            resolve();
+          };
+          deleteTx.onerror = () => reject(deleteTx.error);
+        }
+      };
+      request.onerror = () => reject(request.error);
+    });
+  } catch (error) {
+    console.error('IndexedDB clearAllCaches error:', error);
+  }
+}
+
 // Legacy: Cookie utilities (fallback, kept for backwards compatibility)
 export function getCookie(name: string): string | null {
   const value = `; ${document.cookie}`;

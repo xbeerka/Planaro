@@ -1,4 +1,4 @@
-import { useState, forwardRef, useImperativeHandle } from 'react';
+import { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { useFilters } from '../../contexts/FilterContext';
 import { Company, Department, Project } from '../../types/scheduler';
 
@@ -33,14 +33,46 @@ export const FilterToolbar = forwardRef<FilterToolbarRef, FilterToolbarProps>(({
     setEnabledProjects,
     projectFilterTodayOnly,
     toggleProjectFilterTodayOnly,
-    resetFilters
   } = useFilters();
 
   const [openFilter, setOpenFilter] = useState<FilterType | null>(null);
+  const [panelSearch, setPanelSearch] = useState('');
+  const containerRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Reset search when switching tabs
+  useEffect(() => {
+    setPanelSearch('');
+    // Focus search input when panel opens
+    if (openFilter) {
+      setTimeout(() => searchInputRef.current?.focus(), 50);
+    }
+  }, [openFilter]);
 
   const toggleFilter = (filter: FilterType) => {
     setOpenFilter(openFilter === filter ? null : filter);
   };
+
+  // Click outside to close
+  useEffect(() => {
+    if (!openFilter) return;
+
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpenFilter(null);
+      }
+    };
+
+    // Use setTimeout to avoid closing immediately on the same click that opened it
+    const timer = setTimeout(() => {
+      document.addEventListener('mousedown', handleClickOutside);
+    }, 0);
+
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [openFilter]);
 
   // Expose methods to parent via ref
   useImperativeHandle(ref, () => ({
@@ -49,7 +81,25 @@ export const FilterToolbar = forwardRef<FilterToolbarRef, FilterToolbarProps>(({
     openProjectFilter: () => setOpenFilter('projects')
   }));
 
+  // Check if current tab has active filters
+  const currentTabHasFilters = openFilter === 'companies' ? enabledCompanies.size > 0
+    : openFilter === 'departments' ? enabledDepartments.size > 0
+    : openFilter === 'projects' ? enabledProjects.size > 0
+    : false;
+
   const hasActiveFilters = enabledCompanies.size > 0 || enabledDepartments.size > 0 || enabledProjects.size > 0;
+
+  // Reset only the current tab
+  const resetCurrentTab = useCallback(() => {
+    if (openFilter === 'companies') {
+      setEnabledCompanies(new Set());
+    } else if (openFilter === 'departments') {
+      setEnabledDepartments(new Set());
+    } else if (openFilter === 'projects') {
+      setEnabledProjects(new Set());
+    }
+    setPanelSearch('');
+  }, [openFilter, setEnabledCompanies, setEnabledDepartments, setEnabledProjects]);
 
   const toggleAllCompanies = () => {
     if (enabledCompanies.size === companies.length) {
@@ -75,17 +125,120 @@ export const FilterToolbar = forwardRef<FilterToolbarRef, FilterToolbarProps>(({
     }
   };
 
+  // Filter items by search
+  const searchLower = panelSearch.toLowerCase().trim();
+  const filteredCompanies = searchLower ? companies.filter(c => c.name.toLowerCase().includes(searchLower)) : companies;
+  const filteredDepartments = searchLower ? departments.filter(d => d.name.toLowerCase().includes(searchLower)) : departments;
+  const filteredProjects = searchLower ? projects.filter(p => p.name.toLowerCase().includes(searchLower)) : projects;
+
+  const tabLabels: Record<FilterType, string> = {
+    companies: 'Компании',
+    departments: 'Департаменты',
+    projects: 'Проекты',
+  };
+
   return (
-    <div className="fixed right-[18px] bottom-[18px] flex flex-col items-end gap-2 z-[500]">
+    <div ref={containerRef} className="fixed right-[18px] bottom-[18px] flex flex-col items-end gap-2 z-[500]">
       {/* Filter panel */}
       {openFilter && (
-        <div className="rounded-xl shadow-[0_6px_20px_rgba(6,18,36,0.12)] bg-white overflow-hidden max-w-[320px] max-h-[60vh] flex flex-col mb-2">
-          {openFilter === 'companies' && (
-            <div>
-              <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
-                <span style={{ fontWeight: 600, fontSize: '14px' }}>Компании</span>
+        <div className="rounded-xl shadow-[0_6px_20px_rgba(6,18,36,0.12)] bg-white overflow-hidden w-[320px] max-h-[60vh] flex flex-col mb-2">
+          {/* Tabs */}
+          <div className="flex border-b border-gray-200 bg-gray-50 shrink-0">
+            {(['companies', 'departments', 'projects'] as FilterType[]).map(tab => {
+              const isActive = openFilter === tab;
+              const count = tab === 'companies' ? enabledCompanies.size
+                : tab === 'departments' ? enabledDepartments.size
+                : enabledProjects.size;
+              return (
+                <button
+                  key={tab}
+                  onClick={() => setOpenFilter(tab)}
+                  className="flex-1 px-2 py-2.5 text-xs transition-colors outline-none focus:outline-none cursor-pointer relative"
+                  style={{
+                    fontWeight: isActive ? 600 : 500,
+                    color: isActive ? 'rgb(59, 130, 246)' : '#6b7280',
+                    background: isActive ? 'white' : 'transparent',
+                  }}
+                >
+                  <span>{tabLabels[tab]}</span>
+                  {count > 0 && (
+                    <span
+                      className="ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full text-white"
+                      style={{ fontSize: '10px', fontWeight: 700, backgroundColor: 'rgb(59, 130, 246)' }}
+                    >
+                      {count}
+                    </span>
+                  )}
+                  {isActive && (
+                    <div className="absolute bottom-0 left-2 right-2 h-0.5 rounded-t bg-blue-500" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Search + Reset row */}
+          <div className="px-3 pt-3 pb-2 shrink-0">
+            <div className="relative flex items-center gap-2">
+              <div className="relative flex-1">
+                <svg
+                  className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <circle cx="11" cy="11" r="8" />
+                  <path d="m21 21-4.3-4.3" />
+                </svg>
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  value={panelSearch}
+                  onChange={(e) => setPanelSearch(e.target.value)}
+                  placeholder="Поиск..."
+                  className="w-full h-8 pl-8 pr-7 text-sm rounded-lg border border-gray-200 bg-gray-50 outline-none focus:border-blue-400 focus:bg-white transition-colors"
+                  style={{ fontFamily: 'inherit' }}
+                  data-search-focus="20"
+                />
+                {panelSearch && (
+                  <button
+                    onClick={() => setPanelSearch('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer outline-none"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M18 6 6 18" />
+                      <path d="m6 6 12 12" />
+                    </svg>
+                  </button>
+                )}
               </div>
-              <div className="px-4 py-3 max-h-[50vh] overflow-y-auto">
+              {currentTabHasFilters && (
+                <button
+                  onClick={resetCurrentTab}
+                  className="shrink-0 h-8 px-2.5 rounded-lg text-xs bg-red-50 text-red-600 hover:bg-red-100 transition-colors cursor-pointer outline-none focus:outline-none flex items-center gap-1"
+                  style={{ fontWeight: 600 }}
+                  title={`Сбросить фильтр: ${tabLabels[openFilter]}`}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M18 6 6 18" />
+                    <path d="m6 6 12 12" />
+                  </svg>
+                  Сбросить
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Content */}
+          {openFilter === 'companies' && (
+            <div className="flex-1 overflow-y-auto">
+              <div className="px-3 pb-3">
                 <button
                   className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 rounded transition-colors mb-1"
                   onClick={toggleAllCompanies}
@@ -93,7 +246,7 @@ export const FilterToolbar = forwardRef<FilterToolbarRef, FilterToolbarProps>(({
                 >
                   {enabledCompanies.size === companies.length ? 'Снять все' : 'Выбрать все'}
                 </button>
-                {companies.map(company => (
+                {filteredCompanies.map(company => (
                   <label
                     key={company.id}
                     className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 rounded cursor-pointer transition-colors"
@@ -107,16 +260,16 @@ export const FilterToolbar = forwardRef<FilterToolbarRef, FilterToolbarProps>(({
                     <span className="text-sm">{company.name}</span>
                   </label>
                 ))}
+                {searchLower && filteredCompanies.length === 0 && (
+                  <div className="px-3 py-4 text-sm text-gray-400 text-center">Ничего не найдено</div>
+                )}
               </div>
             </div>
           )}
 
           {openFilter === 'departments' && (
-            <div>
-              <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
-                <span style={{ fontWeight: 600, fontSize: '14px' }}>Департаменты</span>
-              </div>
-              <div className="px-4 py-3 max-h-[50vh] overflow-y-auto">
+            <div className="flex-1 overflow-y-auto">
+              <div className="px-3 pb-3">
                 <button
                   className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 rounded transition-colors mb-1"
                   onClick={toggleAllDepartments}
@@ -124,7 +277,7 @@ export const FilterToolbar = forwardRef<FilterToolbarRef, FilterToolbarProps>(({
                 >
                   {enabledDepartments.size === departments.length ? 'Снять все' : 'Выбрать все'}
                 </button>
-                {departments.map(dept => (
+                {filteredDepartments.map(dept => (
                   <label
                     key={dept.id}
                     className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 rounded cursor-pointer transition-colors"
@@ -138,16 +291,16 @@ export const FilterToolbar = forwardRef<FilterToolbarRef, FilterToolbarProps>(({
                     <span className="text-sm">{dept.name}</span>
                   </label>
                 ))}
+                {searchLower && filteredDepartments.length === 0 && (
+                  <div className="px-3 py-4 text-sm text-gray-400 text-center">Ничего не найдено</div>
+                )}
               </div>
             </div>
           )}
 
           {openFilter === 'projects' && (
-            <div>
-              <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
-                <span style={{ fontWeight: 600, fontSize: '14px' }}>Проекты</span>
-              </div>
-              <div className="px-4 py-3 max-h-[50vh] overflow-y-auto">
+            <div className="flex-1 overflow-y-auto">
+              <div className="px-3 pb-3">
                 <button
                   className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 rounded transition-colors mb-1"
                   onClick={toggleAllProjects}
@@ -155,7 +308,7 @@ export const FilterToolbar = forwardRef<FilterToolbarRef, FilterToolbarProps>(({
                 >
                   {enabledProjects.size === projects.length ? 'Снять все' : 'Выбрать все'}
                 </button>
-                {projects.map(project => (
+                {filteredProjects.map(project => (
                   <label
                     key={project.id}
                     className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 rounded cursor-pointer transition-colors"
@@ -175,10 +328,13 @@ export const FilterToolbar = forwardRef<FilterToolbarRef, FilterToolbarProps>(({
                     </div>
                   </label>
                 ))}
+                {searchLower && filteredProjects.length === 0 && (
+                  <div className="px-3 py-4 text-sm text-gray-400 text-center">Ничего не найдено</div>
+                )}
               </div>
               {/* "Only current week" toggle */}
               {enabledProjects.size > 0 && (
-                <div className="px-4 py-2.5 border-t border-gray-200 bg-gray-50/80">
+                <div className="px-4 py-2.5 border-t border-gray-200 bg-gray-50/80 shrink-0">
                   <label className="flex items-center gap-2.5 cursor-pointer select-none">
                     <button
                       type="button"
@@ -333,33 +489,16 @@ export const FilterToolbar = forwardRef<FilterToolbarRef, FilterToolbarProps>(({
           )}
         </button>
 
-        {/* Reset button - shown only when filters are active */}
-        {hasActiveFilters && (
+        {/* Indicator dot when filters active but panel closed */}
+        {hasActiveFilters && !openFilter && (
           <>
             <div className="w-px h-[24px] bg-white/20" />
-            <button
-              className="h-10 px-3 rounded-[10px] flex items-center gap-2 bg-red-600/80 hover:bg-red-600 text-white transition-all outline-none focus:outline-none cursor-pointer"
-              onClick={resetFilters}
-              title="Сбросить все фильтры"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M18 6 6 18" />
-                <path d="m6 6 12 12" />
-              </svg>
-              <span className="text-sm" style={{ fontWeight: 600 }}>
-                Сбросить
+            <div className="flex items-center gap-1.5 px-2">
+              <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+              <span className="text-xs text-white/70" style={{ fontWeight: 500 }}>
+                {enabledCompanies.size + enabledDepartments.size + enabledProjects.size}
               </span>
-            </button>
+            </div>
           </>
         )}
       </div>

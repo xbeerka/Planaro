@@ -37,6 +37,7 @@ interface SchedulerModalsProps {
   // Workspace Management Modal (Управление воркспейсом)
   workspaceManagementModalOpen?: boolean;
   setWorkspaceManagementModalOpen?: (open: boolean) => void;
+  onOffWeeksUpdated?: () => void;
   
   // Workspace props
   workspaceId: string;
@@ -70,6 +71,7 @@ interface SchedulerModalsProps {
   onCompaniesUpdated?: () => Promise<void>;
   updateCompaniesSortOrder?: (updates: Array<{ id: string; sortOrder: number }>) => Promise<void>;
   onResourcesUpdated?: () => Promise<void>; // ✅ Reload resources after company operations
+  resetResourcesSyncTimer?: () => void; // ✅ Блокировка Realtime при сохранении ресурсов
 
   // Projects props
   eventPatterns: EventPattern[];
@@ -130,6 +132,7 @@ export const SchedulerModals = React.memo<SchedulerModalsProps>((props) => {
     // Workspace Management Modal
     workspaceManagementModalOpen,
     setWorkspaceManagementModalOpen,
+    onOffWeeksUpdated,
     
     // Workspace
     workspaceId,
@@ -163,6 +166,7 @@ export const SchedulerModals = React.memo<SchedulerModalsProps>((props) => {
     onCompaniesUpdated,
     updateCompaniesSortOrder,
     onResourcesUpdated, // ✅ Reload resources after company operations
+    resetResourcesSyncTimer,
     
     // Projects
     eventPatterns,
@@ -233,6 +237,7 @@ export const SchedulerModals = React.memo<SchedulerModalsProps>((props) => {
         workspaceYear={workspaceYear}
         onUpdateWorkspaceName={updateWorkspaceName}
         onUpdateWorkspaceYear={updateWorkspaceYear}
+        workspaceId={workspaceId}
         
         // Users props
         resources={resources}
@@ -245,6 +250,8 @@ export const SchedulerModals = React.memo<SchedulerModalsProps>((props) => {
         onToggleUserVisibility={toggleUserVisibility}
         onUploadUserAvatar={uploadUserAvatar}
         highlightedUserId={highlightUserId}
+        onRefreshResources={onResourcesUpdated}
+        resetResourcesSyncTimer={resetResourcesSyncTimer}
         
         // Grades props
         onCreateGrade={createGrade}
@@ -306,6 +313,7 @@ export const SchedulerModals = React.memo<SchedulerModalsProps>((props) => {
         onCompaniesUpdated={onCompaniesUpdated}
         onUpdateCompaniesSortOrder={updateCompaniesSortOrder}
         onResourcesUpdated={onResourcesUpdated} // ✅ Reload resources after company delete
+        onOffWeeksUpdated={onOffWeeksUpdated}
       />
 
       <KeyboardShortcutsModal

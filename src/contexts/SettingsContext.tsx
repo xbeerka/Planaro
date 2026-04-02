@@ -8,12 +8,16 @@ interface SettingsContextType {
   showPatterns: boolean;
   showProjectWeight: boolean;
   showSeparators: boolean;
+  showDeptColors: boolean;
+  tableView: boolean;
   setWeekPx: (value: number) => void;
   setEventRowH: (value: number) => void;
   setShowGaps: (value: boolean) => void;
   setShowPatterns: (value: boolean) => void;
   setShowProjectWeight: (value: boolean) => void;
   setShowSeparators: (value: boolean) => void;
+  setShowDeptColors: (value: boolean) => void;
+  setTableView: (value: boolean) => void;
 }
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
@@ -25,6 +29,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const [showPatterns, setShowPatternsState] = useState(true);
   const [showProjectWeight, setShowProjectWeightState] = useState(true);
   const [showSeparators, setShowSeparatorsState] = useState(true);
+  const [showDeptColors, setShowDeptColorsState] = useState(false);
+  const [tableView, setTableViewState] = useState(false);
   
   const isLoaded = useRef(false);
 
@@ -40,6 +46,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         const savedShowPatterns = await getStorageItem('scheduler_showPatterns');
         const savedShowProjectWeight = await getStorageItem('scheduler_showProjectWeight');
         const savedShowSeparators = await getStorageItem('scheduler_showSeparators');
+        const savedShowDeptColors = await getStorageItem('scheduler_showDeptColors');
+        const savedTableView = await getStorageItem('scheduler_tableView');
         
         if (savedWeekPx) {
           const px = Number(savedWeekPx);
@@ -70,6 +78,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         if (savedShowPatterns !== null) setShowPatternsState(savedShowPatterns === 'true');
         if (savedShowProjectWeight !== null) setShowProjectWeightState(savedShowProjectWeight === 'true');
         if (savedShowSeparators !== null) setShowSeparatorsState(savedShowSeparators === 'true');
+        if (savedShowDeptColors !== null) setShowDeptColorsState(savedShowDeptColors === 'true');
+        if (savedTableView !== null) setTableViewState(savedTableView === 'true');
       } catch (err) {
         console.error('Failed to load settings:', err);
       } finally {
@@ -116,6 +126,18 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setStorageItem('scheduler_showSeparators', String(showSeparators));
   }, [showSeparators]);
 
+  // Save showDeptColors to IndexedDB when it changes
+  useEffect(() => {
+    if (!isLoaded.current) return;
+    setStorageItem('scheduler_showDeptColors', String(showDeptColors));
+  }, [showDeptColors]);
+
+  // Save tableView to IndexedDB when it changes
+  useEffect(() => {
+    if (!isLoaded.current) return;
+    setStorageItem('scheduler_tableView', String(tableView));
+  }, [tableView]);
+
   const setWeekPx = (value: number) => {
     setWeekPxState(value);
   };
@@ -140,6 +162,14 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setShowSeparatorsState(value);
   };
 
+  const setShowDeptColors = (value: boolean) => {
+    setShowDeptColorsState(value);
+  };
+
+  const setTableView = (value: boolean) => {
+    setTableViewState(value);
+  };
+
   return (
     <SettingsContext.Provider
       value={{
@@ -149,12 +179,16 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         showPatterns,
         showProjectWeight,
         showSeparators,
+        showDeptColors,
+        tableView,
         setWeekPx,
         setEventRowH,
         setShowGaps,
         setShowPatterns,
         setShowProjectWeight,
-        setShowSeparators
+        setShowSeparators,
+        setShowDeptColors,
+        setTableView
       }}
     >
       {children}

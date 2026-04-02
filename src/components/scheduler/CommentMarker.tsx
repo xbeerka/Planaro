@@ -15,6 +15,7 @@ import { cn } from "../ui/utils";
 
 interface CommentMarkerProps {
   comment: Comment;
+  displayName?: string; // resolved from resources by parent
   onClick: (e: React.MouseEvent) => void;
   cellWidth: number;
   onEdit?: () => void;
@@ -72,6 +73,7 @@ function ActionButton({
 
 export function CommentMarker({
   comment,
+  displayName,
   onClick,
   cellWidth,
   onEdit,
@@ -105,8 +107,10 @@ export function CommentMarker({
 
   const offsetValue = gap * 0.5;
 
-  const initials = comment.userDisplayName
-    ? comment.userDisplayName
+  const resolvedName = comment.userDisplayName ?? displayName ?? "";
+
+  const initials = resolvedName
+    ? resolvedName
         .split(" ")
         .map((n) => n[0])
         .join("")
@@ -303,7 +307,7 @@ export function CommentMarker({
                 {/* User Name */}
                 <div className="flex w-full justify-between items-baseline gap-2">
                   <p className="font-medium leading-[18px] relative shrink-0 text-[10px] text-[rgba(0,0,0,0.5)] text-nowrap mb-0.5">
-                    {comment.userDisplayName}
+                    {resolvedName}
                   </p>
                   <span className="text-[10px] text-[rgba(0,0,0,0.3)] shrink-0">
                     {new Date(
@@ -360,7 +364,7 @@ export function CommentMarker({
             e.stopPropagation();
           }
         }}
-        title={`${comment.userDisplayName}: ${comment.comment}`}
+        title={`${resolvedName}: ${comment.comment}`}
       >
         <div
           className="bg-[rgba(255,255,255,0.8)] backdrop-blur-[2px] relative size-full group-hover:bg-[rgba(255,255,255,0.9)] transition-colors"

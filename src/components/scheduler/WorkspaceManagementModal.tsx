@@ -14,6 +14,8 @@ import {
   Clock,
 } from "lucide-react";
 import { backupsApi, Backup } from "../../services/api/backups";
+import { offWeeksApi, OffWeek } from "../../services/api/offWeeks";
+import { CalendarOff } from "lucide-react";
 
 interface WorkspaceManagementModalProps {
   isOpen: boolean;
@@ -52,6 +54,7 @@ interface WorkspaceManagementModalProps {
   ) => Promise<void>;
   onCompaniesUpdated?: () => Promise<void>;
   onResourcesUpdated?: () => Promise<void>;
+  onOffWeeksUpdated?: () => void;
 }
 
 interface LocalNewGrade {
@@ -86,6 +89,7 @@ export function WorkspaceManagementModal({
   onUpdateCompaniesSortOrder,
   onCompaniesUpdated,
   onResourcesUpdated,
+  onOffWeeksUpdated,
   resources,
 }: WorkspaceManagementModalProps) {
   const [localName, setLocalName] = useState(workspaceName);
@@ -134,6 +138,12 @@ export function WorkspaceManagementModal({
     string | null
   >(null);
 
+  // Off weeks state
+  const [offWeeks, setOffWeeks] = useState<OffWeek[]>([]);
+  const [isOffWeeksLoading, setIsOffWeeksLoading] = useState(false);
+  const [localNewOffWeeks, setLocalNewOffWeeks] = useState<number[]>([]);
+  const [deletedOffWeekIds, setDeletedOffWeekIds] = useState<number[]>([]);
+
   // Initialize editing state
   useEffect(() => {
     if (isOpen) {
@@ -162,7 +172,11 @@ export function WorkspaceManagementModal({
       setDeletedCompanyIds([]);
       setSortedCompanies([...companies]);
 
-      // Load backups
+      // Reset off weeks state
+      setLocalNewOffWeeks([]);
+      setDeletedOffWeekIds([]);
+
+      // Load backups & off weeks
       if (workspaceId && workspaceId !== "loading") {
         setIsBackupsLoading(true);
         backupsApi
@@ -172,6 +186,15 @@ export function WorkspaceManagementModal({
             console.error("Failed to load backups:", err),
           )
           .finally(() => setIsBackupsLoading(false));
+
+        setIsOffWeeksLoading(true);
+        offWeeksApi
+          .list(workspaceId)
+          .then((data) => setOffWeeks(data))
+          .catch((err) =>
+            console.error("Failed to load off weeks:", err),
+          )
+          .finally(() => setIsOffWeeksLoading(false));
       }
     }
   }, [
@@ -435,6 +458,19 @@ export function WorkspaceManagementModal({
         }
       }
 
+      // Save off weeks changes
+      if (deletedOffWeekIds.length > 0) {
+        console.log(`🗑️ Удаление ${deletedOffWeekIds.length} выходных недель...`);
+        await offWeeksApi.bulkDelete(deletedOffWeekIds);
+      }
+      if (localNewOffWeeks.length > 0) {
+        const validNewOffWeeks = localNewOffWeeks.filter((wn) => wn >= 1 && wn <= 53);
+        if (validNewOffWeeks.length > 0) {
+          console.log(`📅 Создание ${validNewOffWeeks.length} выходных недель...`);
+          await offWeeksApi.bulkCreate(workspaceId, validNewOffWeeks);
+        }
+      }
+
       onClose();
 
       const hasGradeChanges =
@@ -470,6 +506,12 @@ export function WorkspaceManagementModal({
       if (hasCompanyChanges && onResourcesUpdated) {
         await onResourcesUpdated();
       }
+
+      // Reload off-weeks on calendar
+      const hasOffWeekChanges = deletedOffWeekIds.length > 0 || localNewOffWeeks.length > 0;
+      if (hasOffWeekChanges && onOffWeeksUpdated) {
+        onOffWeeksUpdated();
+      }
     } catch (error) {
       console.error(
         "❌ Ошибка при сохранении настроек:",
@@ -488,7 +530,9 @@ export function WorkspaceManagementModal({
       localNewGrades.length > 0 ||
       deletedGradeIds.length > 0 ||
       localNewCompanies.length > 0 ||
-      deletedCompanyIds.length > 0;
+      deletedCompanyIds.length > 0 ||
+      localNewOffWeeks.length > 0 ||
+      deletedOffWeekIds.length > 0;
 
     if (hasChanges) {
       const confirmed = window.confirm(
@@ -926,6 +970,131 @@ export function WorkspaceManagementModal({
                   </div>
                 </div>
 
+                {/* Off Weeks */}
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-medium text-gray-900 flex items-center gap-2">
+                      <CalendarOff className="w-4 h-4 text-gray-400" />
+                      Выходные недели
+                    </h3>
+                    <button
+                      onClick={() => {
+                        setLocalNewOffWeeks((prev) => [...prev, 0]);
+                      }}
+                      disabled={isOffWeeksLoading}
+                      className={`px-2.5 py-1 text-xs bg-blue-50 text-blue-600 rounded-md hover:bg-blue-100 transition-colors font-medium ${isOffWeeksLoading ? "opacity-50 cursor-not-allowed" : ""}`}
+                    >
+                      + Добавить
+                    </button>
+                  </div>
+
+                  <div className="bg-white border border-gray-200 rounded-lg divide-y divide-gray-100">
+                    {isOffWeeksLoading ? (
+                      Array.from({ length: 2 }).map((_, i) => (
+                        <div key={i} className="flex items-center gap-2 p-3">
+                          <div className="h-8 flex-1 bg-gray-100 rounded-md animate-pulse" />
+                          <div className="w-6 h-6 bg-gray-100 rounded animate-pulse" />
+                        </div>
+                      ))
+                    ) : (
+                      <>
+                        {/* New off-week rows */}
+                        {localNewOffWeeks.map((wn, idx) => (
+                          <div
+                            key={`new-offweek-${idx}`}
+                            className="flex items-center gap-2 p-3 bg-blue-50/30"
+                          >
+                            <input
+                              type="number"
+                              min={1}
+                              max={53}
+                              value={wn || ""}
+                              onChange={(e) => {
+                                const val = parseInt(e.target.value);
+                                setLocalNewOffWeeks((prev) => {
+                                  const next = [...prev];
+                                  next[idx] = isNaN(val) ? 0 : Math.max(0, Math.min(53, val));
+                                  return next;
+                                });
+                              }}
+                              placeholder="№"
+                              className="w-16 px-3 py-1.5 bg-transparent border-none text-sm focus:outline-none placeholder:text-gray-400 text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            />
+                            <span className="flex-1 text-sm text-gray-500 truncate">
+                              {wn >= 1 && wn <= 53 ? (() => {
+                                const year = workspaceYear || new Date().getFullYear();
+                                const jan4 = new Date(year, 0, 4);
+                                const dayOfWeek = (jan4.getDay() + 6) % 7;
+                                const monday = new Date(jan4);
+                                monday.setDate(jan4.getDate() - dayOfWeek + (wn - 1) * 7);
+                                const sunday = new Date(monday);
+                                sunday.setDate(monday.getDate() + 6);
+                                const months = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+                                const startStr = `${monday.getDate()} ${months[monday.getMonth()]}`;
+                                const endStr = `${sunday.getDate()} ${months[sunday.getMonth()]}`;
+                                return `${wn} неделя, ${startStr} – ${endStr}`;
+                              })() : "Введите номер недели"}
+                            </span>
+                            <button
+                              onClick={() => {
+                                setLocalNewOffWeeks((prev) => prev.filter((_, i) => i !== idx));
+                              }}
+                              className="p-1.5 text-red-500 hover:bg-red-50 rounded-md transition-colors"
+                              title="Удалить"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ))}
+
+                        {/* Existing off-weeks */}
+                        {offWeeks
+                          .filter((ow) => !deletedOffWeekIds.includes(ow.id))
+                          .sort((a, b) => a.week_number - b.week_number)
+                          .map((ow) => (
+                            <div
+                              key={ow.id}
+                              className="flex items-center gap-2 p-3 group"
+                            >
+                              <span className="w-16 text-sm text-gray-700 text-center">{ow.week_number}</span>
+                              <span className="flex-1 text-sm text-gray-500 truncate">
+                                {(() => {
+                                  const year = workspaceYear || new Date().getFullYear();
+                                  const jan4 = new Date(year, 0, 4);
+                                  const dayOfWeek = (jan4.getDay() + 6) % 7;
+                                  const monday = new Date(jan4);
+                                  monday.setDate(jan4.getDate() - dayOfWeek + (ow.week_number - 1) * 7);
+                                  const sunday = new Date(monday);
+                                  sunday.setDate(monday.getDate() + 6);
+                                  const months = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+                                  const startStr = `${monday.getDate()} ${months[monday.getMonth()]}`;
+                                  const endStr = `${sunday.getDate()} ${months[sunday.getMonth()]}`;
+                                  return `${ow.week_number} неделя, ${startStr} – ${endStr}`;
+                                })()}
+                              </span>
+                              <button
+                                onClick={() => {
+                                  setDeletedOffWeekIds((prev) => [...prev, ow.id]);
+                                }}
+                                className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors opacity-0 group-hover:opacity-100"
+                                title="Удалить"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ))}
+
+                        {/* Empty state */}
+                        {offWeeks.filter((ow) => !deletedOffWeekIds.includes(ow.id)).length === 0 && localNewOffWeeks.length === 0 && (
+                          <div className="p-4 text-center">
+                            <p className="text-xs text-gray-500">Нет выходных недель</p>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+
                 {/* Backups */}
                 <div className="pt-4 border-t border-gray-100 mt-4">
                   <div className="flex items-center justify-between mb-3">
@@ -1012,7 +1181,7 @@ export function WorkspaceManagementModal({
                           >
                             {backupToRestore === backup.id
                               ? "Отменить"
-                              : "Восстановить"}
+                              : "Восстаноить"}
                           </button>
                         </div>
                       ))
